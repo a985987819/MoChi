@@ -132,23 +132,27 @@
 
 ---
 
-## v0.7.0 — 计时服务：站立提醒 + 番茄钟
+## v0.7.0 — 计时服务：站立提醒 + 番茄钟 + 自然语言提醒（实现规范：learning/08）
 
-**目标**：TimerService（驻留 pet 窗口）：站立提醒闭环（1h → Alert 弹窗 → 点击重置）；番茄钟 25/5 状态机；通知 + 宠物状态联动；Agent 工具启停。
+**目标**：TimerService（驻留 pet 窗口，时间戳基准）：站立提醒闭环、番茄钟状态机、**在场检测（Rust idle 查询）**、**自然语言一次性提醒（reminders 表持久化 + create/cancel/list 工具 + 上下文注入当前时间）**。
 
 **步骤**：
-1. `services/timers.ts`：StandupService（可配置间隔、单击宠物重置、到点触发 Alert 弹窗 + `alert` 状态 + 系统通知）+ PomodoroService（idle→focus→break 状态机、配置、事件）
-2. Alert 弹窗页：宠物 `alert` 形象 + 文案，点击 → `stretch` 短动画 → 重置计时关闭弹窗
-3. 通知：tauri-plugin-notification（番茄钟结束/站立提醒，可开关）
-4. 番茄钟 Tab：启动/停止/剩余时间、阶段可视化
-5. Agent 工具：`start_pomodoro` / `stop_pomodoro`（"来个番茄钟"语音式指令可用）
-6. 联调：所有状态联动（focus 期间宠物形象、结束 happy）
+1. `services/timers.ts`：StandupService（间隔可配置、单击宠物重置、到点弹窗+`alert`+通知、用户离开时推迟弹窗）+ PomodoroService（idle→focus→break、休息结束不自动续轮）
+2. Rust `get_idle_seconds` 命令（user-idle crate 或平台手写）+ `services/presence.ts`（active/away，迟滞 5min，驱动 `sleep` 状态与提醒推迟）
+3. Alert 弹窗页：宠物 `alert` 形象 + 文案，点击 → `stretch` → 重置；10 分钟未点自动收尾重置
+4. 通知：tauri-plugin-notification（番茄钟结束/站立提醒/自定义提醒，可开关）
+5. reminders 表 + `services/reminders.ts`（落库即排程、重启恢复、触发补发一次）+ 上下文注入当前时间
+6. Agent 工具：`start_pomodoro` / `stop_pomodoro` / `get_pomodoro_status` / `create_reminder` / `cancel_reminder` / `list_reminders`（含时间硬校验与歧义澄清回环）
+7. 番茄钟 Tab + 提醒列表 UI；联调全部状态联动
 
 **验收标准**：
 - [ ] 间隔临时调 1 分钟：到点弹窗出现且宠物 `alert`；点击弹窗重置并播放 `stretch`
-- [ ] 平时单击宠物计时重置（右键菜单/双击不误触）
-- [ ] 番茄钟 focus 中宠物锁定 `focus` 状态；25 分钟到点通知 + 回复 idle
-- [ ] 对话"来个番茄钟"/"停下番茄钟"正确启停
+- [ ] 模拟无输入 5 分钟（临时调阈值）宠物进 `sleep`；恢复输入立即退出；期间到点的站立提醒在恢复活动后补弹
+- [ ] 番茄钟 focus 中宠物锁定 `focus` 状态；到点通知；休息结束回到 idle 而非自动续轮
+- [ ] 对话"来个番茄钟"/"停下番茄钟"正确启停；"focus 中再启动"返回失败并自我纠正
+- [ ] 对话"半小时后提醒我喝水"→ reminders 表新增一条、到点通知+宠物提示；"明早九点提醒我交周报"时间解析正确
+- [ ] 对话"每周一提醒我…"被引导降级（说明暂不支持周期提醒）
+- [ ] 创建提醒后重启应用，提醒仍按时触发
 
 ---
 
