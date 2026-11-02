@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Mochi 全部窗口的基础能力：事件通信 + 窗口拖动区 + 链接打开器。窗口的显示/隐藏等控制性操作不授权给前端，统一由 Rust 侧事件监听处理（见 src-tauri/src/lib.rs）。",
+  "windows": ["pet", "chat", "alert"],
+  "permissions": [
+    "core:default",
+    "opener:default"
+  ]
+}

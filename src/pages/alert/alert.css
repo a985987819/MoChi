@@ -1,0 +1,50 @@
+/* 提醒弹窗骨架样式 —— v0.7.0 接入站立提醒后扩展 */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  user-select: none;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+.alert-shell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.alert-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 26px;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  font-family:
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+}
+
+.alert-card h1 {
+  font-size: 17px;
+  margin: 8px 0 0;
+  color: #3d3733;
+}
+
+.alert-card p {
+  font-size: 12px;
+  color: #a39690;
+  margin: 2px 0 0;
+}

@@ -1,0 +1,63 @@
+/* 宠物窗样式 —— 核心是「窗口透明」：html/body 与舞台都不能有背景色 */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent; /* 关键：否则透明窗口会显示白色底 */
+  overflow: hidden;        /* 禁止滚动条，宠物窗尺寸固定 */
+  user-select: none;       /* 桌宠不是文档，禁用文本选中 */
+  cursor: default;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+.pet-stage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;          /* 团子贴着窗口底部坐 */
+  justify-content: center;
+  padding-bottom: 6px;
+  box-sizing: border-box;
+}
+
+.pet-stage__pet {
+  line-height: 0;                 /* 消除 SVG 底部基线空隙 */
+  animation: mochi-float 3.2s ease-in-out infinite; /* 待机漂浮 */
+  transform-origin: 50% 100%;     /* 弹跳从底部发力 */
+}
+
+/* 待机：轻轻上下浮 */
+@keyframes mochi-float {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  50% {
+    transform: translateY(-6px) scale(0.99, 1.01);
+  }
+}
+
+/* 单击：软弹跳（先压扁再弹起，麻薯手感） */
+.pet-stage--bounce .pet-stage__pet {
+  animation: mochi-bounce 0.55s cubic-bezier(0.28, 0.84, 0.42, 1);
+}
+
+@keyframes mochi-bounce {
+  0% {
+    transform: scale(1, 1);
+  }
+  30% {
+    transform: scale(1.12, 0.82) translateY(4px); /* 压扁 */
+  }
+  60% {
+    transform: scale(0.92, 1.1) translateY(-10px); /* 弹起拉长 */
+  }
+  100% {
+    transform: scale(1, 1) translateY(0);
+  }
+}
