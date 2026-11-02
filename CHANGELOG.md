@@ -11,12 +11,45 @@
 
 ---
 
-## [Unreleased] — 下一版 v0.3.0
+## [Unreleased] — 下一版 v0.4.0
 
-**范围**：Provider 抽象 + DeepSeek 预设 + MockProvider + 设置 Tab（Key/提供商/连通性测试）+ 流式聊天 UI（规格：learning/02，开工门槛：通过其复盘自测）。
-**前置**：v0.2.0 的四条 GUI 人工验收（见 roadmap）。
+**范围**：ToolRegistry + AgentRunner（规格 learning/01）+ 上下文工程/系统提示词（learning/03）+ set_pet_state / todo_* 工具 + 待办 Tab（内存版，v0.5.0 迁 SQLite）+ 宠物情绪联动。
+**前置**：v0.3.0 人工验收（真实 Key 流式对话）。
 
 ---
+
+## [v0.3.0] - 2026-11-03 — Provider 抽象与流式对话
+
+### 变更
+- `src/agent/providers/`：LLMProvider 接口、SSE 解析器、OpenAI 兼容实现（tool_calls 增量拼接/错误分类/连接重试/AbortSignal）、五提供商预设、MockProvider、工厂；
+- 设置服务（plugin-store：每提供商独立 Key/模型桶）+ 设置 Tab（提供商/Key/模型/连通性测试含首字延迟）；
+- 聊天 Tab：流式渲染（流式纯文本 + 完成后 markdown）、流式光标、停止按钮、错误条；
+- 聊天窗自绘标题栏（decorations:false）+ Tab 结构；Rust + store 插件。
+
+### 动机与取舍
+- 自写 fetch 弃 SDK（教学 + 零依赖，learning/02 既定裁决）；
+- 连接阶段可重试、流阶段绝不重试（避免重复输出）；
+- 流式纯文本 + 完成后 markdown（逐帧 remark 开销大、光标难贴合）；
+- 无 Key 闸门在发送前（isProviderReady）——错误前置到动作前；
+- 设置即时落盘，无"保存按钮"，表单与持久值永不漂移。
+
+### 学习要点
+- SSE 逐字节解析与 tool_calls 增量拼接（index 分组 + arguments 累加）；
+- 差异是数据不是逻辑：新增提供商 = presets 加一行；
+- AbortSignal 贯穿 + AbortSignal.any 合并超时；
+- "模型无状态，历史全量重发"在 UI 数据流里的直接体现。
+
+### 版本规划影响
+- v0.4.0 AgentRunner 直接消费本版 StreamEvent/ChatMessage/ToolCall 类型；serializeMessage 已支持 tool 角色；
+- settings.ts 结构预留 v0.7.0 计时器配置字段；
+- MockProvider 脚本队列将用于 v0.4.0 工具循环联调。
+
+### 验证
+- tsc ✓ / vite ✓ / cargo check ✓；真实 Key 流式对话/错误分类/Key 持久化 3 条待人工。
+
+---
+
+## [v0.2.0] - 2026-11-03 — 宠物状态系统：命名约定 + PetStateManager
 
 ## [v0.2.0] - 2026-11-03 — 宠物状态系统：命名约定 + PetStateManager
 

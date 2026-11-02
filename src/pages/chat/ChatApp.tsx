@@ -1,41 +1,64 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+import { ChatTab } from "./ChatTab";
+import { SettingsTab } from "./SettingsTab";
 import { sendUIEvent, UI_EVENTS } from "@/shared/events";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import "./chat.css";
 
 /**
- * 聊天窗（chat）—— v0.1.0 骨架版。
+ * 聊天窗（chat）—— v0.3.0：自绘标题栏 + Tab（聊天/设置）。
  *
- * v0.3.0 起这里接入：设置 Tab（提供商/Key）与流式对话；
- * v0.4.0 起挂载 Agent 循环。当前仅验证窗口生命周期与「关闭 = 隐藏」。
+ * v0.1.0 版本记录预告过：做设置 UI 时把系统标题栏换成自绘（decorations:false）。
+ * 标题栏 = 拖动区 + 关闭按钮（emit ui://hide-chat，关闭=隐藏）。
+ * Tab 结构为后续功能预留：番茄钟（v0.7.0）、待办（v0.4.0）。
  */
+type TabId = "chat" | "settings";
+
 export function ChatApp() {
+  const [tab, setTab] = useState<TabId>("chat");
+
   const handleClose = useCallback(() => {
-    // 关闭 = 隐藏（进程驻留托盘），窗口管理统一走 Rust
     void sendUIEvent(UI_EVENTS.hideChat);
   }, []);
 
   return (
     <main className="chat-shell">
-      <header className="chat-header">
-        <span className="chat-header__title">Mochi 聊天</span>
-        <button className="chat-header__close" onClick={handleClose} aria-label="关闭窗口">
-          —
+      {/* 自绘标题栏：整体是拖动区，按钮 stopPropagation 保住点击 */}
+      <header className="chat-titlebar" data-tauri-drag-region>
+        <span className="chat-titlebar__title" data-tauri-drag-region>
+          <MochiPlaceholder size={18} />
+          Mochi 聊天
+        </span>
+        <nav className="chat-tabs" onClick={e => e.stopPropagation()}>
+          <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
+            聊天
+          </TabButton>
+          <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
+            设置
+          </TabButton>
+        </nav>
+        <button className="chat-titlebar__close" onClick={handleClose} aria-label="关闭窗口">
+          ×
         </button>
       </header>
 
-      <section className="chat-body">
-        <div className="chat-placeholder">
-          <MochiPlaceholder size={96} />
-          <h1>你好，我是麻薯 🍡</h1>
-          <p>
-            聊天功能将在 <strong>v0.3.0</strong> 接入（Provider 抽象 + DeepSeek 流式对话）。
-          </p>
-          <p className="chat-placeholder__hint">
-            双击桌宠可随时打开我；关掉窗口后我会藏在托盘里。
-          </p>
-        </div>
-      </section>
+      {tab === "chat" ? <ChatTab /> : <SettingsTab />}
     </main>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button className={`chat-tab${active ? " chat-tab--active" : ""}`} onClick={onClick}>
+      {children}
+    </button>
   );
 }

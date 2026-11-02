@@ -44,6 +44,8 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        // store：settings.json 等 KV 持久化（API Key 只存这里，禁止入日志/仓库——AGENTS.md）
+        .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![list_user_pet_assets]);
 
     // macOS：桌宠类应用不应出现在 Dock 上（Accessory = 无 Dock 图标、无主窗口菜单）。

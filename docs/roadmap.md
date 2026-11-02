@@ -65,10 +65,11 @@
 6. 学习文档：`02-provider-abstraction.md`（SSE 协议逐字节讲解）
 
 **验收标准**：
-- [ ] 配置 DeepSeek Key 后流式回复逐字渲染，中途可停止
-- [ ] 断网/错 Key 有明确错误提示，应用不崩溃
-- [ ] MockProvider 模式下无 Key 可走通全部 UI 流程
-- [ ] Key 持久化在 store 中，重启后仍生效；日志与界面不泄露 Key 明文
+- [ ] 配置 DeepSeek Key 后流式回复逐字渲染，中途可停止（待人工）
+- [ ] 断网/错 Key 有明确错误提示，应用不崩溃（待人工）
+- [ ] MockProvider 模式下无 Key 可走通全部 UI 流程（代码路径完整，交互待人工）
+- [ ] Key 持久化在 store 中，重启后仍生效；日志与界面不泄露 Key 明文（待人工）
+- [x] `pnpm check` / `vite build` / `cargo check` 通过（2026-11-03）
 
 ---
 

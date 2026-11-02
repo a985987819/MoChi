@@ -5,6 +5,7 @@
   "windows": ["pet", "chat", "alert"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    "store:default"
   ]
 }

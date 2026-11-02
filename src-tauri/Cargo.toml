@@ -25,6 +25,8 @@ tauri = { version = "2", features = ["tray-icon", "macos-private-api", "protocol
 tauri-plugin-opener = "2"
 # single-instance：阻止重复启动；二次启动时唤起已有实例的宠物窗
 tauri-plugin-single-instance = "2"
+# store：键值持久化（v0.3.0 起存提供商设置/API Key；v0.7.0 起存计时器配置）
+tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
