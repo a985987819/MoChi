@@ -11,9 +11,11 @@
 
 ---
 
-## [Unreleased] — v1.0 发布清单（等待人工验收 + 显式发布声明）
+## [Unreleased] — v1.0 发布清单（等待显式发布声明）
 
-**剩余事项**：①Windows 安装包安装/卸载/升级数据保留实测；②GitHub 仓库 remote + 显式声明的首次 push/tag（CI 出 draft Release 后人工确认）；③新机器按 README 复跑。
+**剩余事项**：①GitHub 仓库 remote + 显式声明的首次 push/tag（CI 出 draft Release 后人工确认）——**发布基建已全部就绪**；②新机器按 README 复跑；③日常使用中的人工验收反馈。
+
+**v0.8.0 完善批次**：版本号三处对齐 0.8.0（tag 与应用版本一致）；release.yml 补 pnpm install --frozen-lockfile（tauri-action 不装依赖）；**安装实测自动化通过**（静默装→跑→卸→重装，mochi.db 全程保留），应用已安装在机器上。
 
 ---
 

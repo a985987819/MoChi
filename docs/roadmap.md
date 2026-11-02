@@ -173,8 +173,8 @@
 5. 显式声明的首次发布：push + tag（走部署纪律）
 
 **验收标准**：
-- [ ] Windows 安装包装得上、卸载干净、更新后 SQLite/Store 数据保留（待人工；NSIS 2.49MiB/MSI 3.45MiB 已产出）
-- [ ] 推 tag 后 CI 产出 .msi/.exe 与 .dmg 并附到 GitHub Release（待人工；release.yml 就绪，Release 走 draft 由所有者确认，**push/tag 需显式声明**）
+- [x] Windows 安装包装得上、卸载干净、数据保留（2026-11-03 静默安装自动化实测：装→跑→卸→重装全链路 ✓，mochi.db 保留）
+- [ ] 推 tag 后 CI 产出 .msi/.exe 与 .dmg 并附到 GitHub Release（release.yml 就绪并已补 pnpm install 步骤；Release 走 draft 由所有者确认，**push/tag 需显式声明 + GitHub remote**）
 - [ ] 新机器按 README 从零到跑通无歧义（待人工）
 - [x] 全部 learning 文档通过「复盘自测」结构完整性检查（9/9，2026-11-03）
 - [x] 图标全套（gen-icon.mjs + tauri icon）+ NSIS 简体中文/per-user 配置 + 本地打包双产物验证（2026-11-03）

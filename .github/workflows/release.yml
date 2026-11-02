@@ -54,6 +54,10 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # tauri-action 只执行 beforeBuildCommand（pnpm build），不装依赖——必须显式安装
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
       - name: 构建并发布
         uses: tauri-apps/tauri-action@v0
         env:
