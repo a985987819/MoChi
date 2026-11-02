@@ -1,0 +1,735 @@
+/* 聊天窗样式 —— v0.3.0：自绘标题栏 + Tabs + 消息流 + 设置面板 */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #faf7f5;
+  user-select: none;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+.chat-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family:
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  color: #3d3733;
+  overflow: hidden;
+}
+
+/* ── 自绘标题栏（decorations:false 后就是窗口的"边"）── */
+.chat-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+  border-bottom: 1px solid #f0e4e8;
+}
+
+.chat-titlebar__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.chat-tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.chat-tab {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #8a7f7a;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.chat-tab--active,
+.chat-tab:hover {
+  background: #f7ecef;
+  color: #3d3733;
+}
+
+.chat-titlebar__close {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #8a7f7a;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chat-titlebar__close:hover {
+  background: #ffe1e6;
+  color: #c94a5a;
+}
+
+/* ── 消息流 ── */
+.chat-tab-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-msg-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-empty {
+  margin: auto;
+  text-align: center;
+  color: #a39690;
+  font-size: 13px;
+  line-height: 2;
+}
+
+.chat-msg {
+  display: flex;
+}
+
+.chat-msg--user {
+  justify-content: flex-end;
+}
+
+.chat-msg--assistant {
+  justify-content: flex-start;
+}
+
+.chat-msg__bubble {
+  max-width: 86%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.chat-msg--user .chat-msg__bubble {
+  background: #ff8fab;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-msg--assistant .chat-msg__bubble {
+  background: #ffffff;
+  border: 1px solid #f0e4e8;
+  border-bottom-left-radius: 4px;
+}
+
+.chat-msg__plain {
+  white-space: pre-wrap;
+}
+
+/* 流式光标：随文本呼吸的小方块 */
+.chat-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: #ff8fab;
+  animation: chat-cursor-blink 0.9s steps(1) infinite;
+}
+
+@keyframes chat-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* markdown 渲染区的元素间距收敛（气泡内排版） */
+.chat-md > :first-child {
+  margin-top: 0;
+}
+
+.chat-md > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-md p {
+  margin: 6px 0;
+}
+
+.chat-md pre {
+  background: #f6f1f3;
+  padding: 8px 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+.chat-md code {
+  background: #f6f1f3;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.chat-md pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.chat-md table {
+  border-collapse: collapse;
+}
+
+.chat-md th,
+.chat-md td {
+  border: 1px solid #f0e4e8;
+  padding: 3px 8px;
+}
+
+/* ── 错误条 ── */
+.chat-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 14px 6px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: #ffeef0;
+  border: 1px solid #ffd3d8;
+  color: #b3455a;
+  font-size: 12.5px;
+  user-select: text;
+}
+
+.chat-error button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* ── 输入区 ── */
+.chat-composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px 14px;
+  align-items: flex-end;
+}
+
+.chat-composer textarea {
+  flex: 1;
+  resize: none;
+  padding: 9px 12px;
+  border: 1px solid #f0e4e8;
+  border-radius: 12px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #3d3733;
+  outline: none;
+}
+
+.chat-composer textarea:focus {
+  border-color: #ffc4d0;
+}
+
+.chat-send {
+  padding: 9px 16px;
+  border: none;
+  border-radius: 12px;
+  background: #ff8fab;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chat-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chat-send--stop {
+  background: #f0b6c0;
+}
+
+/* ── 设置面板 ── */
+.settings-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 13px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settings-field span {
+  color: #8a7f7a;
+  font-size: 12px;
+}
+
+.settings-field select,
+.settings-field input {
+  padding: 8px 10px;
+  border: 1px solid #f0e4e8;
+  border-radius: 9px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  color: #3d3733;
+  outline: none;
+}
+
+.settings-field select:focus,
+.settings-field input:focus {
+  border-color: #ffc4d0;
+}
+
+.settings-note {
+  margin: 0;
+  color: #a39690;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.settings-note a {
+  color: #e2708a;
+}
+
+.settings-note--foot {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px dashed #f0e4e8;
+}
+
+.settings-test {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-test button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 9px;
+  background: #ff8fab;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-test button:disabled {
+  opacity: 0.5;
+}
+
+.settings-test__ok {
+  color: #3d9a6a;
+  font-size: 12.5px;
+}
+
+.settings-test__fail {
+  color: #b3455a;
+  font-size: 12.5px;
+  user-select: text;
+}
+
+/* ── 工具调用轨迹（note 条目，不进协议历史）── */
+.chat-note {
+  align-self: center;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: #f6f1f3;
+  color: #a39690;
+  font-size: 11px;
+}
+
+/* ── 待办 Tab（UI 通道：与 Agent 工具共用 TodoService，learning/07 双入口）── */
+.todos-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.todos-add {
+  display: flex;
+  gap: 8px;
+}
+
+.todos-add input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #f0e4e8;
+  border-radius: 9px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  color: #3d3733;
+  outline: none;
+}
+
+.todos-add input:focus {
+  border-color: #ffc4d0;
+}
+
+.todos-add button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 9px;
+  background: #ff8fab;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.todos-add button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.todos-empty {
+  margin: 24px auto;
+  text-align: center;
+  color: #a39690;
+  font-size: 13px;
+  line-height: 2;
+}
+
+.todos-section {
+  color: #a39690;
+  font-size: 11.5px;
+  margin-top: 6px;
+}
+
+.todo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  background: #fff;
+  border: 1px solid #f0e4e8;
+}
+
+.todo-row--done {
+  opacity: 0.55;
+}
+
+.todo-row__check {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 1.5px solid #ffc4d0;
+  border-radius: 6px;
+  background: #fff;
+  color: #e2708a;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.todo-row__check:disabled {
+  background: #ffc4d0;
+  color: #fff;
+  cursor: default;
+}
+
+.todo-row__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.todo-row__title {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.todo-row--done .todo-row__title {
+  text-decoration: line-through;
+}
+
+.todo-row__due {
+  color: #a39690;
+  font-size: 11px;
+}
+
+.todo-row__del {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #c4b6bd;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.todo-row__del:hover {
+  background: #ffe1e6;
+  color: #c94a5a;
+}
+
+/* ── 设置：记忆管理与危险区 ── */
+.settings-field-label {
+  color: #8a7f7a;
+  font-size: 12px;
+  margin-bottom: 2px;
+  display: block;
+}
+
+.settings-memories,
+.settings-danger {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-memory {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: #fff;
+  border: 1px solid #f0e4e8;
+}
+
+.settings-memory__fact {
+  flex: 1;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.settings-memory__src {
+  color: #a39690;
+  font-size: 10.5px;
+  flex: 0 0 auto;
+}
+
+.settings-memory button {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #c4b6bd;
+  cursor: pointer;
+}
+
+.settings-memory button:hover {
+  background: #ffe1e6;
+  color: #c94a5a;
+}
+
+.settings-danger {
+  border-top: 1px dashed #f0dfe6;
+  padding-top: 10px;
+}
+
+.settings-danger button {
+  align-self: flex-start;
+  padding: 7px 12px;
+  border: 1px solid #ffd3d8;
+  border-radius: 9px;
+  background: #fff5f6;
+  color: #b3455a;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.settings-danger button:hover {
+  background: #ffeef0;
+}
+
+/* ── 设置：计时配置 ── */
+.settings-timers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-row {
+  display: flex;
+  gap: 10px;
+}
+
+.settings-row .settings-field {
+  flex: 1;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #6f6560;
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  accent-color: #ff8fab;
+  width: 15px;
+  height: 15px;
+}
+
+/* ── 番茄钟 Tab ── */
+.pomo-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pomo-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 22px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid #f0e4e8;
+}
+
+.pomo-card--focus {
+  border-color: #ffb1c4;
+  background: #fff5f8;
+}
+
+.pomo-card--break {
+  border-color: #b9e2c9;
+  background: #f4fbf6;
+}
+
+.pomo-phase {
+  color: #a39690;
+  font-size: 12.5px;
+  letter-spacing: 2px;
+}
+
+.pomo-time {
+  font-size: 44px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #3d3733;
+  line-height: 1.1;
+}
+
+.pomo-card--focus .pomo-time {
+  color: #e2708a;
+}
+
+.pomo-btn {
+  margin-top: 6px;
+  padding: 9px 26px;
+  border: none;
+  border-radius: 11px;
+  background: #ff8fab;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pomo-btn--stop {
+  background: #f0b6c0;
+}
+
+.pomo-hint {
+  color: #c4b6bd;
+  font-size: 11.5px;
+  margin: 4px 0 0;
+  text-align: center;
+}
+
+.pomo-reminders {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pomo-reminders__title {
+  color: #8a7f7a;
+  font-size: 12px;
+}
+
+.pomo-reminder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #f0e4e8;
+}
+
+.pomo-reminder__text {
+  flex: 1;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.pomo-reminder__time {
+  color: #a39690;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.pomo-reminder button {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #c4b6bd;
+  cursor: pointer;
+}
+
+.pomo-reminder button:hover {
+  background: #ffe1e6;
+  color: #c94a5a;
+}
