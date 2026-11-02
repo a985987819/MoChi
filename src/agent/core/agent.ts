@@ -25,8 +25,10 @@ export async function* runAgent(opts: {
   registry: ToolRegistry;
   ctx: ToolContext;
   signal?: AbortSignal;
+  /** v0.5.0：情景记忆落库回调（每追加一条协议消息调用一次；HistoryStore 实现它） */
+  persist?: (message: ChatMessage) => void;
 }): AsyncGenerator<AgentEvent> {
-  const { provider, registry, ctx } = opts;
+  const { provider, registry, ctx, persist } = opts;
   const messages = [...opts.messages];
 
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -47,7 +49,13 @@ export async function* runAgent(opts: {
     }
 
     // ── 2. 追加 assistant 消息（协议要求：tool 结果必须紧跟 tool_calls 所在的 assistant）──
-    messages.push({ role: "assistant", content: text || null, toolCalls: calls.length ? calls : undefined });
+    const assistantMsg: ChatMessage = {
+      role: "assistant",
+      content: text || null,
+      toolCalls: calls.length ? calls : undefined,
+    };
+    messages.push(assistantMsg);
+    persist?.(assistantMsg);
 
     // ── 3. 终止判定 ────────────────────────────────────────────
     if (calls.length === 0) {
@@ -61,14 +69,15 @@ export async function* runAgent(opts: {
       const r = settled[i];
       const outcome: ToolOutcome =
         r.status === "fulfilled" ? r.value : { ok: false, error: `工具内部异常: ${String(r.reason)}` };
-      messages.push({ role: "tool", toolCallId: call.id, content: JSON.stringify(outcome) });
+      const toolMsg: ChatMessage = { role: "tool", toolCallId: call.id, content: JSON.stringify(outcome) };
+      messages.push(toolMsg);
+      persist?.(toolMsg);
     });
     yield {
       type: "step-end",
       step,
       toolSummaries: calls.map((c, i) => ({ name: c.name, ok: settled[i].status === "fulfilled" })),
     };
-    // v0.5.0 起：此处把 messages 增量同步进 SQLite（重启可恢复到最近一步）
   }
 
   // 跑满 MAX_STEPS 仍未终止：如实收尾（01 §6 自测第 7 条——对用户透明，不静默截断）

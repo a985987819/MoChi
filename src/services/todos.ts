@@ -1,49 +1,66 @@
 /**
- * TodoService —— v0.4.0：内存 + plugin-store 持久化（roadmap：先 Store，v0.5.0 迁 SQLite）。
+ * TodoService —— v0.5.0：后端从 plugin-store 迁移到 SQLite（todos 表，learning/04 §3.1）。
  *
- * 这是 **Agent 工具与 UI 的共同底座**（learning/07 §3 双入口模式）：
- * ChatTab 的待办 Tab 与 todo_* 工具都汇入本服务，状态只有一个权威来源。
- * 变更通过 subscribe 通知本窗口订阅者（TodosTab）；跨窗口无需广播（待办只在聊天窗展示）。
+ * **对外接口与 v0.4.0 完全一致**（add/list/complete/remove/subscribe）——
+ * TodoTab 与 todo_* 工具（learning/07 双入口的两个入口）零改动，后端无感切换。
+ * 迁移路径：首启发现 todos.json 有数据 → 整批插入 SQLite → 清空旧文件。
  */
 
 import { load } from "@tauri-apps/plugin-store";
+import { getDb } from "./db";
 
 export interface Todo {
   id: number;
   title: string;
-  /** 用户原话或 ISO 日期（v1 明确不做自然语言时间解析，防幻觉具体时刻——learning/01 §4.5） */
+  /** 用户原话或 ISO 日期（v1 不做自然语言时间解析——learning/01 §4.5） */
   due?: string;
   done: boolean;
   createdAt: number;
   doneAt?: number;
 }
 
-const STORE_FILE = "todos.json";
-const KEY = "todos";
+interface TodoRow {
+  id: number;
+  title: string;
+  due: string | null;
+  done: number;
+  created_at: number;
+  done_at: number | null;
+}
+
+const LEGACY_STORE_FILE = "todos.json";
 
 export class TodoService {
   private todos: Todo[] = [];
   private listeners = new Set<() => void>();
-  private readyPromise: Promise<void>;
+  readonly ready: Promise<void>;
 
   constructor() {
-    this.readyPromise = this.init();
+    this.ready = this.init();
   }
 
-  /** 启动加载（幂等，构造即调用） */
   private async init(): Promise<void> {
-    try {
-      const store = await load(STORE_FILE, { autoSave: true });
-      const saved = await store.get<Todo[]>(KEY);
-      if (Array.isArray(saved)) this.todos = saved;
-    } catch {
-      // 读取失败按空清单处理：待办不是关键数据，不阻塞应用
-    }
-  }
+    const db = await getDb();
 
-  /** TodosTab 等 ready 后再取首屏 */
-  get ready(): Promise<void> {
-    return this.readyPromise;
+    // ── 旧数据迁移：todos.json → SQLite（一次性，迁移后清空旧文件内容）──
+    try {
+      const legacy = await load(LEGACY_STORE_FILE, { autoSave: true });
+      const saved = await legacy.get<Todo[]>("todos");
+      if (Array.isArray(saved) && saved.length > 0) {
+        for (const t of saved) {
+          await db.execute(
+            "INSERT OR IGNORE INTO todos (id, title, due, done, created_at, done_at) VALUES ($1,$2,$3,$4,$5,$6)",
+            [t.id, t.title, t.due ?? null, t.done ? 1 : 0, t.createdAt, t.doneAt ?? null],
+          );
+        }
+        await legacy.set("todos", []); // 清内容保文件（store 无法删除文件本身）
+      }
+    } catch {
+      // 无旧数据/读取失败：正常路径
+    }
+
+    const rows = await db.select<TodoRow[]>("SELECT id, title, due, done, created_at, done_at FROM todos ORDER BY id");
+    this.todos = rows.map(rowToTodo);
   }
 
   subscribe(fn: () => void): () => void {
@@ -55,27 +72,28 @@ export class TodoService {
     return [...this.todos];
   }
 
-  private async persist(): Promise<void> {
-    try {
-      const store = await load(STORE_FILE, { autoSave: true });
-      await store.set(KEY, this.todos);
-    } catch {
-      // 持久化失败不炸内存态；下次变更会再试
-    }
+  private notify(): void {
     for (const fn of this.listeners) fn();
   }
 
   /** add_todo 工具与 UI 新增共用入口 */
-  add(title: string, due?: string): Todo {
+  async add(title: string, due?: string): Promise<Todo> {
+    const db = await getDb();
+    const createdAt = Date.now();
+    const result = await db.execute("INSERT INTO todos (title, due, done, created_at) VALUES ($1,$2,0,$3)", [
+      title.trim(),
+      due?.trim() || null,
+      createdAt,
+    ]);
     const todo: Todo = {
-      id: (this.todos.length ? Math.max(...this.todos.map(t => t.id)) : 0) + 1,
+      id: result.lastInsertId as number,
       title: title.trim(),
       ...(due?.trim() ? { due: due.trim() } : {}),
       done: false,
-      createdAt: Date.now(),
+      createdAt,
     };
     this.todos.push(todo);
-    void this.persist();
+    this.notify();
     return todo;
   }
 
@@ -86,9 +104,11 @@ export class TodoService {
   async complete(id: number): Promise<Todo | null> {
     const todo = this.todos.find(t => t.id === id && !t.done);
     if (!todo) return null;
+    const db = await getDb();
     todo.done = true;
     todo.doneAt = Date.now();
-    await this.persist();
+    await db.execute("UPDATE todos SET done = 1, done_at = $1 WHERE id = $2", [todo.doneAt, id]);
+    this.notify();
     return todo;
   }
 
@@ -96,10 +116,23 @@ export class TodoService {
   async remove(id: number): Promise<Todo | null> {
     const idx = this.todos.findIndex(t => t.id === id);
     if (idx < 0) return null;
+    const db = await getDb();
     const [removed] = this.todos.splice(idx, 1);
-    await this.persist();
+    await db.execute("DELETE FROM todos WHERE id = $1", [id]);
+    this.notify();
     return removed;
   }
+}
+
+function rowToTodo(r: TodoRow): Todo {
+  return {
+    id: r.id,
+    title: r.title,
+    ...(r.due ? { due: r.due } : {}),
+    done: r.done === 1,
+    createdAt: r.created_at,
+    ...(r.done_at != null ? { doneAt: r.done_at } : {}),
+  };
 }
 
 /** 聊天窗单例（工具与 TodosTab 共用） */

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { createProvider, PRESETS, getPreset } from "@/agent/providers";
-import { loadSettings, saveSettings, type AppSettings } from "@/services/settings";
 import type { ProviderError } from "@/agent/providers";
+import { memoryService, type MemoryItem } from "@/agent/memory/long-term";
+import { historyStore } from "@/agent/memory/history-store";
+import { sendStateEvent, STATE_EVENTS } from "@/shared/events";
+import { loadSettings, saveSettings, type AppSettings } from "@/services/settings";
 
 /**
  * 设置 Tab —— v0.3.0：提供商/Key/模型 + 连通性测试。
@@ -165,9 +168,60 @@ export function SettingsTab() {
         )}
       </div>
 
+      <MemoriesSection />
+
+      <DangerZone />
+
       <p className="settings-note settings-note--foot">
         Key 保存在本机应用数据目录（settings.json），不上传任何服务器。
       </p>
+    </div>
+  );
+}
+
+/**
+ * 记忆管理 —— learning/04 §5 隐私规范：用户对记忆有完全控制权（查看/删除）。
+ * "记住我…"写入的事实在这里全部可见、可单条删除。
+ */
+function MemoriesSection() {
+  const [items, setItems] = useState<MemoryItem[]>([]);
+
+  useEffect(() => {
+    void memoryService.ready.then(() => void memoryService.list().then(setItems));
+  }, []);
+
+  const remove = useCallback((id: number) => {
+    void memoryService.remove(id).then(() => void memoryService.list().then(setItems));
+  }, []);
+
+  return (
+    <div className="settings-memories">
+      <span className="settings-field-label">长期记忆（{items.length}）</span>
+      {items.length === 0 && <p className="settings-note">还没有。对话里说"记住我喜欢低糖饮食"试试。</p>}
+      {items.map(m => (
+        <div key={m.id} className="settings-memory">
+          <span className="settings-memory__fact">{m.fact}</span>
+          <span className="settings-memory__src">{m.source === "agent" ? "自动" : "手动"}</span>
+          <button onClick={() => remove(m.id)} aria-label="删除记忆">
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 危险区：清空聊天历史（协议层 messages 表；待办/记忆不受影响） */
+function DangerZone() {
+  const clearHistory = useCallback(() => {
+    if (!window.confirm("确定清空全部聊天历史？此操作不可恢复（待办与记忆保留）。")) return;
+    void historyStore.clear().then(() => void sendStateEvent(STATE_EVENTS.historyCleared));
+  }, []);
+
+  return (
+    <div className="settings-danger">
+      <span className="settings-field-label">危险操作</span>
+      <button onClick={clearHistory}>清空聊天历史</button>
     </div>
   );
 }

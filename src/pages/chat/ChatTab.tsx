@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { listen } from "@tauri-apps/api/event";
 import { agentFacade } from "@/agent/facade";
-import type { ChatMessage } from "@/agent/providers/types";
+import { historyStore } from "@/agent/memory/history-store";
+import { STATE_EVENTS } from "@/shared/events";
 import type { ProviderError } from "@/agent/providers";
 import { isProviderReady, loadSettings, type AppSettings } from "@/services/settings";
 
 /**
- * 聊天 Tab —— v0.4.0：接入 AgentFacade（工具循环）。
- *
- * 与 v0.3.0 的差异：
- * - 发送走 agentFacade.runTurn（Agent 循环），不再直连 provider；
- * - 新增 `note` 条目：工具调用轨迹（🔧 add_todo ✓）——给用户可感知的工具反馈，
- *   但**不进协议历史**（协议只含 user/assistant/tool，note 是纯 UI 层）；
- * - 宠物情绪联动在 Facade 内部完成（thinking/talking），本组件无感知。
+ * 聊天 Tab —— v0.5.0：历史从 SQLite 恢复（情景记忆），发送走 Facade（内部闭环
+ * 记忆检索/窗口裁剪/协议持久化），本组件只管渲染与输入。
+ * note 条目：工具轨迹（实时来自 step-end；历史恢复时来自 assistant.toolCalls）。
  */
 
 interface ChatEntry {
@@ -24,6 +22,24 @@ interface ChatEntry {
 }
 
 let nextId = 1;
+
+/** SQLite 协议消息 → UI 条目（tool 明细并入 assistant 的 note，不单气泡展示） */
+async function loadEntries(): Promise<ChatEntry[]> {
+  const msgs = await historyStore.loadRecent(24);
+  const out: ChatEntry[] = [];
+  for (const m of msgs) {
+    if (m.role === "user") {
+      out.push({ id: nextId++, role: "user", content: m.content ?? "" });
+    } else if (m.role === "assistant") {
+      if (m.toolCalls?.length) {
+        out.push({ id: nextId++, role: "note", content: `🔧 调用了 ${m.toolCalls.map(c => c.name).join(" · ")}` });
+      }
+      if (m.content) out.push({ id: nextId++, role: "assistant", content: m.content });
+    }
+    // role==="tool"：结果已随其 assistant 的 note 呈现，跳过
+  }
+  return out;
+}
 
 export function ChatTab() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -36,6 +52,14 @@ export function ChatTab() {
 
   useEffect(() => {
     void loadSettings().then(setSettings);
+    void loadEntries().then(setEntries);
+    // 设置页清空历史 → 本窗重载（空）
+    const unlisten = listen(STATE_EVENTS.historyCleared, () => {
+      void loadEntries().then(setEntries);
+    });
+    return () => {
+      void unlisten.then(off => off());
+    };
   }, []);
 
   useEffect(() => {
@@ -55,12 +79,6 @@ export function ChatTab() {
     setInput("");
     setBusy(true);
 
-    // 协议历史：只取 user/assistant 文本轮次（note 是 UI 轨迹，不进协议；
-    // v0.5.0 起换 SQLite 全协议历史——见 Facade 注释）
-    const history: ChatMessage[] = entries
-      .filter(e => e.role !== "note")
-      .map(e => ({ role: e.role as "user" | "assistant", content: e.content }));
-
     const userEntry: ChatEntry = { id: nextId++, role: "user", content: text };
     const assistantEntry: ChatEntry = { id: nextId++, role: "assistant", content: "", streaming: true };
     setEntries(prev => [...prev, userEntry, assistantEntry]);
@@ -72,7 +90,8 @@ export function ChatTab() {
       setEntries(prev => prev.map(e => (e.id === assistantEntry.id ? { ...e, ...patch } : e)));
 
     try {
-      for await (const ev of agentFacade.runTurn({ history, userInput: text, signal: controller.signal })) {
+      // 历史与持久化都在 Facade 内部闭环（v0.5.0 起 runTurn 不再接收 history）
+      for await (const ev of agentFacade.runTurn({ userInput: text, signal: controller.signal })) {
         if (ev.type === "text-delta") {
           setEntries(prev => prev.map(e => (e.id === assistantEntry.id ? { ...e, content: e.content + ev.text } : e)));
         } else if (ev.type === "step-end") {
@@ -177,3 +196,4 @@ function MarkdownView({ text }: { text: string }) {
     </div>
   );
 }
+

@@ -32,6 +32,8 @@ export const STATE_EVENTS = {
   clearSystem: "state://clear-system",
   /** PetStateManager 仲裁结果变化。载荷：{ state: string }——宠物窗渲染层订阅 */
   petChanged: "state://pet-changed",
+  /** 聊天历史已清空（设置页触发）——ChatTab 收到后重载（空）历史 */
+  historyCleared: "state://history-cleared",
 } as const;
 
 /** 发射一个 UI 事件给 Rust 侧监听器 */

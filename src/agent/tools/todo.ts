@@ -37,7 +37,7 @@ export function addTodoTool(): ToolDefinition<TitleArgs> {
     },
     risk: "write",
     async execute(args: TitleArgs, ctx: ToolContext) {
-      const todo = ctx.services.todos.add(args.title, args.due);
+      const todo = await ctx.services.todos.add(args.title, args.due);
       return ok({ id: todo.id, title: todo.title, due: todo.due, message: "已添加" });
     },
   };

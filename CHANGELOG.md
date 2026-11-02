@@ -11,12 +11,49 @@
 
 ---
 
-## [Unreleased] — 下一版 v0.5.0
+## [Unreleased] — 下一版 v0.6.0
 
-**范围**：tauri-plugin-sql 四表（sessions/messages/todos/memories，DDL 已定稿 learning/04 §3.1）+ 待办迁移 SQLite + 会话历史持久化/重启恢复 + 滑动窗口裁剪器（learning/03 §4.2）+ remember 工具 + 长期记忆检索注入。
-**前置**：v0.4.0 人工验收（待办对话驱动 + 情绪联动）。
+**范围**：热量数据集 ~130 条 + 同义词表 + food-search 工具 + Hit@3 评测脚本（learning/05 §5.3~§5.6；Retriever/BM25/分词器 v0.5.0 已就位）。
+**前置**：v0.5.0 人工验收（历史恢复/记忆回忆/窗口裁剪）。
 
 ---
+
+## [v0.5.0] - 2026-11-03 — 记忆系统：SQLite 历史 + 窗口 + 长期记忆
+
+### 变更
+- 数据层：plugin-sql（sqlite）+ db.ts ensureSchema 四表（DDL 权威定义 learning/04 §3.1）；
+  TodoService 迁 SQLite（接口不变，todos.json 自动迁移）；
+- 记忆层：HistoryStore（协议原样落库/按块恢复/清空）+ MemoryService（remember 落库+索引绑定/
+  list/remove/searchForContext）+ core/window.ts（estimateTokens + trimWindow 按块裁剪）；
+- 检索层：rag/ 三件（Retriever 接口、bigram+停用词 tokenizer、BM25Retriever k1=1.5 b=0.75）；
+- 内核：runAgent +persist 回调；buildInitialMessages 泛化为 buildMessages({history,...})；
+  Facade 并行取（裁剪历史∥记忆检索）→ 五层上下文 → 协议持久化闭环；
+- UI：聊天历史重启恢复（toolCalls→note）；设置页记忆管理 + 清空历史（confirm+事件重载）。
+
+### 动机与取舍
+- 协议原样落库（tool_calls JSON 整存）：恢复即用，行宽代价由窗口裁剪吸收；
+- 记忆索引内存重建（<10ms）：免索引持久化；
+- DDL 走 TS ensureSchema 而非 conf migrations：透明可读零配置风险；
+- 检索与 RAG 共用 Retriever：一套代码两处收益（04 核心主张，v0.6 兑现）；
+- trimWindow 至少保一块；首条非 system 防御性原样返回。
+
+### 学习要点
+- 三层记忆（工作/情景/语义）的落地形态与"写入=落库+索引绑定"闭环；
+- 窗口裁剪的协议完整性：tool 结果永远跟 tool_calls 的 assistant，成块裁剪；
+- BM25 公式（k1 饱和/b 长度归一/Lucene IDF 恒正）首次亲手实现；
+- plugin-sql 的 $N 参数占位符与 select/execute 分工。
+
+### 版本规划影响
+- v0.6.0 只需：数据集 JSON + 同义词 + food-search 工具 + 评测（检索栈已就位）；
+- 记忆文档 docId 前缀 `mem-` 与未来 food 文档 id 空间隔离；
+- v0.7.0 reminders 表新增走同一 ensureSchema 模式。
+
+### 验证
+- tsc ✓ / vite ✓ / cargo check ✓；历史恢复/记忆回忆/裁剪/迁移 5 条待人工。
+
+---
+
+## [v0.4.0] - 2026-11-03 — Agent 循环与工具调用（待办功能上线）
 
 ## [v0.4.0] - 2026-11-03 — Agent 循环与工具调用（待办功能上线）
 
