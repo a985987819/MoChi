@@ -25,7 +25,7 @@ export function addTodoTool(): ToolDefinition<TitleArgs> {
     name: "add_todo",
     description:
       "添加一条待办。用于用户明确要记录的任务（'帮我加个待办'/'记一下…'）。" +
-      "如果用户意图是'到某个时间点提醒我'，本工具不适用（提醒功能未上线，请如实说明）。" +
+      "如果用户意图是'到某个时间点提醒我'，请改用 create_reminder（到点弹通知）。" +
       "due 传用户原话（如'明天九点'），不要自行换算成具体日期时间。",
     parameters: {
       type: "object",

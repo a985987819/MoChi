@@ -31,6 +31,8 @@ const EVT_OPEN_CHAT: &str = "ui://open-chat";
 const EVT_HIDE_CHAT: &str = "ui://hide-chat";
 const EVT_TOGGLE_PET: &str = "ui://toggle-pet";
 const EVT_QUIT_APP: &str = "ui://quit-app";
+const EVT_SHOW_ALERT: &str = "ui://show-alert";
+const EVT_STANDUP_ACK: &str = "ui://standup-ack";
 
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -51,7 +53,9 @@ pub fn run() {
             tauri_plugin_sql::Builder::default()
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![list_user_pet_assets]);
+        // notification：系统通知（站立提醒/番茄钟/自定义提醒）
+        .plugin(tauri_plugin_notification::init())
+        .invoke_handler(tauri::generate_handler![list_user_pet_assets, get_idle_seconds]);
 
     // macOS：桌宠类应用不应出现在 Dock 上（Accessory = 无 Dock 图标、无主窗口菜单）。
     // Windows 下此 API 不存在，用 cfg 条件编译隔离平台差异。
@@ -134,6 +138,33 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
     // 右键菜单「退出」（托盘菜单直接调 app.exit，不走事件）
     let handle = app.clone();
     app.listen_any(EVT_QUIT_APP, move |_| handle.exit(0));
+
+    // 站立提醒弹窗（v0.7.0）：显示在宠物正上方（点击弹窗 = standup-ack）
+    let handle = app.clone();
+    app.listen_any(EVT_SHOW_ALERT, move |_| show_alert(&handle));
+
+    let handle = app.clone();
+    app.listen_any(EVT_STANDUP_ACK, move |_| {
+        if let Some(alert) = handle.get_webview_window("alert") {
+            let _ = alert.hide();
+        }
+    });
+}
+
+/// 把提醒弹窗显示到宠物正上方居中处（learning/08 §4.2）。
+/// 几何都取物理像素：宠物位置/尺寸 + 弹窗 outer_size。
+fn show_alert(app: &tauri::AppHandle) {
+    let (Some(alert), Some(pet)) = (app.get_webview_window("alert"), app.get_webview_window("pet")) else {
+        return;
+    };
+    if let (Ok(pet_pos), Ok(pet_size), Ok(alert_size)) =
+        (pet.outer_position(), pet.outer_size(), alert.outer_size())
+    {
+        let x = pet_pos.x + (pet_size.width as i32 - alert_size.width as i32) / 2;
+        let y = pet_pos.y - alert_size.height as i32 - 12;
+        let _ = alert.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+    let _ = alert.show();
 }
 
 /// 从素材文件名提取状态名（与前端 `pet-assets.ts#parseAssetName` 同一套约定，见 docs/pet-assets.md §2）。
@@ -183,6 +214,16 @@ fn list_user_pet_assets(app: tauri::AppHandle) -> BTreeMap<String, Vec<String>> 
         }
     }
     result
+}
+
+/// 距上次用户输入的秒数（learning/08 §3.1）。
+/// 隐私红线：这是聚合数字，不含任何输入内容；失败返回 0（按"用户在场"处理，宁误安全向）。
+/// user-idle 内部：Windows = GetLastInputInfo，macOS = CGEventSource 查询（均无需特殊权限）。
+#[tauri::command]
+fn get_idle_seconds() -> u64 {
+    user_idle::UserIdle::get_time()
+        .map(|idle| idle.as_seconds())
+        .unwrap_or(0)
 }
 
 /// 显示并聚焦聊天窗。show() 不夺焦，聊天窗要接住用户输入必须显式 set_focus。

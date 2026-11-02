@@ -81,9 +81,18 @@ export class PetStateManager {
     this.setSlot("system", state, durationSec != null ? Date.now() + durationSec * 1000 : null);
   }
 
-  /** 在场槽（v0.7.0 前无驱动者，接口先立） */
+  /** 在场槽（v0.7.0 PresenceService 驱动：away→sleep 粘性） */
   setPresence(state: PetState, durationSec?: number): void {
     this.setSlot("presence", state, durationSec != null ? Date.now() + durationSec * 1000 : null);
+  }
+
+  /** 清除在场槽（用户恢复活动，PresenceService 调用） */
+  clearPresence(): void {
+    this.presence = null;
+    const old = this.expiryTimers.get("presence");
+    if (old != null) window.clearTimeout(old);
+    this.expiryTimers.delete("presence");
+    this.recompute();
   }
 
   clearSystem(): void {

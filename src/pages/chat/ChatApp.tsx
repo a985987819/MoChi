@@ -1,16 +1,16 @@
 import { useCallback, useState } from "react";
 import { ChatTab } from "./ChatTab";
 import { TodosTab } from "./TodosTab";
+import { PomodoroTab } from "./PomodoroTab";
 import { SettingsTab } from "./SettingsTab";
 import { sendUIEvent, UI_EVENTS } from "@/shared/events";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import "./chat.css";
 
 /**
- * 聊天窗（chat）—— v0.4.0：Tabs（聊天/待办/设置）。
- * 后续预留：番茄钟 Tab（v0.7.0）。
+ * 聊天窗（chat）—— v0.7.0：Tabs（聊天/待办/番茄钟/设置）。
  */
-type TabId = "chat" | "todos" | "settings";
+type TabId = "chat" | "todos" | "pomodoro" | "settings";
 
 export function ChatApp() {
   const [tab, setTab] = useState<TabId>("chat");
@@ -34,6 +34,9 @@ export function ChatApp() {
           <TabButton active={tab === "todos"} onClick={() => setTab("todos")}>
             待办
           </TabButton>
+          <TabButton active={tab === "pomodoro"} onClick={() => setTab("pomodoro")}>
+            番茄钟
+          </TabButton>
           <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
             设置
           </TabButton>
@@ -45,6 +48,7 @@ export function ChatApp() {
 
       {tab === "chat" && <ChatTab />}
       {tab === "todos" && <TodosTab />}
+      {tab === "pomodoro" && <PomodoroTab />}
       {tab === "settings" && <SettingsTab />}
     </main>
   );

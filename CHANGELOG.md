@@ -11,12 +11,55 @@
 
 ---
 
-## [Unreleased] — 下一版 v0.7.0
+## [Unreleased] — 下一版 v0.8.0（最终版本）
 
-**范围**：计时服务全套（learning/08 为实现规范）：StandupService/PomodoroService（时间戳基准）+ Rust idle 在场检测 + sleep 状态 + Alert 弹窗闭环 + reminders 表 + create/cancel/list_reminders 工具 + 上下文注入当前时间 + 周期提醒引导降级。
-**前置**：v0.6.0 人工验收（热量问答体验）。
+**范围**：Windows 本地打包（NSIS/MSI 安装实测）+ 应用图标 + GitHub Actions 双平台 Release 工作流（tag 触发）+ README/文档收官。
+**前置**：v0.7.0 人工验收（计时/提醒/在场三条链路）。
 
 ---
+
+## [v0.7.0] - 2026-11-03 — 计时服务 + 在场检测 + 自然语言提醒
+
+### 变更
+- Rust：get_idle_seconds（user-idle 0.2，零权限聚合查询）、show_alert（定位宠物正上方）、
+  ui://show-alert 与 ui://standup-ack 监听；+tauri-plugin-notification；
+- services/timers.ts：StandupService（armed→fired→ack 闭环、away 隐式推迟、10min 超时
+  收尾、单击重置消费 v0.2.0 契约事件）+ PomodoroService（focus→break→idle 不自动续轮、
+  每秒广播）——时间基准三原则（时间戳/无脑 tick/唤醒补发）；
+- services/presence.ts（10s 轮询+迟滞 5min→sleep 状态）、reminders.ts（Store 聊天窗 CRUD
+  + Scheduler 宠物窗 30s 轮询 SQL 认领幂等、away 不认领）、notifications.ts、
+  settings 扩展 4 字段（clampInt+settingsChanged 热更新）；
+- reminders 第五表；pet-state.clearPresence；context-builder 注入当前时间锚点；
+- 工具 +6：start/stop/get_pomodoro_status（边界校验 5~90 分钟、重复启动 ok:false）、
+  create/cancel/list_reminders（时间硬校验：可解析/非过去/≤30 天；周期提醒降级话术；
+  与 add_todo 描述互指）；
+- UI：Alert 页实现（点击即 ack）、番茄钟 Tab（服务端数字倒计时+提醒列表）、
+  四 Tab 结构、设置 TimerConfigSection。
+
+### 动机与取舍
+- 提醒调度驻留宠物窗+DB 轮询认领：单一事实源=SQLite，幂等且免跨窗口状态同步；
+- StandupService 砍掉 deferred 显式态：away 不 fire 即隐式推迟，少一态语义不变；
+- get_pomodoro_status 读广播缓存：chat 窗打开时每秒新鲜，避免跨窗口请求-响应；
+- 通知开关统一三服务：一处开关管全部打扰面；
+- 番茄钟配置热更新不影响进行中轮次（时间基准已在跑，下一轮生效）。
+
+### 学习要点
+- 时间基准三原则的完整落地体感（睡眠/节流/漂移三坑全消）；
+- user-idle API 误猜 → 读 ~/.cargo/registry 源码查证（离线查依赖 API 的标准姿势）；
+- 跨窗口载荷类型用宽松形状（PomodoroStatusLite）而非强 union；
+- "当前时间锚点"是 LLM 做相对时间解析的唯一依据（模型不知道现在几点）。
+
+### 版本规划影响
+- v0.8.0 打包后：用户数据目录含 mochi.db/settings.json，安装升级需验证数据保留；
+- AGENTS.md 部署纪律即将首次生效（tag/Release 需显式声明）。
+
+### 验证
+- 46/46 测试 ✓ / tsc ✓ / vite ✓ / cargo check ✓（user-idle 编译通过）；
+- 计时/提醒/在场三条链路 6 条待人工。
+
+---
+
+## [v0.6.0] - 2026-11-03 — RAG 热量查询
 
 ## [v0.6.0] - 2026-11-03 — RAG 热量查询
 

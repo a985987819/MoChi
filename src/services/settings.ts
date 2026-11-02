@@ -8,6 +8,8 @@
 
 import { load } from "@tauri-apps/plugin-store";
 import { getPreset } from "@/agent/providers/presets";
+import { emit } from "@tauri-apps/api/event";
+import { STATE_EVENTS } from "@/shared/events";
 
 export interface AppSettings {
   /** 当前选中的提供商（presets.id 或 "mock"） */
@@ -16,14 +18,36 @@ export interface AppSettings {
   apiKeys: Record<string, string>;
   /** 每提供商选定的模型（未选过 = 预设 defaultModel） */
   models: Record<string, string>;
+  /** 站立提醒间隔（分钟），learning/08 §4.2；改配置即重置计时 */
+  standupIntervalMin: number;
+  /** 番茄钟专注时长（分钟） */
+  pomodoroFocusMin: number;
+  /** 番茄钟休息时长（分钟） */
+  pomodoroBreakMin: number;
+  /** 系统通知开关（站立提醒/番茄钟/自定义提醒共用） */
+  notificationsEnabled: boolean;
 }
 
 const STORE_FILE = "settings.json";
 const KEY = "app";
 
 export function defaultSettings(): AppSettings {
-  return { providerId: "mock", apiKeys: {}, models: {} };
+  return {
+    providerId: "mock",
+    apiKeys: {},
+    models: {},
+    standupIntervalMin: 60,
+    pomodoroFocusMin: 25,
+    pomodoroBreakMin: 5,
+    notificationsEnabled: true,
+  };
 }
+
+/** 数值字段夹紧（防设置页输入 0/负数/离谱值） */
+const clampInt = (v: unknown, min: number, max: number, fallback: number): number => {
+  const n = typeof v === "number" ? Math.round(v) : Number.NaN;
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+};
 
 function normalize(raw: unknown): AppSettings {
   const d = defaultSettings();
@@ -33,6 +57,10 @@ function normalize(raw: unknown): AppSettings {
     providerId: typeof r.providerId === "string" && getPreset(r.providerId) ? r.providerId : d.providerId,
     apiKeys: typeof r.apiKeys === "object" && r.apiKeys !== null ? r.apiKeys : d.apiKeys,
     models: typeof r.models === "object" && r.models !== null ? r.models : d.models,
+    standupIntervalMin: clampInt(r.standupIntervalMin, 1, 120, d.standupIntervalMin),
+    pomodoroFocusMin: clampInt(r.pomodoroFocusMin, 5, 90, d.pomodoroFocusMin),
+    pomodoroBreakMin: clampInt(r.pomodoroBreakMin, 1, 30, d.pomodoroBreakMin),
+    notificationsEnabled: typeof r.notificationsEnabled === "boolean" ? r.notificationsEnabled : d.notificationsEnabled,
   };
 }
 
@@ -52,6 +80,8 @@ export async function loadSettings(): Promise<AppSettings> {
 export async function saveSettings(settings: AppSettings): Promise<void> {
   const store = await getStore();
   await store.set(KEY, settings); // autoSave: true → 自动落盘
+  // 广播给常驻服务（TimerService 等）重载配置——learning/08：改站立间隔即重置计时
+  await emit(STATE_EVENTS.settingsChanged, { keys: Object.keys(settings) });
 }
 
 /** 当前提供商是否可用（Key 要求满足）——发送前/连通性测试的闸门 */

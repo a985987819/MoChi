@@ -29,6 +29,10 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2"
 # sql：SQLite（v0.5.0 起存会话协议历史/待办/长期记忆，四表 DDL 见 learning/04 §3.1）
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+# notification：系统通知（v0.7.0 起站立提醒/番茄钟/自定义提醒）
+tauri-plugin-notification = "2"
+# user-idle：跨平台"距上次输入时长"查询（v0.7.0 在场检测，learning/08 §3.1）
+user-idle = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

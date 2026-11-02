@@ -29,7 +29,8 @@ export function getDb(): Promise<Db> {
  * - sessions：v1 只用单会话（id='main'），表结构先行，多会话是 v2 空间；
  * - messages：存协议原样（tool_calls JSON 整存）——恢复即用、无信息损失；
  * - todos：v0.5.0 从 todos.json 迁入；
- * - memories：一条事实一行（粒度即检索单位）。
+ * - memories：一条事实一行（粒度即检索单位）；
+ * - reminders：v0.7.0 自然语言提醒（fire_at=epoch ms 绝对时间，learning/08 §5.4）。
  */
 const SCHEMA: string[] = [
   `CREATE TABLE IF NOT EXISTS sessions (
@@ -60,5 +61,13 @@ const SCHEMA: string[] = [
      source     TEXT NOT NULL DEFAULT 'user',
      created_at INTEGER NOT NULL,
      updated_at INTEGER NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS reminders (
+     id         INTEGER PRIMARY KEY AUTOINCREMENT,
+     text       TEXT NOT NULL,
+     fire_at    INTEGER NOT NULL,
+     status     TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','fired','cancelled')),
+     created_at INTEGER NOT NULL,
+     fired_at   INTEGER
    )`,
 ];

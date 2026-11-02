@@ -581,3 +581,155 @@ body {
 .settings-danger button:hover {
   background: #ffeef0;
 }
+
+/* ── 设置：计时配置 ── */
+.settings-timers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-row {
+  display: flex;
+  gap: 10px;
+}
+
+.settings-row .settings-field {
+  flex: 1;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #6f6560;
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  accent-color: #ff8fab;
+  width: 15px;
+  height: 15px;
+}
+
+/* ── 番茄钟 Tab ── */
+.pomo-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pomo-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 22px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid #f0e4e8;
+}
+
+.pomo-card--focus {
+  border-color: #ffb1c4;
+  background: #fff5f8;
+}
+
+.pomo-card--break {
+  border-color: #b9e2c9;
+  background: #f4fbf6;
+}
+
+.pomo-phase {
+  color: #a39690;
+  font-size: 12.5px;
+  letter-spacing: 2px;
+}
+
+.pomo-time {
+  font-size: 44px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #3d3733;
+  line-height: 1.1;
+}
+
+.pomo-card--focus .pomo-time {
+  color: #e2708a;
+}
+
+.pomo-btn {
+  margin-top: 6px;
+  padding: 9px 26px;
+  border: none;
+  border-radius: 11px;
+  background: #ff8fab;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pomo-btn--stop {
+  background: #f0b6c0;
+}
+
+.pomo-hint {
+  color: #c4b6bd;
+  font-size: 11.5px;
+  margin: 4px 0 0;
+  text-align: center;
+}
+
+.pomo-reminders {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pomo-reminders__title {
+  color: #8a7f7a;
+  font-size: 12px;
+}
+
+.pomo-reminder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #f0e4e8;
+}
+
+.pomo-reminder__text {
+  flex: 1;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.pomo-reminder__time {
+  color: #a39690;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.pomo-reminder button {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #c4b6bd;
+  cursor: pointer;
+}
+
+.pomo-reminder button:hover {
+  background: #ffe1e6;
+  color: #c94a5a;
+}

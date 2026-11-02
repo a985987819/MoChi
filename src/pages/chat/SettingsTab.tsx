@@ -168,6 +168,8 @@ export function SettingsTab() {
         )}
       </div>
 
+      <TimerConfigSection settings={settings} update={update} />
+
       <MemoriesSection />
 
       <DangerZone />
@@ -175,6 +177,65 @@ export function SettingsTab() {
       <p className="settings-note settings-note--foot">
         Key 保存在本机应用数据目录（settings.json），不上传任何服务器。
       </p>
+    </div>
+  );
+}
+
+/**
+ * 计时配置 —— v0.7.0：站立间隔/番茄钟时长/通知开关。
+ * 保存即广播 settingsChanged（settings.ts），常驻服务热更新（改站立间隔即重置计时，
+ * learning/08 §4.2）。数值边界由 settings.normalize 夹紧（1~120 等）。
+ */
+function TimerConfigSection({
+  settings,
+  update,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+}) {
+  return (
+    <div className="settings-timers">
+      <span className="settings-field-label">计时配置</span>
+      <label className="settings-field">
+        <span>站立提醒间隔（分钟，1~120）</span>
+        <input
+          type="number"
+          min={1}
+          max={120}
+          value={settings.standupIntervalMin}
+          onChange={e => update({ standupIntervalMin: Number(e.target.value) })}
+        />
+      </label>
+      <div className="settings-row">
+        <label className="settings-field">
+          <span>番茄钟专注（分钟）</span>
+          <input
+            type="number"
+            min={5}
+            max={90}
+            value={settings.pomodoroFocusMin}
+            onChange={e => update({ pomodoroFocusMin: Number(e.target.value) })}
+          />
+        </label>
+        <label className="settings-field">
+          <span>休息（分钟）</span>
+          <input
+            type="number"
+            min={1}
+            max={30}
+            value={settings.pomodoroBreakMin}
+            onChange={e => update({ pomodoroBreakMin: Number(e.target.value) })}
+          />
+        </label>
+      </div>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={settings.notificationsEnabled}
+          onChange={e => update({ notificationsEnabled: e.target.checked })}
+        />
+        <span>启用系统通知（站立提醒 / 番茄钟 / 到点提醒）</span>
+      </label>
     </div>
   );
 }

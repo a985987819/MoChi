@@ -15,11 +15,14 @@ export const UI_EVENTS = {
   hideChat: "ui://hide-chat",
   /** 显示/隐藏宠物窗（托盘菜单也用同一个入口） */
   togglePet: "ui://toggle-pet",
-  /** 重置站立计时。单击宠物时发出；Rust 侧自 v0.7.0 起由 StandupService 监听，
-   *  此前无监听者、静默丢弃——先固化交互契约，避免 v0.7.0 改前端 */
+  /** 重置站立计时。单击宠物时发出；v0.7.0 起宠物窗 StandupService 监听 */
   resetStandup: "ui://reset-standup",
   /** 退出应用（右键菜单的「退出」；托盘菜单走 Rust 内部 app.exit，不经事件） */
   quitApp: "ui://quit-app",
+  /** 显示站立提醒弹窗（StandupService → Rust 定位到宠物正上方并 show） */
+  showAlert: "ui://show-alert",
+  /** 用户点击了提醒弹窗（alert 页 → Rust 隐藏弹窗 + StandupService 重置计时） */
+  standupAck: "ui://standup-ack",
 } as const;
 
 /** 状态层广播事件（纯前端：任意窗口 emit/listen，驱动 PetStateManager 等服务） */
@@ -34,6 +37,18 @@ export const STATE_EVENTS = {
   petChanged: "state://pet-changed",
   /** 聊天历史已清空（设置页触发）——ChatTab 收到后重载（空）历史 */
   historyCleared: "state://history-cleared",
+  /** 番茄钟阶段/倒计时变化。载荷：{ phase, remainingSec, focusMin?, breakMin? }（v0.7.0） */
+  pomodoroChanged: "state://pomodoro-changed",
+  /** 在场状态变化。载荷：{ presence: "active"|"away" }（v0.7.0） */
+  presenceChanged: "state://presence-changed",
+  /** 设置已变更。载荷：{ keys: string[] }——常驻服务监听后重载配置（v0.7.0） */
+  settingsChanged: "state://settings-changed",
+  /** 提醒列表变化（创建/取消/触发）——番茄钟 Tab 提醒区刷新（v0.7.0） */
+  remindersChanged: "state://reminders-changed",
+  /** 启动番茄钟（chat 窗工具/UI → 宠物窗 PomodoroService）。载荷：{ minutes?: number } */
+  pomodoroStart: "state://pomodoro-start",
+  /** 停止番茄钟 */
+  pomodoroStop: "state://pomodoro-stop",
 } as const;
 
 /** 发射一个 UI 事件给 Rust 侧监听器 */
