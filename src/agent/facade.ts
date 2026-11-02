@@ -17,8 +17,10 @@ import { ToolRegistry, type AppServices } from "@/agent/tools/registry";
 import { addTodoTool, completeTodoTool, deleteTodoTool, listTodosTool } from "@/agent/tools/todo";
 import { setPetStateTool } from "@/agent/tools/pet-state";
 import { rememberTool } from "@/agent/tools/remember";
+import { foodSearchTool } from "@/agent/tools/food-search";
 import { historyStore } from "@/agent/memory/history-store";
 import { memoryService } from "@/agent/memory/long-term";
+import { foodIndex } from "@/rag/food";
 import { todoService } from "@/services/todos";
 import { loadSettings } from "@/services/settings";
 import { sendStateEvent, STATE_EVENTS } from "@/shared/events";
@@ -39,6 +41,7 @@ export class AgentFacade {
     this.services = {
       todos: todoService,
       memory: memoryService,
+      food: foodIndex,
       pet: {
         setMood: (state, durationSec) => {
           void sendStateEvent(STATE_EVENTS.setMood, { state, durationSec });
@@ -46,14 +49,15 @@ export class AgentFacade {
       },
     };
 
-    // 工具清单：v0.4.0（todo/pet-state）+ v0.5.0（remember）；
-    // v0.6.0 + food-search、v0.7.0 + pomodoro/reminder 系列
+    // 工具清单：v0.4.0（todo/pet-state）+ v0.5.0（remember）+ v0.6.0（food-search）；
+    // v0.7.0 + pomodoro/reminder 系列
     this.registry.register(addTodoTool());
     this.registry.register(listTodosTool());
     this.registry.register(completeTodoTool());
     this.registry.register(deleteTodoTool());
     this.registry.register(setPetStateTool());
     this.registry.register(rememberTool());
+    this.registry.register(foodSearchTool());
   }
 
   /** UI 展示"麻薯会什么"（调试价值） */
@@ -64,8 +68,9 @@ export class AgentFacade {
   /** 一轮对话：从用户输入到终答的完整 Agent 循环（历史/记忆/持久化都在内部闭环） */
   async *runTurn(opts: { userInput: string; signal: AbortSignal }): AsyncGenerator<AgentEvent> {
     // 就绪竞态防线：服务构造是异步 init（索引加载/迁移），首回合必须等它们就位，
-    // 否则首轮检索/工具读到空数据（v0.5.0 完善时发现的真实 bug）
-    await Promise.all([todoService.ready, memoryService.ready]);
+    // 否则首轮检索/工具读到空数据（v0.5.0 完善时发现的真实 bug）。
+    // foodIndex 构造即就绪（同步索引），为统一形状也在等待集合中
+    await Promise.all([todoService.ready, memoryService.ready, foodIndex.ready]);
 
     const settings = await loadSettings();
     const provider = createProvider(settings);

@@ -13,12 +13,14 @@ import type { ToolSpec } from "@/agent/providers/types";
 import type { PetState } from "@/services/pet-state";
 import type { TodoService } from "@/services/todos";
 import type { MemoryService } from "@/agent/memory/long-term";
+import type { FoodIndexService } from "@/rag/food";
 import { validateSchema } from "./validate-schema";
 
 /** 工具依赖注入的出口：Agent 内核不 import 任何具体业务模块（AGENTS.md 目录职责） */
 export interface AppServices {
   todos: TodoService;
   memory: MemoryService;
+  food: FoodIndexService;
   /** 宠物情绪控制（跨窗口：经 state://set-mood 事件到宠物窗的 PetStateManager） */
   pet: { setMood(state: PetState, durationSec?: number): void };
 }

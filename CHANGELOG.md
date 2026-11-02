@@ -11,12 +11,47 @@
 
 ---
 
-## [Unreleased] — 下一版 v0.6.0
+## [Unreleased] — 下一版 v0.7.0
 
-**范围**：热量数据集 ~130 条 + 同义词表 + food-search 工具 + Hit@3 评测脚本（learning/05 §5.3~§5.6；Retriever/BM25/分词器 v0.5.0 已就位）。
-**前置**：v0.5.0 人工验收（历史恢复/记忆回忆/窗口裁剪）。
+**范围**：计时服务全套（learning/08 为实现规范）：StandupService/PomodoroService（时间戳基准）+ Rust idle 在场检测 + sleep 状态 + Alert 弹窗闭环 + reminders 表 + create/cancel/list_reminders 工具 + 上下文注入当前时间 + 周期提醒引导降级。
+**前置**：v0.6.0 人工验收（热量问答体验）。
 
 ---
+
+## [v0.6.0] - 2026-11-03 — RAG 热量查询
+
+### 变更
+- 数据集 100 条（mcd 43/kfc 34/others 23，覆盖麦当劳/肯德基/汉堡王/必胜客/塔斯汀），
+  字段 id/brand/name/aliases/category/serving/kcal/宏量营养素；
+- rag/indexer（foodToDoc 文档化 + docToFood 还原）+ rag/synonyms（10 组同义词，
+  expandQuery 幂等化 + 全小写比对）+ rag/food（FoodIndexService，构造即索引）；
+- food-search 工具（risk=read，输出剥 aliases，反幻觉合同写进 description）；
+- 系统提示词生长：热量边界条款（数值只能来自检索条目/注明份量/近似标注/2000kcal 基准）；
+- 评测集 10 query Hit@3 门槛 ≥9（实际 10/10）；总测试 46/46。
+
+### 动机与取舍
+- 数据集 100 条而非凑满 130：数值可信度 > 条目数（宁缺勿编），扩展零成本；
+- agentic RAG：检索作为工具由模型自主调用，闲聊不浪费检索；
+- expandQuery 幂等 + 全小写输出：评测抓到"重复扩展"与"大小写不稳定"两个真问题；
+- 比萨按 1/8 块计量：单位歧义是热量问答高频错源；
+- 工具输出剥 aliases：模型自产别名无需回显（工具结果瘦身）。
+
+### 学习要点
+- 评测驱动的检索调优：两连修复全部由测试抓出（不幂等/大小写 miss）——
+  "评测集就是 RAG 的考卷"从口号变成体感；
+- 反幻觉的三道防线：工具 description 合同 + 系统提示边界条款 + 空结果语义；
+- serving 明确到不可再分（比萨 1/8 块）是热量问答的工程细节。
+
+### 版本规划影响
+- 系统提示词已含"合计相加"指引，07 §5 的 verify_meal 工具（v2）可无缝加防线；
+- v0.7.0 的 create_reminder 与 add_todo 的意图边界在两工具 description 中互指。
+
+### 验证
+- 46/46 测试（Hit@3=10/10）✓ / tsc ✓ / vite ✓ / cargo check ✓；热量问答体验 4 条待人工。
+
+---
+
+## [v0.5.0] - 2026-11-03 — 记忆系统：SQLite 历史 + 窗口 + 长期记忆
 
 ## [v0.5.0] - 2026-11-03 — 记忆系统：SQLite 历史 + 窗口 + 长期记忆
 
