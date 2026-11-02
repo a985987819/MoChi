@@ -33,8 +33,22 @@ export class HistoryStore {
     ]);
   }
 
-  /** runAgent 的 persist 回调落点：逐条追加（协议原样） */
-  async append(messages: ChatMessage[]): Promise<void> {
+  /**
+   * 追加队列：persist 是 fire-and-forget（agent.ts `void historyStore.append`），
+   * 若直接并发执行两条 INSERT，SQLite 异步桥可能让 tool 消息先于其 assistant 落库——
+   * 协议顺序破坏后恢复即 400。串行化队列保证落库顺序 = 追加顺序。
+   * 吞掉错误（记录不致命），避免未处理 rejection；队列不被毒化（catch 在链内）。
+   */
+  private queue: Promise<void> = Promise.resolve();
+
+  append(messages: ChatMessage[]): Promise<void> {
+    this.queue = this.queue
+      .then(() => this.doAppend(messages))
+      .catch(e => console.error("[HistoryStore] 落库失败（不阻塞队列）:", e));
+    return this.queue;
+  }
+
+  private async doAppend(messages: ChatMessage[]): Promise<void> {
     if (messages.length === 0) return;
     await this.ensureSession();
     const db = await getDb();

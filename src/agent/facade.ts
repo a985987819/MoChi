@@ -63,6 +63,10 @@ export class AgentFacade {
 
   /** 一轮对话：从用户输入到终答的完整 Agent 循环（历史/记忆/持久化都在内部闭环） */
   async *runTurn(opts: { userInput: string; signal: AbortSignal }): AsyncGenerator<AgentEvent> {
+    // 就绪竞态防线：服务构造是异步 init（索引加载/迁移），首回合必须等它们就位，
+    // 否则首轮检索/工具读到空数据（v0.5.0 完善时发现的真实 bug）
+    await Promise.all([todoService.ready, memoryService.ready]);
+
     const settings = await loadSettings();
     const provider = createProvider(settings);
 
