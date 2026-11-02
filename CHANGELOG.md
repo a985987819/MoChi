@@ -11,10 +11,40 @@
 
 ---
 
-## [Unreleased] — 下一版 v0.2.0
+## [Unreleased] — 下一版 v0.3.0
 
-**范围**：素材命名约定（`docs/pet-assets.md`）+ PetStateManager（槽位仲裁/回退链/多变体轮换，状态集与优先级链按 learning/08 §2）+ 占位素材集 + 宠物右键菜单。
-**开工门槛**：本机 GUI 验收 v0.1.0（`scripts\vsenv.cmd pnpm tauri dev`）。
+**范围**：Provider 抽象 + DeepSeek 预设 + MockProvider + 设置 Tab（Key/提供商/连通性测试）+ 流式聊天 UI（规格：learning/02，开工门槛：通过其复盘自测）。
+**前置**：v0.2.0 的四条 GUI 人工验收（见 roadmap）。
+
+---
+
+## [v0.2.0] - 2026-11-03 — 宠物状态系统：命名约定 + PetStateManager
+
+### 变更
+- `docs/pet-assets.md` 约定定稿（目录优先级 / 命名规则 / 10 状态集 / 验收指引）；
+- PetStateManager：三槽位仲裁（system > presence > mood > idle）+ 超时回落 + `state://pet-changed` 广播 + 跨窗口遥控事件；
+- 素材解析器：用户目录（Rust 窄命令 + asset 协议）> 内置 10 状态 SVG 集 > 占位 SVG 兜底；每次解析重扫用户目录（放图即生效）；
+- 变体轮换（静态图 5~9s 随机、动画图不轮换）；自绘右键菜单（含表情演示验收工具）；
+- 单击宠物 emit `ui://reset-standup`（契约先行，v0.7.0 接计时器）。
+
+### 动机与取舍
+- 每次解析重扫目录而非文件 watcher：毫秒级 readdir 换"放图即生效"，省掉 notify 事件桥；
+- 自定义窄命令而非 tauri-plugin-fs：前端不持通用文件权限，最小权限面；
+- SVG 手绘替代脚本生成 PNG（roadmap 原步骤）：质量更高、体积更小、零构建工具；
+- 仲裁（pet-state.ts）与渲染（PetApp）分离：状态不知道图片、图片不知道优先级。
+
+### 学习要点
+- 资源"文件名即协议"设计与三层回退链；Tauri asset 协议与 capability 联动（protocol-asset feature）；
+- Rust/TS 双份约定实现的同步纪律（parseAssetName ↔ pet_state_of_file_name）；
+- AppHandle move 语义（E0382）与 clone 惯例；tauri feature ↔ conf 校验机制。
+
+### 版本规划影响
+- v0.4.0 `set_pet_state` 工具直接 emit `state://set-mood`，零新协议；
+- v0.7.0 只需给 `ui://reset-standup` 加 Rust 监听 + 驱动 system/presence 槽，前端状态系统零改动；
+- 状态名扩展必须同步 pet-assets.md + 两侧解析实现。
+
+### 验证
+- tsc ✓ / vite ✓ / cargo check ✓（0 警告）；4 条素材回退/轮换/优先级验收待人工（docs/pet-assets.md §5）。
 
 ---
 

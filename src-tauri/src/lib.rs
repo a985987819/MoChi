@@ -17,6 +17,8 @@
 //! （见 `on_window_event`），真正退出只走托盘菜单「退出 Mochi」。
 //! 宠物窗（pet）是事实上的主窗口：它常驻可见，承载计时器（v0.7.0）等长期服务。
 
+use std::collections::BTreeMap;
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -28,6 +30,7 @@ use tauri::{
 const EVT_OPEN_CHAT: &str = "ui://open-chat";
 const EVT_HIDE_CHAT: &str = "ui://hide-chat";
 const EVT_TOGGLE_PET: &str = "ui://toggle-pet";
+const EVT_QUIT_APP: &str = "ui://quit-app";
 
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -40,7 +43,8 @@ pub fn run() {
                 let _ = pet.show();
             }
         }))
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![list_user_pet_assets]);
 
     // macOS：桌宠类应用不应出现在 Dock 上（Accessory = 无 Dock 图标、无主窗口菜单）。
     // Windows 下此 API 不存在，用 cfg 条件编译隔离平台差异。
@@ -119,6 +123,59 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
 
     let handle = app.clone();
     app.listen_any(EVT_TOGGLE_PET, move |_| toggle_pet(&handle));
+
+    // 右键菜单「退出」（托盘菜单直接调 app.exit，不走事件）
+    let handle = app.clone();
+    app.listen_any(EVT_QUIT_APP, move |_| handle.exit(0));
+}
+
+/// 从素材文件名提取状态名（与前端 `pet-assets.ts#parseAssetName` 同一套约定，见 docs/pet-assets.md §2）。
+/// `{state}.{ext}` / `{state}_N.{ext}`；jpeg 归一 jpg；不支持的扩展名返回 None。
+/// 后缀剥离只认"纯数字后缀"：`my_state.png` 的状态是 `my_state`，`my_state_2.png` 也是 `my_state`。
+fn pet_state_of_file_name(name: &str) -> Option<String> {
+    let lower = name.to_lowercase();
+    let (stem, ext) = lower.rsplit_once('.')?;
+    let ext = if ext == "jpeg" { "jpg" } else { ext };
+    if !matches!(ext, "png" | "jpg" | "gif" | "webp" | "svg") {
+        return None;
+    }
+    let state = match stem.rsplit_once('_') {
+        Some((base, suffix)) if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) => base,
+        _ => stem,
+    };
+    if state.is_empty() { None } else { Some(state.to_string()) }
+}
+
+/// 扫描用户素材目录 `{appData}/pet-assets/`，返回 { 状态: [文件完整路径] }。
+/// 约定见 docs/pet-assets.md。前端每次切换状态都调用本命令（目录极小，readdir 毫秒级），
+/// 以换取"放图即生效、删图即回落"——比文件监视（watcher + 事件桥）简单一个量级。
+///
+/// 权限设计：前端不申请通用文件系统权限（tauri-plugin-fs），只暴露这个窄命令——
+/// 应用自定义命令默认允许调用（见 Tauri v2 能力模型），插件命令才需要逐条 ACL。
+#[tauri::command]
+fn list_user_pet_assets(app: tauri::AppHandle) -> BTreeMap<String, Vec<String>> {
+    let mut result: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let dir = match app.path().app_data_dir() {
+        Ok(p) => p.join("pet-assets"),
+        Err(_) => return result,
+    };
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return result, // 目录不存在 = 用户未放素材，回退链走内置
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if let Some(state) = pet_state_of_file_name(name) {
+            result.entry(state).or_default().push(path.to_string_lossy().into_owned());
+        }
+    }
+    result
 }
 
 /// 显示并聚焦聊天窗。show() 不夺焦，聊天窗要接住用户输入必须显式 set_focus。

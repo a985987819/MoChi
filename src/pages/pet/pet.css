@@ -26,9 +26,16 @@ body {
 }
 
 .pet-stage__pet {
-  line-height: 0;                 /* 消除 SVG 底部基线空隙 */
+  line-height: 0;                 /* 消除 SVG/img 底部基线空隙 */
   animation: mochi-float 3.2s ease-in-out infinite; /* 待机漂浮 */
   transform-origin: 50% 100%;     /* 弹跳从底部发力 */
+}
+
+/* 素材图片：完整显示不裁剪（docs/pet-assets.md §4），拖动区属性不影响 img */
+.pet-stage__img {
+  max-width: 200px;
+  max-height: 240px;
+  object-fit: contain;
 }
 
 /* 待机：轻轻上下浮 */

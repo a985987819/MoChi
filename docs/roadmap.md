@@ -44,10 +44,11 @@
 6. 学习文档：`pet-assets.md` 完善 + 版本文档
 
 **验收标准**：
-- [ ] 向 `{appData}/pet-assets/` 放入 `happy.gif`，宠物在触发 happy 状态时播放它，无需重启
-- [ ] 删除某状态素材后回落到占位 SVG，UI 不白屏不报错
-- [ ] `idle_2.png`、`idle_3.png` 存在时 idle 状态随机轮换
-- [ ] 系统事件状态（如 `focus`）期间 Agent 情绪状态不抢占；超时后自动回落 idle
+- [ ] 向 `{appData}/pet-assets/` 放入 `happy.gif`，宠物在触发 happy 状态时播放它，无需重启（待人工，指引 docs/pet-assets.md §5）
+- [ ] 删除某状态素材后回落到占位 SVG，UI 不白屏不报错（待人工）
+- [ ] `idle_2.png`、`idle_3.png` 存在时 idle 状态随机轮换（待人工）
+- [ ] 系统事件状态（如 `focus`）期间 Agent 情绪状态不抢占；超时后自动回落 idle（待人工，表情演示可触发）
+- [x] `pnpm check` / `vite build` / `cargo check` 通过（2026-11-03）
 
 ---
 
