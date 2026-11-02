@@ -221,6 +221,10 @@ export async function* runAgent(opts: {
 }
 ```
 
+> **v0.5.0 规格扩展**：`opts` 增加 `persist?(message: ChatMessage)` 回调——每次追加
+> 协议消息（assistant/tool）时调用一次，由 HistoryStore 落库（04 §4.3）。循环本体
+> 不感知存储，persist 缺省时行为与本节代码完全一致。
+
 **逐段讲解**（每段都是面试级考点）：
 
 - 第 2 步把 `assistant` 消息（含 `toolCalls`）压回历史：协议要求 tool 结果必须紧跟在带对应 `tool_calls` 的 assistant 消息之后，顺序不可乱；

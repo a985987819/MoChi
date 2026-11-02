@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
@@ -39,6 +40,13 @@ export default defineConfig(() => ({
   //
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
+
+  // Vitest（pnpm test）：纯函数单测（tokenizer/bm25/window/validate-schema）。
+  // node 环境——被测模块不得 import 任何 @tauri-apps/*（保持内核可测性，AGENTS.md 分层纪律）
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts"],
+  },
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,

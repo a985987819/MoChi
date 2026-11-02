@@ -99,14 +99,18 @@ Few-shot 示例很贵（占窗口），且容易被模型机械模仿。规范�
 
 ### 4.1 ContextBuilder（`src/agent/core/context-builder.ts`）
 
+> v0.5.0 泛化：`buildInitialMessages` → **`buildMessages`**（支持拼接协议历史，层序不变：
+> system → 记忆注入 → 历史窗口 → 当前输入；`history: []` 即退化为本节最初的形状）。
+
 ```ts
-export interface ContextInput {
+export interface BuildContextInput {
+  history: ChatMessage[];      // 协议历史（已过 trimWindow 裁剪）
   userInput: string;
-  memories?: string[];        // v0.5.0：MemoryService.searchForContext(userInput) 的结果
+  memories?: string[];         // MemoryService.searchForContext(userInput) 的结果
   retrievedKnowledge?: string; // v0.6.0：RAG 检索段
 }
 
-export function buildInitialMessages(input: ContextInput): ChatMessage[] {
+export function buildMessages(input: BuildContextInput): ChatMessage[] {
   const messages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }];
   if (input.memories?.length) {
     messages.push({ role: "user", content:
@@ -114,7 +118,8 @@ export function buildInitialMessages(input: ContextInput): ChatMessage[] {
     // 注：作为 user 消息注入而非塞进 system——多数模型对"后到的 user 上下文"利用率更高，
     // 也避免污染角色定义。用括号+明确指令防止模型把它当作用户说的话。
   }
-  messages.push({ role: "user", content: input.userInput });
+  if (input.retrievedKnowledge) { /* 同款括号包裹的 user 消息（v0.6.0） */ }
+  messages.push(...input.history, { role: "user", content: input.userInput });
   return messages;
 }
 ```

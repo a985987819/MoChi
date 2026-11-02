@@ -113,6 +113,7 @@
 - [ ] 长对话超出窗口后，早期上下文被裁剪但长期记忆仍注入（待人工，可临时调小预算验证）
 - [ ] `memories` 表可查看、可删除单条（设置页已实现，交互待人工）
 - [x] 待办从 Store 迁移 SQLite（旧数据自动迁移）+ 四表 DDL + `pnpm check`/`vite build`/`cargo check` 通过（2026-11-03）
+- [x] 单测基建（vitest）+ 30/30 通过（tokenizer/bm25/trimWindow/validate-schema）；就绪竞态与落库顺序两个 bug 修复（完善批次，2026-11-03）
 
 ---
 

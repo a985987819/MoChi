@@ -81,8 +81,7 @@ CREATE TABLE IF NOT EXISTS memories (
 1. `Cargo.toml`：`tauri-plugin-sql = { version = "2", features = ["sqlite"] }`
 2. `lib.rs`：`.plugin(tauri_plugin_sql::Builder::default().build())`
 3. `package.json`：`@tauri-apps/plugin-sql`
-4. `capabilities/default.json`：permissions 加 `"sql:default"`（该插件用 migrations 声明建表，见下）
-5. `tauri.conf.json` 的 `plugins` 段注册 migrations（SQL 字符串数组，按版本执行一次）
+4. `capabilities/default.json`：permissions 加 `"sql:default"`
 
 TS 侧用法（参数占位符是 `$1/$2` 风格）：
 
@@ -92,6 +91,12 @@ const db = await Database.load("sqlite:mochi.db");   // 文件落在 appDataDir
 await db.execute("INSERT INTO todos (title, created_at) VALUES ($1, $2)", [title, Date.now()]);
 const rows = await db.select<{ id: number; title: string }[]>("SELECT id, title FROM todos WHERE done = 0");
 ```
+
+**建表方式（Mochi 的实现选择，v0.5.0 完善时定稿）**：插件支持在 `tauri.conf.json` 的
+`plugins.sql.migrations` 里声明建表，但 Mochi 用 **TS 侧 `ensureSchema` 幂等建表**
+（`src/services/db.ts`：四条 `CREATE TABLE IF NOT EXISTS`）——对教学项目更透明、
+零配置 schema 风险；表结构演进时加 ALTER 迁移步骤并同步本文。config migrations
+是多版本 schema 管理的生产备选。
 
 ## 4. 参考实现（v0.5.0 的实现规格）
 

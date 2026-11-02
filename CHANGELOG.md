@@ -51,6 +51,14 @@
 ### 验证
 - tsc ✓ / vite ✓ / cargo check ✓；历史恢复/记忆回忆/裁剪/迁移 5 条待人工。
 
+### 完善（同日第二批次）
+- 修复两个真实 bug：**服务就绪竞态**（runTurn 现在等待 todoService/memoryService ready，
+  否则首轮检索/工具读空）、**落库乱序**（HistoryStore 串行队列，防 tool 先于 assistant 入库）；
+- 测试基建：vitest + 30 用例（tokenizer/bm25/trimWindow/validate-schema）全绿，
+  `pnpm test` 入驻脚本；被测模块零 tauri 依赖——分层纪律的可测性红利；
+- 文档-代码同步：learning/04 §3.2（ensureSchema 实现选择）、03 §4.1（buildMessages 泛化）、
+  01 §4.3（persist 回调扩展）。
+
 ---
 
 ## [v0.4.0] - 2026-11-03 — Agent 循环与工具调用（待办功能上线）
