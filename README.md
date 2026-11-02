@@ -42,7 +42,8 @@ macOS 构建走 GitHub Actions（`git tag` 触发），见 `.github/workflows/bu
 | [AGENTS.md](AGENTS.md) | 项目工作流规范（提交纪律、部署纪律、代码规范）——**协作前必读** |
 | [docs/roadmap.md](docs/roadmap.md) | 版本路线图与每版验收标准（进度事实源） |
 | [docs/versions/](docs/versions/) | 每版实施记录：文件级实现细节、设计取舍、踩坑、自测 |
-| [docs/learning/](docs/learning/) | Agent 开发学习文档：Agent 循环 / Provider 抽象 / 上下文工程 / 记忆 / RAG / Tauri |
+| [docs/learning/00-learning-path.md](docs/learning/00-learning-path.md) | **Agent 学习路线起点**：知识地图、架构总图、术语表 |
+| [docs/learning/](docs/learning/) | Agent 开发学习文档：Provider 抽象 / Agent 循环 / 上下文工程 / 记忆 / RAG / Tauri |
 | [docs/pet-assets.md](docs/pet-assets.md) | 宠物素材命名约定（想换自己的宠物形象看这里） |
 
 ## 技术栈

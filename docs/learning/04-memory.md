@@ -1,0 +1,209 @@
+# 04 · 记忆系统：分层模型与 SQLite 落地
+
+> 对应版本：v0.5.0 ｜ 前置：[01 循环](01-agent-loop.md)、[03 上下文](03-context-engineering.md)、[05 检索](05-rag-bm25.md)（复用其 Retriever）
+> 学完标准：能说出三层记忆各自"存什么/放哪/怎么进上下文"，并能从零写出 Mochi 的表结构与检索注入链路。
+
+## 1. 目标
+
+- 建立**记忆分层**的工程视角：不同生命周期的信息放不同的存储，用不同的方式回炉；
+- 落地 SQLite 持久化（会话历史 + 待办 + 长期事实），应用重启后 Agent"还记得"；
+- 实现"每轮检索相关记忆注入上下文"的闭环——这是记忆系统的灵魂动作。
+
+## 2. 核心概念
+
+### 2.1 三层记忆模型
+
+| 层 | 类比人脑 | 存什么 | 放哪 | 生命周期 | 如何进上下文 |
+|---|---|---|---|---|---|
+| 工作记忆 | 正在想的 | 当前窗口内的消息 | messages 数组 | 单轮请求 | 天然在窗口里 |
+| 情景记忆 | 回忆起某次对话 | 完整会话历史（含工具块） | SQLite `messages` | 永久（可清理） | 启动/续聊时加载最近 N 块 |
+| 语义记忆 | "我知道用户是…的人" | 事实与偏好（"用户喜欢低糖"） | SQLite `memories` | 长期（可增删） | **每轮检索 top-k 注入** |
+
+关键区别：情景记忆按**会话**组织、整块回放；语义记忆跨会话、**按相关性检索**。全量注入语义记忆在数据多时不可持续——所以"检索"从第一天就是记忆系统的一部分（与 RAG 共用同一套 Retriever，见 [05](05-rag-bm25.md)）。
+
+### 2.2 业界产品对照（模式都收敛于"写入口径 + 检索注入"）
+
+| 系统 | 写入 | 读出 |
+|---|---|---|
+| ChatGPT Memory | 显式（"记住…"）+ 隐式（对话中抽取） | 每轮把相关条目拼进 system |
+| Claude memory tool | 模型主动调用工具写文件 | 模型按需读文件 |
+| MemGPT/Letta | 把 LLM 当操作系统，分层分页 | 缺页时自动换入 |
+| mem0 | 对话后 LLM 抽取事实 + 去重合并 | 向量检索注入 |
+
+Mochi v1 选取最朴素可靠的组合：**显式工具写入（remember）+ BM25 检索注入**；隐式自动抽取（每轮用小 prompt 让模型提炼事实）作为 v2 候选——它的难点不在抽取而在**去重与冲突合并**。
+
+## 3. 数据模型（v0.5.0 实现规格）
+
+### 3.1 SQLite 表结构（迁移脚本，随 tauri-plugin-sql 执行）
+
+```sql
+CREATE TABLE IF NOT EXISTS sessions (
+  id          TEXT PRIMARY KEY,            -- uuid
+  title       TEXT NOT NULL DEFAULT '新对话',
+  created_at  INTEGER NOT NULL             -- unix ms
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id   TEXT NOT NULL REFERENCES sessions(id),
+  role         TEXT NOT NULL CHECK (role IN ('system','user','assistant','tool')),
+  content      TEXT,                       -- assistant 的 toolCalls 另存
+  tool_calls   TEXT,                       -- JSON 数组（仅 assistant 且发起调用时）
+  tool_call_id TEXT,                       -- 仅 tool 角色
+  created_at   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS todos (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  title      TEXT NOT NULL,
+  due        TEXT,                          -- 用户原话或 ISO 日期（v1 不做时间解析）
+  done       INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  done_at    INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS memories (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  fact       TEXT NOT NULL,                -- 一条独立事实，一句话
+  source     TEXT NOT NULL DEFAULT 'user', -- user=显式要求 / agent=模型判断
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+```
+
+设计要点：
+- `messages` 一行 = 协议的一条消息，`tool_calls` JSON 序列化整存——**存的是协议原样**，恢复时可直接反序列化成 `ChatMessage[]`，无信息丢失；
+- `memories.fact` 保持"一条一句话"粒度，检索与删除都以此为单位；
+- 时间戳用 unix ms 整数，避免时区问题。
+
+### 3.2 tauri-plugin-sql 接入清单（Rust 侧零代码，全是配置）
+
+1. `Cargo.toml`：`tauri-plugin-sql = { version = "2", features = ["sqlite"] }`
+2. `lib.rs`：`.plugin(tauri_plugin_sql::Builder::default().build())`
+3. `package.json`：`@tauri-apps/plugin-sql`
+4. `capabilities/default.json`：permissions 加 `"sql:default"`（该插件用 migrations 声明建表，见下）
+5. `tauri.conf.json` 的 `plugins` 段注册 migrations（SQL 字符串数组，按版本执行一次）
+
+TS 侧用法（参数占位符是 `$1/$2` 风格）：
+
+```ts
+import Database from "@tauri-apps/plugin-sql";
+const db = await Database.load("sqlite:mochi.db");   // 文件落在 appDataDir
+await db.execute("INSERT INTO todos (title, created_at) VALUES ($1, $2)", [title, Date.now()]);
+const rows = await db.select<{ id: number; title: string }[]>("SELECT id, title FROM todos WHERE done = 0");
+```
+
+## 4. 参考实现（v0.5.0 的实现规格）
+
+### 4.1 MemoryService（长期事实：增删查 + 检索）
+
+```ts
+export class MemoryService {
+  constructor(private db: Database, private retriever: Retriever) {}
+
+  /** remember 工具的落点 */
+  async remember(fact: string, source: "user" | "agent" = "user"): Promise<number> {
+    const now = Date.now();
+    const r = await this.db.execute(
+      "INSERT INTO memories (fact, source, created_at, updated_at) VALUES ($1,$2,$3,$3)",
+      [fact.trim(), source, now]);
+    this.retriever.upsertDocument({ id: `mem-${now}`, text: fact });  // 同步进检索索引
+    return r.lastInsertId as number;
+  }
+
+  /** 每轮 context-builder 调用：取与当前输入最相关的 top-k 事实原文 */
+  async searchForContext(query: string, k = 3): Promise<string[]> {
+    const hits = this.retriever.search(query, k);       // BM25（05 文档），memories 体量小毫秒级
+    return hits.map(h => h.doc.text);
+  }
+
+  async remove(id: number): Promise<void> { /* DELETE + retriever.removeDocument */ }
+  async list(): Promise<Memory[]> { /* SELECT * ORDER BY updated_at DESC */ }
+}
+```
+
+注意闭环：**写记忆 = 写表 + 更新内存索引**（两个动作必须一起做，拆开就会"存了但查不到"）。v1 索引在内存里随启动从表重建（数据量小，重建 <10ms），省掉索引持久化的复杂度。
+
+### 4.2 remember 工具（挂进 ToolRegistry）
+
+```ts
+registry.register({
+  name: "remember",
+  description: "记录一条关于用户的长期事实/偏好（如饮食偏好、工作作息）。仅在用户明确要求记住，或信息明显长期有用时调用。不要记录密码、密钥、证件号。",
+  parameters: { type: "object",
+    properties: { fact: { type: "string", description: "一句话独立事实，主谓完整，如：用户喜欢低糖饮食" } },
+    required: ["fact"] },
+  execute: async (args, ctx) => {
+    const id = await ctx.services.memory.remember(args.fact, "agent");
+    return { ok: true, data: { id, message: "已记住" } };
+  },
+});
+```
+
+`description` 里写了触发条件与禁区（敏感信息）——工具描述即提示词，见 [01](01-agent-loop.md)。
+
+### 4.3 会话历史（HistoryStore）
+
+```ts
+export class HistoryStore {
+  constructor(private db: Database, private sessionId: string) {}
+
+  /** 每轮 runAgent 结束后把新增 messages 原样落库（assistant 含 toolCalls JSON） */
+  async append(messages: ChatMessage[]): Promise<void>;
+
+  /** 启动/续聊恢复：取最近 N 块（复用 03 的分块规则），反序列化回 ChatMessage[] */
+  async loadWindow(blockCount = 10): Promise<ChatMessage[]>;
+
+  async newSession(): Promise<string>;     // 创建 sessions 行
+  async clearSession(): Promise<void>;     // 用户"清空聊天"按钮
+}
+```
+
+序列化约定：`ChatMessage.toolCalls → tool_calls JSON 列`；`role:"tool"` 行的 `content` 存协议原文（JSON 字符串）。**恢复后的历史必须能直接再发给 API**——这是"存协议原样"设计的回报。
+
+### 4.4 一轮对话的记忆闭环（时序）
+
+```
+用户输入 "我最近在减脂"
+  → MemoryService.searchForContext("我最近在减脂") → ["用户喜欢低糖饮食"]     ┐
+  → buildInitialMessages({ userInput, memories })                             ├ 03 文档
+  → runAgent(...)                                                             ┘
+  → 模型调用 remember("用户正在减脂") → memories 表 + 索引
+  → 模型调用 add_todo("定制一周减脂餐计划")？—— 不，todo 是待办不是计划，模型应给出建议文本
+  → done → messages 全部落库
+下次会话："帮我看看午饭吃什么" → 检索命中"正在减脂" → 回答主动考虑热量
+```
+
+## 5. 隐私与安全规范
+
+- 记忆是**本地明文**（SQLite），必须在设置页提供：查看全部、单条删除、一键清空——用户对自己的记忆有完全控制权；
+- 系统提示与工具描述双重声明"不记录敏感信息"（见 03 系统提示【记忆】段）；
+- 记忆不参与任何网络上传（本应用无服务端，事实如此设计）。
+
+## 6. 设计取舍
+
+| 决策 | 为什么 | 放弃了什么 |
+|---|---|---|
+| 显式 remember 起步，自动抽取留 v2 | 自动抽取的难点是去重/冲突合并（"喜欢低糖"vs"今天想吃甜的"），v1 不碰 | "无感记忆"的体验 |
+| BM25 检索记忆而非向量 | 事实句短且关键词明显；与 RAG 共用检索模块，一套代码两处收益 | 语义改写型查询的召回（"我吃饭忌口"查不到"低糖"→ 同义词表缓解，见 05） |
+| 索引内存重建而非持久化 | 数据量小，重建成本可忽略 | 超大数据量的启动速度（真到那天先做向量库） |
+| 消息表存协议原样 | 恢复即用，无信息损失 | 行宽较大（工具结果全文）；03 的"工具结果瘦身"作用于上下文层，不影响落库 |
+| 会话级 history + 全局 memories | 符合直觉：对话是会话的，"用户是谁"是全局的 | 会话隔离的私有记忆（v1 无此需求） |
+
+## 7. 复盘自测
+
+1. 默写三层记忆表：每层存什么、放哪、怎么进上下文？
+2. `memories` 表五个字段；为什么 fact 保持"一句话"粒度？
+3. "存了但查不到"是怎么发生的？本文用哪两个动作的绑定来避免？
+4. `messages` 表为什么存协议原样？给出 `tool_calls` 列的存取转换代码。
+5. 说出 ChatGPT/MemGPT/mem0 任一产品的记忆读写模式，并指出 Mochi v1 对应的取舍。
+6. 检索注入的记忆放在哪条消息里？为什么不用 system？
+7. tauri-plugin-sql 接入五步清单；参数占位符什么风格？
+
+## 8. 延伸阅读
+
+- MemGPT 论文（把记忆当 OS 分页的经典设计）：https://arxiv.org/abs/2310.08560
+- mem0 开源记忆层（抽取-合并-检索流水线参考）：https://github.com/mem0ai/mem0
+- Anthropic Memory tool 文档（文件式记忆的官方形态）：https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool
+- tauri-plugin-sql：https://v2.tauri.app/plugin/sql/
+- 本项目源码对照（v0.5.0 后）：`src/agent/memory/`、`src-tauri/tauri.conf.json` 的 migrations
