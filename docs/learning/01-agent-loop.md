@@ -245,7 +245,7 @@ UI 不直接调 `runAgent`，而是通过门面组装依赖（03 文档的 conte
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `set_pet_state` | `state: string`（枚举）、`duration_sec?` | 驱动宠物情绪状态（happy/sad/thinking…），事件通知 PetStateManager |
+| `set_pet_state` | `state: string`（枚举）、`duration_sec?` | 驱动宠物情绪状态。**枚举经 08 §2 精化为 happy/sad**：thinking/talking 由应用从 AgentEvent 映射，alert/focus 等系统状态归应用计时器 |
 | `add_todo` | `title: string`、`due?: string`（ISO 日期或自然语言原文） | 写入待办，返回 id |
 | `list_todos` | `include_done?: boolean` | 返回 JSON 列表 |
 | `complete_todo` | `id: number` | 标记完成 |

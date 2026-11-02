@@ -11,12 +11,45 @@
 
 ---
 
-## [Unreleased] — 下一版 v0.4.0
+## [Unreleased] — 下一版 v0.5.0
 
-**范围**：ToolRegistry + AgentRunner（规格 learning/01）+ 上下文工程/系统提示词（learning/03）+ set_pet_state / todo_* 工具 + 待办 Tab（内存版，v0.5.0 迁 SQLite）+ 宠物情绪联动。
-**前置**：v0.3.0 人工验收（真实 Key 流式对话）。
+**范围**：tauri-plugin-sql 四表（sessions/messages/todos/memories，DDL 已定稿 learning/04 §3.1）+ 待办迁移 SQLite + 会话历史持久化/重启恢复 + 滑动窗口裁剪器（learning/03 §4.2）+ remember 工具 + 长期记忆检索注入。
+**前置**：v0.4.0 人工验收（待办对话驱动 + 情绪联动）。
 
 ---
+
+## [v0.4.0] - 2026-11-03 — Agent 循环与工具调用（待办功能上线）
+
+### 变更
+- `src/agent/tools/`：validate-schema（迷你 JSON Schema 校验器）、registry（ToolRegistry + risk 分级 + 失败回传自愈）、todo×4、pet-state（枚举精化 happy/sad）；
+- `src/agent/core/`：prompt（系统提示词 v0.4 剪辑版）、context-builder（memories/retrievedKnowledge 接口预留）、agent（runAgent ≤8 步循环、allSettled 并发、hitMaxSteps 兜底）；
+- `src/agent/facade.ts`：依赖组装 + thinking/talking 宠物状态映射（AgentEvent 驱动）；
+- TodoService（store 持久化）+ 待办 Tab（手动增删/勾选，UI 通道）；
+- ChatTab 接入 facade + 工具轨迹 note 条目（不进协议历史）。
+
+### 动机与取舍
+- 一切工具失败转 {ok:false} 回传——模型自愈是 Agent 的核心容错机制；
+- set_pet_state 枚举收窄 happy/sad（08 §2 精化 01 §4.5）：能力面最小化，thinking/talking 应用驱动；
+- 待办 UI 手动通道必须有：07 双入口铁律，Agent 通道故障不瘫功能；
+- due 传用户原话不解析：防幻觉具体时刻，时间语义归 v0.7.0；
+- note 轨迹不进协议历史：用户可感知、上下文不污染。
+
+### 学习要点
+- Agent = LLM + 循环 + 工具 + 状态：runAgent 60 行的四个步骤与两个终止出口；
+- 协议顺序铁律：tool 结果紧跟 tool_calls 所在 assistant，裁剪按块；
+- 参数校验在代码侧：模型输出只是"建议"；
+- 双错误通道：transport 抛出、工具级回填自愈。
+
+### 版本规划影响
+- v0.5.0：runAgent 内 SQLite 同步点已注释；buildInitialMessages 的 memories 入参直接接 MemoryService；
+- todos.json → SQLite 迁移时 TodoService 接口保持不变（双入口无感切换）。
+
+### 验证
+- tsc ✓ / vite ✓ / cargo check ✓；对话驱动待办/情绪联动/自愈 5 条待人工（需真实 Key）。
+
+---
+
+## [v0.3.0] - 2026-11-03 — Provider 抽象与流式对话
 
 ## [v0.3.0] - 2026-11-03 — Provider 抽象与流式对话
 

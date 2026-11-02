@@ -364,3 +364,146 @@ body {
   font-size: 12.5px;
   user-select: text;
 }
+
+/* ── 工具调用轨迹（note 条目，不进协议历史）── */
+.chat-note {
+  align-self: center;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: #f6f1f3;
+  color: #a39690;
+  font-size: 11px;
+}
+
+/* ── 待办 Tab（UI 通道：与 Agent 工具共用 TodoService，learning/07 双入口）── */
+.todos-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.todos-add {
+  display: flex;
+  gap: 8px;
+}
+
+.todos-add input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #f0e4e8;
+  border-radius: 9px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  color: #3d3733;
+  outline: none;
+}
+
+.todos-add input:focus {
+  border-color: #ffc4d0;
+}
+
+.todos-add button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 9px;
+  background: #ff8fab;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.todos-add button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.todos-empty {
+  margin: 24px auto;
+  text-align: center;
+  color: #a39690;
+  font-size: 13px;
+  line-height: 2;
+}
+
+.todos-section {
+  color: #a39690;
+  font-size: 11.5px;
+  margin-top: 6px;
+}
+
+.todo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  background: #fff;
+  border: 1px solid #f0e4e8;
+}
+
+.todo-row--done {
+  opacity: 0.55;
+}
+
+.todo-row__check {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 1.5px solid #ffc4d0;
+  border-radius: 6px;
+  background: #fff;
+  color: #e2708a;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.todo-row__check:disabled {
+  background: #ffc4d0;
+  color: #fff;
+  cursor: default;
+}
+
+.todo-row__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.todo-row__title {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.todo-row--done .todo-row__title {
+  text-decoration: line-through;
+}
+
+.todo-row__due {
+  color: #a39690;
+  font-size: 11px;
+}
+
+.todo-row__del {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #c4b6bd;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.todo-row__del:hover {
+  background: #ffe1e6;
+  color: #c94a5a;
+}

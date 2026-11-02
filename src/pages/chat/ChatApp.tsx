@@ -1,18 +1,16 @@
 import { useCallback, useState } from "react";
 import { ChatTab } from "./ChatTab";
+import { TodosTab } from "./TodosTab";
 import { SettingsTab } from "./SettingsTab";
 import { sendUIEvent, UI_EVENTS } from "@/shared/events";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import "./chat.css";
 
 /**
- * 聊天窗（chat）—— v0.3.0：自绘标题栏 + Tab（聊天/设置）。
- *
- * v0.1.0 版本记录预告过：做设置 UI 时把系统标题栏换成自绘（decorations:false）。
- * 标题栏 = 拖动区 + 关闭按钮（emit ui://hide-chat，关闭=隐藏）。
- * Tab 结构为后续功能预留：番茄钟（v0.7.0）、待办（v0.4.0）。
+ * 聊天窗（chat）—— v0.4.0：Tabs（聊天/待办/设置）。
+ * 后续预留：番茄钟 Tab（v0.7.0）。
  */
-type TabId = "chat" | "settings";
+type TabId = "chat" | "todos" | "settings";
 
 export function ChatApp() {
   const [tab, setTab] = useState<TabId>("chat");
@@ -27,11 +25,14 @@ export function ChatApp() {
       <header className="chat-titlebar" data-tauri-drag-region>
         <span className="chat-titlebar__title" data-tauri-drag-region>
           <MochiPlaceholder size={18} />
-          Mochi 聊天
+          Mochi
         </span>
         <nav className="chat-tabs" onClick={e => e.stopPropagation()}>
           <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
             聊天
+          </TabButton>
+          <TabButton active={tab === "todos"} onClick={() => setTab("todos")}>
+            待办
           </TabButton>
           <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
             设置
@@ -42,7 +43,9 @@ export function ChatApp() {
         </button>
       </header>
 
-      {tab === "chat" ? <ChatTab /> : <SettingsTab />}
+      {tab === "chat" && <ChatTab />}
+      {tab === "todos" && <TodosTab />}
+      {tab === "settings" && <SettingsTab />}
     </main>
   );
 }
