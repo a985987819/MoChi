@@ -11,12 +11,45 @@
 
 ---
 
-## [Unreleased] — 下一版 v0.8.0（最终版本）
+## [Unreleased] — v1.0 发布清单（等待人工验收 + 显式发布声明）
 
-**范围**：Windows 本地打包（NSIS/MSI 安装实测）+ 应用图标 + GitHub Actions 双平台 Release 工作流（tag 触发）+ README/文档收官。
-**前置**：v0.7.0 人工验收（计时/提醒/在场三条链路）。
+**剩余事项**：①Windows 安装包安装/卸载/升级数据保留实测；②GitHub 仓库 remote + 显式声明的首次 push/tag（CI 出 draft Release 后人工确认）；③新机器按 README 复跑。
 
 ---
+
+## [v0.8.0] - 2026-11-03 — 打包分发 + CI + 文档收官
+
+### 变更
+- 应用图标：scripts/gen-icon.mjs（手写 PNG 编码器+程序化绘制 1024px 团子）→ tauri icon 19 文件全套；
+- 打包：bundle targets 限定 nsis+msi，NSIS 简体中文/英文 + per-user 安装；
+  本地 `tauri build` 产出 NSIS 2.49 MiB + MSI 3.45 MiB 双安装包；
+- CI：.github/workflows/release.yml（tag v* 触发，windows/macos matrix，
+  tauri-action 产 **draft** Release 由所有者确认；macOS universal dmg 未签名）；
+- README 收官（打包/发布/用户数据三节）；build.yml→release.yml 引用统一；
+  learning 9 篇复盘自测结构检查通过。
+
+### 动机与取舍
+- 手写 PNG 编码器而非引 canvas/sharp：一次性图标产物零依赖；
+- NSIS 主推（简体中文+per-user），MSI 辅助（en-US 保首建可靠性）；
+- CI 自动化到 draft 为止：把"对外发布"留给人工确认（07 确认回环思想的应用）；
+- macOS 未签名：个人分发可接受，签名公证需 Apple Developer 账号（v2）。
+
+### 学习要点
+- Tauri 打包链：NSIS/WiX 工具链由 CLI 自动下载托管；
+- 手写 PNG（IHDR/IDAT/CRC32/zlib）——理解图像格式最薄的一层；
+- 发布流水线的"自动化到 draft"模式：CI 效率与人工把关的平衡点。
+
+### 版本规划影响
+- roadmap v0.1→v0.8 全部代码侧完成；v1.0 发布等人工验收 + 显式声明；
+- 后续 backlog 见 roadmap「后续候选」（帧序列动画/VectorRetriever/多会话等）。
+
+### 验证
+- 双安装包产出 ✓ / 图标 19 文件 ✓ / release.yml 复查 ✓ / learning 9 篇结构 ✓；
+- 安装实测与 CI 首跑待人工。
+
+---
+
+## [v0.7.0] - 2026-11-03 — 计时服务 + 在场检测 + 自然语言提醒
 
 ## [v0.7.0] - 2026-11-03 — 计时服务 + 在场检测 + 自然语言提醒
 

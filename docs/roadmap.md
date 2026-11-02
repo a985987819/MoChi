@@ -168,15 +168,16 @@
 **步骤**：
 1. Windows 本地 `pnpm tauri build`：NSIS/MSI 安装包，安装实测（升级/卸载/数据保留）
 2. 应用图标（icns/ico 生成）、安装包中文语言配置
-3. `.github/workflows/build.yml`：matrix（windows/macos），tauri-action，tag `v*` 触发上传 Release
+3. `.github/workflows/release.yml`：matrix（windows/macos），tauri-action，tag `v*` 触发上传 Release（draft，人工确认发布）
 4. README 快速开始与截图、roadmap 收尾勾选、全文档一致性检查
 5. 显式声明的首次发布：push + tag（走部署纪律）
 
 **验收标准**：
-- [ ] Windows 安装包装得上、卸载干净、更新后 SQLite/Store 数据保留
-- [ ] 推 tag 后 CI 产出 .msi/.exe 与 .dmg 并附到 GitHub Release
-- [ ] 新机器按 README 从零到跑通无歧义
-- [ ] 全部 learning 文档通过「复盘自测」结构完整性检查
+- [ ] Windows 安装包装得上、卸载干净、更新后 SQLite/Store 数据保留（待人工；NSIS 2.49MiB/MSI 3.45MiB 已产出）
+- [ ] 推 tag 后 CI 产出 .msi/.exe 与 .dmg 并附到 GitHub Release（待人工；release.yml 就绪，Release 走 draft 由所有者确认，**push/tag 需显式声明**）
+- [ ] 新机器按 README 从零到跑通无歧义（待人工）
+- [x] 全部 learning 文档通过「复盘自测」结构完整性检查（9/9，2026-11-03）
+- [x] 图标全套（gen-icon.mjs + tauri icon）+ NSIS 简体中文/per-user 配置 + 本地打包双产物验证（2026-11-03）
 
 ---
 

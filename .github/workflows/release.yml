@@ -1,0 +1,67 @@
+# Mochi Release CI —— push tag v* 触发，双平台自动构建并发布到 GitHub Release。
+#
+# 部署纪律（AGENTS.md）：本工作流只在显式声明的发布时被触发（用户手动 push tag），
+# 日常 push 到 main 不会触发任何发布动作。
+#
+# 说明：
+# - macOS 用 universal-apple-darwin（x86_64 + aarch64 合一 .dmg），未签名（个人分发可接受，
+#   首次打开需右键→打开绕过 Gatekeeper）
+# - Windows 产出 NSIS .exe 与 WiX .msi（安装器语言含简体中文）
+# - Rust 缓存命中时单平台约 10~20 分钟
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {} # 手动触发仅用于演练，不产生正式 Release（draft）
+
+jobs:
+  build:
+    permissions:
+      contents: write # tauri-action 创建 Release 需要写权限
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ""
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust 缓存
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 构建并发布
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Mochi v__VERSION__"
+          releaseBody: "Mochi 麻薯 —— AI 桌宠小助手。变更见 CHANGELOG.md。"
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

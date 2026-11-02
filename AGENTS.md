@@ -72,4 +72,4 @@
 - **构建统一走包装脚本**（本机 rustc 不自动探测 MSVC，且 Git Bash 的 coreutils link.exe 会遮蔽）：
   `scripts\vsenv.cmd cargo check` / `scripts\vsenv.cmd pnpm tauri dev` / `scripts\vsenv.cmd pnpm tauri build`
 - 常用命令：`pnpm check`（tsc --noEmit）/ `pnpm test`（vitest 单测）/ `pnpm build`（前端构建）。
-- macOS 构建依赖 GitHub Actions（见 `.github/workflows/build.yml`，v0.8.0 落地），本机无法产出 mac 包。
+- macOS 构建依赖 GitHub Actions（见 `.github/workflows/release.yml`，tag `v*` 触发，Release 走 draft 由所有者确认），本机无法产出 mac 包。

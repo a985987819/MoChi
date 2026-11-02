@@ -19,21 +19,40 @@
 ## 快速开始（Windows）
 
 ```bash
-# 0) 环境要求：Node 22+、pnpm（corepack enable）、Rust MSVC 工具链
+# 0) 环境要求：Node 22+、pnpm、Rust MSVC 工具链 + VS Build Tools + Windows SDK
 #    详细安装步骤见 docs/versions/v0.1.0-环境与脚手架.md
+#    （本仓库 Windows 构建统一走 scripts\vsenv.cmd，自动加载 MSVC 环境）
 
 # 1) 安装依赖
 pnpm install
 
 # 2) 开发模式运行
-pnpm tauri dev
+scripts\vsenv.cmd pnpm tauri dev
 
 # 3) 配置 API Key
 #    双击宠物打开聊天窗 → 设置 Tab → 选择提供商 DeepSeek → 粘贴 API Key
-#    （没有 Key 也可以用 Mock 提供商体验全流程）
+#    （没有 Key 也可以选 Mock 提供商体验全流程）
 ```
 
-macOS 构建走 GitHub Actions（`git tag` 触发），见 `.github/workflows/build.yml`。
+## 打包与发布
+
+```bash
+# Windows 本地打包（NSIS 简体中文安装器 + MSI）
+scripts\vsenv.cmd pnpm tauri build
+# 产物：src-tauri/target/release/bundle/{nsis,msi}/
+
+# 应用图标：scripts/gen-icon.mjs 生成源图 → tauri icon 出全尺寸
+node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png
+```
+
+**发布（部署纪律）**：push tag `v*` 触发 GitHub Actions 双平台构建（Windows NSIS/MSI +
+macOS universal .dmg，未签名），自动附到 GitHub Release（draft）。**发布必须由项目所有者
+显式声明执行**（见 AGENTS.md），工作流定义见 `.github/workflows/release.yml`。
+
+## 用户数据
+
+运行数据全部在本机：`{应用数据目录}/com.mochi.pet/`（SQLite mochi.db + settings.json +
+pet-assets/ 自定义素材）。卸载重装/升级均保留；"清空聊天历史"在设置页。
 
 ## 文档导航
 
