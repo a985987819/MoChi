@@ -174,7 +174,8 @@
 
 **验收标准**：
 - [x] Windows 安装包装得上、卸载干净、数据保留（2026-11-03 静默安装自动化实测：装→跑→卸→重装全链路 ✓，mochi.db 保留）
-- [ ] 推 tag 后 CI 产出 .msi/.exe 与 .dmg 并附到 GitHub Release（release.yml 就绪并已补 pnpm install 步骤；Release 走 draft 由所有者确认，**push/tag 需显式声明 + GitHub remote**）
+- [x] push main + tag v0.8.0 到 github.com/a985987819/MoChi（2026-11-03，用户显式声明；CI 首跑结果见 GitHub Actions 页，Release draft 待所有者确认）
+- [ ] CI 产出 .msi/.exe 与 .dmg 并附到 GitHub Release draft → 所有者在 GitHub 确认发布（运行约 10~20 分钟）
 - [ ] 新机器按 README 从零到跑通无歧义（待人工）
 - [x] 全部 learning 文档通过「复盘自测」结构完整性检查（9/9，2026-11-03）
 - [x] 图标全套（gen-icon.mjs + tauri icon）+ NSIS 简体中文/per-user 配置 + 本地打包双产物验证（2026-11-03）

@@ -11,9 +11,10 @@
 
 ---
 
-## [Unreleased] — v1.0 发布清单（等待显式发布声明）
+## [Unreleased] — v1.0 发布清单
 
-**剩余事项**：①GitHub 仓库 remote + 显式声明的首次 push/tag（CI 出 draft Release 后人工确认）——**发布基建已全部就绪**；②新机器按 README 复跑；③日常使用中的人工验收反馈。
+**已发布**（2026-11-03，用户显式声明）：remote github.com/a985987819/MoChi.git；main + tag v0.8.0 已推送，Release CI 首跑中（双平台 draft，结果见 GitHub Actions）。
+**剩余事项**：①CI 双平台产物确认 → GitHub 确认 draft Release；②新机器按 README 复跑；③日常使用反馈。
 
 **v0.8.0 完善批次**：版本号三处对齐 0.8.0（tag 与应用版本一致）；release.yml 补 pnpm install --frozen-lockfile（tauri-action 不装依赖）；**安装实测自动化通过**（静默装→跑→卸→重装，mochi.db 全程保留），应用已安装在机器上。
 
