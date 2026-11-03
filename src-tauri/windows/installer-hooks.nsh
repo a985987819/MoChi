@@ -32,9 +32,14 @@
 ; 用户对装到哪、要不要管理员、数据存哪一无所知）。
 !define MUI_WELCOMEPAGE_TEXT "本向导将通过以下三步完成安装：$\r$\n$\r$\n　① 选择安装位置 —— 默认只为当前用户安装，无需管理员权限$\r$\n　② 创建开始菜单与桌面快捷方式$\r$\n　③ 写入《快速上手》指南，并可选择立即启动麻薯$\r$\n$\r$\n聊天记录、待办等数据保存在 %APPDATA%\com.mochi.pet，升级或卸载都不会丢失。$\r$\n$\r$\n单击〔下一步〕继续。"
 
-; 完成页：把「装完先干什么」讲成步骤（正文显示在两个勾选框上方，
-; 行数必须克制，否则会把「创建桌面快捷方式 / 运行 Mochi」挤下去）。
-!define MUI_FINISHPAGE_TEXT "麻薯安装完成！$\r$\n$\r$\n接下来建议：$\r$\n　① 首次启动会自动弹出新手引导，跟着走即可$\r$\n　② 麻薯待在屏幕右下角，双击它打开聊天窗口$\r$\n　③ 更多玩法见安装目录里的《快速上手.txt》$\r$\n$\r$\n勾选「运行 Mochi」并单击〔完成〕，和麻薯见个面。"
+; 完成页：把「装完先干什么」讲成步骤，并把自定义形象的放置规则直接给到
+; （路径 + 「文件名＝状态名」命名法 + 支持的格式 + 立即生效）。这是用户问得
+; 最多的「放什么图、放哪里」，不该藏在 txt 里。正文显示在两个勾选框上方，
+; 行数必须克制，否则会把「创建桌面快捷方式 / 运行 Mochi」挤下去。
+; 素材约定的事实源是 docs/pet-assets.md：路径 %APPDATA%\com.mochi.pet\pet-assets\，
+; {状态}.{扩展名} / {状态}_{序号}.{扩展名}，扩展名 png/jpg/jpeg/gif/webp/svg
+; （与 src/services/pet-assets.ts、src-tauri list_user_pet_assets 一致）。
+!define MUI_FINISHPAGE_TEXT "麻薯安装完成！$\r$\n$\r$\n　① 首次启动会自动弹出新手引导，跟着走即可$\r$\n　② 换形象（可选）：把图片放进 %APPDATA%\com.mochi.pet\pet-assets\，$\r$\n　　 文件名＝状态名，如 idle.png（待机）、happy.gif（开心）、focus.png（专注）；$\r$\n　　 支持 png / jpg / gif / webp / svg，放进去立即生效、无需重启$\r$\n　③ 完整状态表与变体规则见安装目录《快速上手.txt》$\r$\n$\r$\n勾选「运行 Mochi」并单击〔完成〕，和麻薯见个面。"
 
 !macro NSIS_HOOK_POSTINSTALL
   ; 安装进度页的过程提示：让「正在做什么」全程可见（DetailPrint 显示在

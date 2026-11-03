@@ -20,7 +20,9 @@
 {状态}_{序号}.{扩展名}    变体形态，如 idle_2.png、idle_3.png（序号从 2 开始）
 ```
 
-- 支持扩展名：`png` `jpg` `jpeg` `gif` `webp`（大小写不敏感）；内置素材额外支持 `svg`。
+- 支持扩展名：`png` `jpg` `jpeg` `gif` `webp` `svg`（大小写不敏感；`jpeg` 归一为 `jpg`）。
+  用户目录与内置素材走同一套解析逻辑（前端 `src/services/pet-assets.ts` 的
+  `SUPPORTED_EXTS`、Rust `list_user_pet_assets` 白名单一致，均含 `svg`）。
 - `gif` / `webp` 动图会被当作**动画素材**：播放期间不参与变体轮换（播完自然循环）。
 - 变体轮换：同一状态有多张**静态**图（png/jpg）时，每 5~9 秒随机换一张；只有一张则固定。
 - 无法识别的文件名会被忽略；状态名超出下方状态集的文件暂时不会被触发（向前兼容，不会报错）。
