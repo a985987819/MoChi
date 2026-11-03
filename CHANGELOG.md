@@ -13,8 +13,13 @@
 
 ## [Unreleased] — v1.0 发布清单
 
-**已发布**（2026-11-03，用户显式声明）：remote github.com/a985987819/MoChi.git；main + tag v0.8.0 已推送，Release CI 首跑中（双平台 draft，结果见 GitHub Actions）。
-**剩余事项**：①CI 双平台产物确认 → GitHub 确认 draft Release；②新机器按 README 复跑；③日常使用反馈。
+**已发布**（2026-11-03，用户显式声明）：remote github.com/a985987819/MoChi.git；main + tag v0.8.0 已推送。
+**v0.8.0 CI 复核结论**（2026-11-03 22:26 复查 Actions）：Windows job **成功**（`tauri-apps/tauri-action` 产出
+NSIS/MSI 并创建 draft Release）；macOS job **失败**——`构建并发布` 步骤报
+`Command "pnpm tauri build --target universal-apple-darwin" failed with exit code 1`
+（run 41555740912，3m31s 失败；job 日志需仓库 admin 权限，匿名 API 拿不到，暂无法定位到具体子命令）。
+**剩余事项**：①定位 macOS 构建失败（优先怀疑无 GUI 环境下 `.dmg` 打包的 Finder/AppleScript 步骤）→ 修复后重跑；
+②在 GitHub 确认 draft Release；③新机器按 README 复跑；④日常使用反馈。
 
 **v0.8.0 完善批次**：版本号三处对齐 0.8.0（tag 与应用版本一致）；release.yml 补 pnpm install --frozen-lockfile（tauri-action 不装依赖）；**安装实测自动化通过**（静默装→跑→卸→重装，mochi.db 全程保留），应用已安装在机器上。
 
@@ -54,6 +59,13 @@
 `pnpm check` ✅ / `pnpm test` 46 passed ✅ / `pnpm build` ✅；
 `makensis 3.13` 编译含真实 hooks 的最小安装器通过，静默安装后 `快速上手.txt` 1894 字节 UTF-16LE 中文无误。
 完整 `tauri build` 因沙箱阻断 `reg.exe`（vcvars 依赖）未能执行，待用户在真实终端验证。
+
+### 发布记录
+- 2026-11-03 22:26（用户显式声明"推送部署"）：版本号三处对齐 0.8.1（package/tauri.conf/Cargo.toml + Cargo.lock），
+  `main` 推到 39dda4c，annotated tag `v0.8.1` 已推送。
+- CI：run [41653711863](https://github.com/a985987819/MoChi/actions/runs/41653711863)，
+  Windows/MSI 与 macOS dmg 双矩阵，Release 走 **draft**（由所有者确认发布）。
+- 本地无法完整打包（沙箱限制），本次安装包以 CI 产物为准——这也是对 v0.8.1 中文安装器的实装验证。
 
 ---
 
