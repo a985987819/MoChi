@@ -1,6 +1,6 @@
 [package]
 name = "mochi"
-version = "0.8.0"
+version = "0.8.1"
 description = "Mochi 麻薯 —— AI 桌宠小助手"
 authors = ["laoduan"]
 edition = "2024"

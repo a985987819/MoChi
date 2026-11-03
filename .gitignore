@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 工作区本地数据（Agent 记忆 / 会话日志，属于个人环境，不入库）
+.workbuddy/
