@@ -49,6 +49,11 @@ export const STATE_EVENTS = {
   pomodoroStart: "state://pomodoro-start",
   /** 停止番茄钟 */
   pomodoroStop: "state://pomodoro-stop",
+  /**
+   * 请求重新显示新手引导（设置页「重新显示新手引导」→ 聊天窗 ChatApp）。
+   * 引导本体在 ChatApp 内以覆盖层渲染，事件只负责"把它叫出来"（v0.9.0）。
+   */
+  onboardingRequested: "state://onboarding-requested",
 } as const;
 
 /** 发射一个 UI 事件给 Rust 侧监听器 */

@@ -172,6 +172,8 @@ export function SettingsTab() {
 
       <MemoriesSection />
 
+      <OnboardingSection update={update} />
+
       <DangerZone />
 
       <p className="settings-note settings-note--foot">
@@ -268,6 +270,27 @@ function MemoriesSection() {
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * 使用指引 —— v0.9.0：把首次启动引导做成"可回看"。
+ * 实现上不做单独的引导路由：onboardingDone 置回 false + 广播事件，
+ * 聊天窗（ChatApp）用同一套 WelcomeGuide 覆盖层接住，避免两份文案漂移。
+ */
+function OnboardingSection({ update }: { update: (patch: Partial<AppSettings>) => void }) {
+  const replay = useCallback(() => {
+    update({ onboardingDone: false });
+    void sendStateEvent(STATE_EVENTS.onboardingRequested);
+  }, [update]);
+
+  return (
+    <div className="settings-help">
+      <span className="settings-field-label">使用指引</span>
+      <button className="settings-ghost-btn" onClick={replay}>
+        重新显示新手引导
+      </button>
     </div>
   );
 }

@@ -4,6 +4,8 @@ import { petState } from "@/services/pet-state";
 import { presenceService } from "@/services/presence";
 import { standupService, pomodoroService } from "@/services/timers";
 import { reminderScheduler } from "@/services/reminders";
+import { loadSettings } from "@/services/settings";
+import { sendUIEvent, UI_EVENTS } from "@/shared/events";
 
 // 跨窗口遥控监听（state://set-mood 等）只装一次：宠物窗是宠物状态的宿主窗口
 void petState.installRemoteListeners();
@@ -14,5 +16,18 @@ void presenceService.start(); // 在场检测 → sleep 状态 + 提醒推迟的
 void standupService.start(); // 站立提醒（监听 ui://reset-standup / standup-ack）
 void pomodoroService.start(); // 番茄钟（监听 state://pomodoro-start/stop）
 void reminderScheduler.start(); // 自然语言提醒调度（30s 轮询 SQLite 认领）
+
+/**
+ * 首次启动引导的入口（v0.9.0）。
+ *
+ * 「双击宠物打开聊天」是个没有暗示的隐藏手势，新用户装完只看得到一个静止的团子。
+ * 所以首启时由宠物窗主动把聊天窗叫出来，展示 WelcomeGuide。
+ * 延迟 1.2s：先让麻薯在右下角出现（用户建立"这是一个会动的小东西"的第一印象），
+ * 再弹窗；立刻弹窗会盖住这个第一印象，像被一个向导拦住。
+ */
+void loadSettings().then(settings => {
+  if (settings.onboardingDone) return;
+  window.setTimeout(() => void sendUIEvent(UI_EVENTS.openChat), 1200);
+});
 
 createRoot(document.getElementById("root")!).render(<PetApp />);

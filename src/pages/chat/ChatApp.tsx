@@ -1,19 +1,58 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { ChatTab } from "./ChatTab";
 import { TodosTab } from "./TodosTab";
 import { PomodoroTab } from "./PomodoroTab";
 import { SettingsTab } from "./SettingsTab";
-import { sendUIEvent, UI_EVENTS } from "@/shared/events";
+import { WelcomeGuide } from "./WelcomeGuide";
+import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
+import { loadSettings, saveSettings } from "@/services/settings";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import "./chat.css";
 
 /**
  * 聊天窗（chat）—— v0.7.0：Tabs（聊天/待办/番茄钟/设置）。
+ *
+ * v0.9.0 增加首次启动引导：`onboardingDone === false` 时用 WelcomeGuide 覆盖内容区，
+ * 此时隐藏 Tab 栏（避免"引导在上、Tab 在下"两套导航抢注意力），关闭按钮保留。
+ * 触发来源有两处——首次启动（pet 窗自动打开聊天窗）与设置页的「重新显示」事件。
  */
 type TabId = "chat" | "todos" | "pomodoro" | "settings";
 
 export function ChatApp() {
   const [tab, setTab] = useState<TabId>("chat");
+  const [welcome, setWelcome] = useState(false);
+
+  // ① 首装/升级用户：读设置判断是否要展示引导
+  useEffect(() => {
+    void loadSettings().then(s => {
+      if (!s.onboardingDone) setWelcome(true);
+    });
+  }, []);
+
+  // ② 设置页「重新显示新手引导」：同一个覆盖层被事件叫出来
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    void listen(STATE_EVENTS.onboardingRequested, () => {
+      setTab("chat");
+      setWelcome(true);
+    }).then(unlisten => {
+      off = unlisten;
+    });
+    return () => off?.();
+  }, []);
+
+  /**
+   * 结束引导：先切到目标 Tab 再落盘。
+   * 落盘失败（极少见：磁盘只读）不影响本次体验——下次启动会再看到一次，
+   * 这是可接受的降级方向（宁可多讲一次，也不要让用户错过）。
+   */
+  const finishWelcome = useCallback(async (destination: "chat" | "settings") => {
+    setWelcome(false);
+    setTab(destination);
+    const settings = await loadSettings();
+    if (!settings.onboardingDone) await saveSettings({ ...settings, onboardingDone: true });
+  }, []);
 
   const handleClose = useCallback(() => {
     void sendUIEvent(UI_EVENTS.hideChat);
@@ -27,29 +66,37 @@ export function ChatApp() {
           <MochiPlaceholder size={18} />
           Mochi
         </span>
-        <nav className="chat-tabs" onClick={e => e.stopPropagation()}>
-          <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
-            聊天
-          </TabButton>
-          <TabButton active={tab === "todos"} onClick={() => setTab("todos")}>
-            待办
-          </TabButton>
-          <TabButton active={tab === "pomodoro"} onClick={() => setTab("pomodoro")}>
-            番茄钟
-          </TabButton>
-          <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
-            设置
-          </TabButton>
-        </nav>
+        {!welcome && (
+          <nav className="chat-tabs" onClick={e => e.stopPropagation()}>
+            <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
+              聊天
+            </TabButton>
+            <TabButton active={tab === "todos"} onClick={() => setTab("todos")}>
+              待办
+            </TabButton>
+            <TabButton active={tab === "pomodoro"} onClick={() => setTab("pomodoro")}>
+              番茄钟
+            </TabButton>
+            <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
+              设置
+            </TabButton>
+          </nav>
+        )}
         <button className="chat-titlebar__close" onClick={handleClose} aria-label="关闭窗口">
           ×
         </button>
       </header>
 
-      {tab === "chat" && <ChatTab />}
-      {tab === "todos" && <TodosTab />}
-      {tab === "pomodoro" && <PomodoroTab />}
-      {tab === "settings" && <SettingsTab />}
+      {welcome ? (
+        <WelcomeGuide onFinish={finishWelcome} />
+      ) : (
+        <>
+          {tab === "chat" && <ChatTab />}
+          {tab === "todos" && <TodosTab />}
+          {tab === "pomodoro" && <PomodoroTab />}
+          {tab === "settings" && <SettingsTab />}
+        </>
+      )}
     </main>
   );
 }

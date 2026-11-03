@@ -26,6 +26,16 @@ export interface AppSettings {
   pomodoroBreakMin: number;
   /** 系统通知开关（站立提醒/番茄钟/自定义提醒共用） */
   notificationsEnabled: boolean;
+  /**
+   * 是否已完成首次启动引导（v0.9.0）。
+   *
+   * 为什么把「引导是否看过」放在设置里而不是 localStorage：
+   * 1. 设置本来就随应用走 `tauri-plugin-store`，重装/升级后仍然记得；
+   * 2. 引导文案与设置项强相关（第 3 步直接跳设置 Tab），放一起便于版本演进时
+   *    用 key 名做迁移（例如将来 onboardingVersion: 2 触发增量引导）；
+   * 3. 设置页「重新显示新手引导」= 把它置回 false，零额外状态。
+   */
+  onboardingDone: boolean;
 }
 
 const STORE_FILE = "settings.json";
@@ -40,6 +50,7 @@ export function defaultSettings(): AppSettings {
     pomodoroFocusMin: 25,
     pomodoroBreakMin: 5,
     notificationsEnabled: true,
+    onboardingDone: false,
   };
 }
 
@@ -61,6 +72,9 @@ function normalize(raw: unknown): AppSettings {
     pomodoroFocusMin: clampInt(r.pomodoroFocusMin, 5, 90, d.pomodoroFocusMin),
     pomodoroBreakMin: clampInt(r.pomodoroBreakMin, 1, 30, d.pomodoroBreakMin),
     notificationsEnabled: typeof r.notificationsEnabled === "boolean" ? r.notificationsEnabled : d.notificationsEnabled,
+    // 老版本 settings.json 没有这个字段：undefined → false（当作没看过引导）。
+    // 这正是「升级用户也会看到一次引导」的期望行为——v0.9.0 之前没有引导。
+    onboardingDone: typeof r.onboardingDone === "boolean" ? r.onboardingDone : d.onboardingDone,
   };
 }
 
