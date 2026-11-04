@@ -248,7 +248,7 @@ ReminderService（应用，确定性）：
 2. 旧库先 `PRAGMA table_info` 探测，缺列则 `ALTER ... DEFAULT -1`。-1 只用于旧行迁移：旧 fired 回填 `COALESCE(fired_at,created_at)`，旧 active/cancelled 回填 NULL。迁移中断后仍可继续处理 -1，旧通知不会升级后整批重弹；并发 ALTER 重新读列确认。
 3. 每轮扫描先重试失败的回滚/确认写入，再查询未确认 fired，按稳定 `reminder:N` 交给原生去重队列；本轮服务的 delivered Set 避免每秒重复派发。恢复不重复发 OS 通知。
 4. 用户确认匹配 reminder id 后更新 acknowledged_at；写入失败保存内存令牌重试。确认后、落库前崩溃可能再次提示，选择“宁重复一次也不永久漏掉”。
-5. 扫描只有一个在途 Promise；stop/start 使用代号防旧 SQL 返回后继续交付；初始化/连接失败可重试。该保证不等于分布式 exactly-once，也不等于退出/断电时可执行代码。
+5. 扫描只有一个在途 Promise；stop/start 使用代号防旧 SQL 返回后继续交付；await 原生 show 成功后也再次校验代号，防止停止后迟到的成功回调污染新生命周期或发送通知。初始化/连接失败可重试。该保证不等于分布式 exactly-once，也不等于退出/断电时可执行代码。
 
 #### 5.4.2 原生显示通道与服务生命周期
 

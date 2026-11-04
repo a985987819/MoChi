@@ -239,6 +239,7 @@ export class ReminderScheduler {
       if (this.delivered.has(row.id)) continue;
       try {
         await showAppAlert({ id: `reminder:${row.id}`, kind: "reminder", title: "到点提醒", body: row.text });
+        if (!this.isCurrent(generation)) return;
         this.delivered.add(row.id);
       } catch {
         // 记录仍为 fired + 未确认，下一心跳继续恢复。
@@ -277,6 +278,9 @@ export class ReminderScheduler {
         this.pendingRollbacks.delete(row.id);
         continue;
       }
+      // 原生已接受的队列保留，但晚于 stop 返回的旧请求不能污染新生命周期。
+      // 未确认 fired 仍在 SQLite，下一次 start 会按相同 id 恢复而不重复通知。
+      if (!this.isCurrent(generation)) return;
       this.delivered.add(row.id);
       petState.setSystem("alert", 8, "reminder"); // 临时提示到期后恢复站立/专注状态
       if (this.notificationsEnabled) void notify("⏰ 到点提醒", row.text).catch(() => undefined);

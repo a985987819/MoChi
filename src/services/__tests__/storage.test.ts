@@ -16,7 +16,7 @@ interface Sqlite {
 const deps = vi.hoisted(() => ({
   db: null as Sqlite | null,
   presence: { current: "active" },
-  notify: vi.fn(),
+  notify: vi.fn(async () => {}),
   failWrite: false,
   notificationsEnabled: true,
   failRead: false,
@@ -260,6 +260,24 @@ it("数据库扫描未返回时不发起重叠查询，stop 后不继续交付",
   await starting;
   expect(deps.showAlert).not.toHaveBeenCalled();
   expect(await reminderStore.listActive()).toHaveLength(1);
+});
+
+it("弹窗请求在 stop 后才成功，旧生命周期不再发通知或改变宠物状态", async () => {
+  const { reminderStore, ReminderScheduler } = await import("@/services/reminders");
+  const { petState } = await import("@/services/pet-state");
+  await reminderStore.ready;
+  await reminderStore.create("停止后的迟到交付", Date.now() - 1000);
+  let release: () => void = () => {};
+  deps.showAlert.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+  const scheduler = new ReminderScheduler();
+  const starting = scheduler.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(deps.showAlert).toHaveBeenCalledTimes(1);
+  scheduler.stop();
+  release();
+  await starting;
+  expect(deps.notify).not.toHaveBeenCalled();
+  expect(petState.current).toBe("idle");
 });
 
 it("恢复活动事件立即补扫，不必等下次心跳", async () => {

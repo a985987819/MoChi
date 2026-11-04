@@ -111,13 +111,12 @@ pub fn run() {
             show_app_alert, get_app_alert, ack_app_alert, dismiss_app_alert
         ]);
 
-    // macOS：桌宠类应用不应出现在 Dock 上（Accessory = 无 Dock 图标、无主窗口菜单）。
-    // Windows 下此 API 不存在，用 cfg 条件编译隔离平台差异。
-    #[cfg(target_os = "macos")]
-    let builder = builder.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
     builder
         .setup(|app| {
+            // Tauri 2 的 activation policy 属于 App，而不是 Builder；仅 macOS 提供。
+            // 在 setup 拿到 App 后设置 Accessory，才能跨平台编译并隐藏 Dock 图标。
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             setup_tray(app)?;
             setup_ui_event_listeners(app.handle().clone());
             position_pet_bottom_right(app);

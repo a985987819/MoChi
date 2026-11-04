@@ -34,6 +34,8 @@ NSIS/MSI 并创建 draft Release）；macOS job **失败**——`构建并发布
 - **学习要点**：真实浏览器发现0×0 SVG，必须跨过布局边界验证；去重/确认必须携带所有者id；“已入队”和“用户已确认”是不同持久状态。详见learning/08与09。
 - **版本规划影响**：仍停留v0.8.1，不跳过原生验收。新增独立check CI（main/PR双平台check/test/build/cargo test，不发布），不改release流程。
 - **验证**：本地21文件140/140、check/build/diff通过；Playwright动作及动态提醒走查通过（官方IPC mocks）。Rust5项测试已写，本机缺MSVC/Rust未执行；原生GUI/通知/多屏效果待实测。上一批61190d9已推送，本批推送与CI事实见实施记录。
+- **收尾复核**：弹窗请求在stop后迟到成功时不再改变宠物或通知；新增失败复现与修复后回归，全量141/141，第二批累计新增53项。
+- **原生检查**：首轮check CI的Windows前端与Rust测试通过；macOS cargo步骤失败后对照锁定源码发现旧Builder调用activation policy API不正确，改在setup中的App上设置，后续双平台结果见版本记录。
 
 ### 2026-11-04 基础功能回归修复（本地，未发布）
 

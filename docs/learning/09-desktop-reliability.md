@@ -235,6 +235,8 @@ TS 的 `alerts.test.ts` 覆盖初载快照、慢快照顺序、卸载清理和�
 
 ## 6. 复盘自测（默写伪代码清单）
 
+**双平台 CI 补充走读**：旧代码在 macOS cfg 分支中调用 `Builder.set_activation_policy`，但锁定的 Tauri 2.12.5 只在 App/AppHandle 提供该方法。现在在 `.setup(|app| { ... })` 内先用 `#[cfg(target_os = "macos")]` 隔离平台，再调用 `app.set_activation_policy(Accessory)`。Windows 编译不会经过 macOS cfg，故单平台绿灯不能证明条件编译另一侧正确。依据：[官方 app.rs](https://github.com/tauri-apps/tauri/blob/tauri-v2.12.5/crates/tauri/src/app.rs)（2026-11-04核验）。
+
 1. 默写业务到点、原生接受、用户确认三层状态，并给出各自的权威位置。为何 show 成功不能直接代表 acknowledged？
 2. 默写 `enqueue/acknowledge/dismiss`。为何 acknowledge 只能删除匹配的队头，而 dismiss 可以移除任意匹配项？
 3. 默写 `present_alert` 的 needs_present 设置顺序；分别说出首次 show 失败、切换下一条失败由谁重试。
