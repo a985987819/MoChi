@@ -25,6 +25,31 @@ NSIS/MSI 并创建 draft Release）；macOS job **失败**——`构建并发布
 
 ---
 
+## [Unreleased] — v0.9.0 体验打磨（施工中，未发布）
+
+> 任务源：`docs/iterations/2026-11-03-通宵迭代施工单.md`；执行事实见 `docs/versions/v0.9.0-体验打磨.md`。
+> 纪律：按施工单 §0.5，本版推送/打 tag 前不动 remote，全部提交只落本地 main。
+
+### Night 1 — P0 清零（2026-11-04，6 任务 6 commit）
+
+**变更**：外链改走 opener（P0-01）；设置页「关于」区块——版本/数据目录/诊断复制（P0-06）；
+设置落盘 350ms 防抖 + settingsChanged 载荷改真实变更集 + 站立计时按变更键条件重排（P0-02）；
+通知权限启动预热 + 设置页权限状态展示（P0-03）；README macOS Gatekeeper 说明（P0-05）；
+宠物窗位置持久化（window-state 插件 POSITION + 多屏可见性自愈）+ Windows 首启定位避开任务栏
+（SPI_GETWORKAREA）（P0-04）。版本号四处对齐 0.9.0。
+
+**动机与取舍**：防抖抽 tauri-free 纯模块（node 测试纪律反向塑造模块边界）；授权集中在启动
+（预期内打断 vs 预期外打断）；window-state 只开 POSITION（保护 chat 隐藏启动）；工作区查询
+下沉平台 API（Tauri Monitor 无工作区概念）。
+
+**学习要点**：事件载荷的信息量决定订阅方行为精度；插件能力评估看源码不看文档
+（保存时机直接决定要不要自己写）；测试环境纪律塑造模块边界。
+
+**规划影响**：P1-15（宠物大小）复用 `pet_position_visible` 做 clamp；测试 46→51 例。
+**验证**：pnpm check / 51 tests / pnpm build / cargo check 全绿；GUI 项全部 `[需人工]`（清单见版本文档）。
+
+---
+
 ## [v0.8.1] - 2026-11-03 — 安装与首启体验（补丁）
 
 ### 变更
