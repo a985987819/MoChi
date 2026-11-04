@@ -5,7 +5,7 @@
  *
  * # 槽位模型（三层来源，各管各的）
  *
- *   systemSlot（alert/focus/break/sleep/stretch…）  系统事件：计时器/在场服务等，粘性由所有者管理
+ *   systemSlots（按服务分槽）                     系统事件：各服务只释放自己的状态
  *   presenceSlot（sleep）                           在场检测：v0.7.0 接入，槽位先就位
  *   moodSlot（happy/sad…）                          Agent 情绪：默认 6~10s 随机寿命，防"卡表情"
  *
@@ -34,6 +34,7 @@ export const PET_STATES = [
 ] as const;
 export type PetState = (typeof PET_STATES)[number];
 
+/** 跨窗口载荷没有编译期保障，先用白名单缩窄后才能进入状态机。 */
 export function isPetState(v: unknown): v is PetState {
   return typeof v === "string" && (PET_STATES as readonly string[]).includes(v);
 }
@@ -44,15 +45,17 @@ interface SlotEntry {
   expiresAt: number | null;
 }
 
-/** 三个状态槽的名字（仲裁优先级独立于这里的顺序，见 recompute） */
-type SlotName = "system" | "presence" | "mood";
+/** 非系统来源各保留一个槽；系统来源使用按 owner 分组的 Map。 */
+type SlotName = "presence" | "mood";
 
 /** 情绪状态默认寿命区间（ms）：机械固定值会显得像机器人，故意随机 */
 const MOOD_DURATION_MIN = 6000;
 const MOOD_DURATION_MAX = 10000;
 
+/** 服务各自持有系统状态，展示层只订阅仲裁结果，避免跨服务清理互相干扰。 */
 export class PetStateManager {
-  private system: SlotEntry | null = null;
+  private systems = new Map<string, SlotEntry>();
+  private systemTimers = new Map<string, number>();
   private presence: SlotEntry | null = null; // v0.7.0 PresenceService 驱动
   private mood: SlotEntry | null = null;
   private active: PetState = "idle";
@@ -76,9 +79,20 @@ export class PetStateManager {
     this.setSlot("mood", state, Date.now() + ms);
   }
 
-  /** 系统槽：计时器/演示菜单入口。durationSec 缺省 = 粘性（由服务显式清除） */
-  setSystem(state: PetState, durationSec?: number): void {
-    this.setSlot("system", state, durationSec != null ? Date.now() + durationSec * 1000 : null);
+  /**
+   * 系统状态按 owner 保存，避免提醒结束时把仍在运行的番茄钟一起清掉。
+   * 同一服务可替换自己的状态；不同服务按 alert > stretch > focus/break 仲裁。
+   */
+  setSystem(state: PetState, durationSec?: number, owner = "default"): void {
+    this.clearSystemTimer(owner);
+    this.systems.delete(owner); // 更新时移到 Map 尾部，同优先级以最新提议为准
+    if (state !== "idle") this.systems.set(owner, {
+      state, expiresAt: durationSec != null ? Date.now() + durationSec * 1000 : null,
+    });
+    if (state !== "idle" && durationSec != null) {
+      this.systemTimers.set(owner, window.setTimeout(() => this.clearSystem(owner), durationSec * 1000));
+    }
+    this.recompute();
   }
 
   /** 在场槽（v0.7.0 PresenceService 驱动：away→sleep 粘性） */
@@ -95,10 +109,17 @@ export class PetStateManager {
     this.recompute();
   }
 
-  clearSystem(): void {
-    this.setSlot("system", "idle", null);
-    this.system = null;
+  /** 只释放调用者拥有的状态；其余服务的粘性状态会重新显现。 */
+  clearSystem(owner = "default"): void {
+    this.clearSystemTimer(owner);
+    this.systems.delete(owner);
     this.recompute();
+  }
+
+  private clearSystemTimer(owner: string): void {
+    const timer = this.systemTimers.get(owner);
+    if (timer != null) window.clearTimeout(timer);
+    this.systemTimers.delete(owner);
   }
 
   // ── 内部 ──────────────────────────────────────────────────────────────
@@ -121,11 +142,20 @@ export class PetStateManager {
   private recompute(): void {
     // 先清理所有已过期但定时器尚未触发的槽（防御性：时钟回拨等边界）
     const now = Date.now();
-    for (const slot of ["system", "presence", "mood"] as const) {
+    for (const [owner, entry] of this.systems) {
+      if (entry.expiresAt != null && entry.expiresAt <= now) {
+        this.systems.delete(owner);
+        this.clearSystemTimer(owner);
+      }
+    }
+    for (const slot of ["presence", "mood"] as const) {
       const entry = this[slot];
       if (entry?.expiresAt != null && entry.expiresAt <= now) this[slot] = null;
     }
-    const next: PetState = this.system?.state ?? this.presence?.state ?? this.mood?.state ?? "idle";
+    // 系统内部也有优先级：到点提醒覆盖专注形象，结束后恢复专注。
+    const priority = (state: PetState) => state === "alert" ? 3 : state === "stretch" ? 2 : 1;
+    const system = [...this.systems.values()].reverse().sort((a, b) => priority(b.state) - priority(a.state))[0];
+    const next: PetState = system?.state ?? this.presence?.state ?? this.mood?.state ?? "idle";
     if (next === this.active) return;
     this.active = next;
     // ① 本窗口监听者即时回调；② 跨窗口广播（聊天窗 v0.4.0 起订阅做状态联动）

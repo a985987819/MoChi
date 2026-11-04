@@ -29,6 +29,7 @@ import { petState } from "@/services/pet-state";
 import { presenceService } from "@/services/presence";
 import { notify } from "@/services/notifications";
 import { loadSettings } from "@/services/settings";
+import type { PomodoroResult } from "@/services/pomodoro-control";
 
 interface TimerConfig {
   standupIntervalMin: number;
@@ -52,6 +53,7 @@ async function loadConfig(): Promise<TimerConfig> {
 /** 弹窗 10 分钟无人点自动收尾（08 §2.3 迟滞表） */
 const ALERT_AUTO_DISMISS_MS = 10 * 60_000;
 
+/** 站立计时与弹窗收尾汇入同一状态机，在场判断只推迟触发，不暂停计时。 */
 export class StandupService {
   /** armed=计时中；fired=弹窗已显示（等待点击/超时） */
   state: "armed" | "fired" = "armed";
@@ -79,20 +81,24 @@ export class StandupService {
     window.setInterval(() => this.tick(), 1000);
   }
 
-  /** 配置重载 + 重置计时（改配置即重置） */
+  /** 重载全部配置，但只有站立间隔改变才重置计时。 */
   private async reloadConfig(): Promise<void> {
-    this.config = await loadConfig();
-    this.rearm("config");
+    const next = await loadConfig();
+    const intervalChanged = next.standupIntervalMin !== this.config.standupIntervalMin;
+    this.config = next;
+    // 保存 Key、切通知开关等也会广播设置变化，不能因此不断推迟站立提醒。
+    if (intervalChanged) this.rearm("config");
   }
 
   /** 重新计时（单击/点击弹窗/改配置共用出口） */
   private rearm(_reason?: string): void {
+    if (this.state === "fired") void emit(UI_EVENTS.hideAlert);
     this.state = "armed";
     this.deadline = Date.now() + this.config.standupIntervalMin * 60_000;
     if (this.autoDismiss != null) window.clearTimeout(this.autoDismiss);
     this.autoDismiss = null;
     // 保险：异常残留的 alert 系统状态清掉（正常路径 ack 已清）
-    if (petState.current === "alert") petState.clearSystem();
+    petState.clearSystem("standup");
   }
 
   private tick(): void {
@@ -105,7 +111,7 @@ export class StandupService {
 
   private async fire(): Promise<void> {
     this.state = "fired";
-    petState.setSystem("alert"); // 粘性：ack 才释放（优先级最高，08 §2.2）
+    petState.setSystem("alert", undefined, "standup"); // 粘性：ack 才释放
     if (this.config.notificationsEnabled) {
       void notify("该站起来啦 🧍", `麻薯陪你坐了 ${this.config.standupIntervalMin} 分钟，点击提醒重置计时`);
     }
@@ -119,8 +125,9 @@ export class StandupService {
     this.state = "armed";
     if (this.autoDismiss != null) window.clearTimeout(this.autoDismiss);
     this.autoDismiss = null;
-    petState.clearSystem();
-    petState.setSystem("stretch", 2); // 奖励动画 2s 后自然回落 idle
+    // 超时与单击宠物也要隐藏原生窗口，不能只更新 TS 状态。
+    void emit(UI_EVENTS.hideAlert);
+    petState.setSystem("stretch", 2, "standup"); // 结束后恢复其他服务仍持有的状态
     this.deadline = Date.now() + this.config.standupIntervalMin * 60_000;
   }
 }
@@ -132,11 +139,15 @@ export type PomodoroPhase = "idle" | "focus" | "break";
 export interface PomodoroStatus {
   phase: PomodoroPhase;
   remainingSec: number;
+  /** 空闲界面展示配置值，而不是硬编码 25:00。 */
+  focusMin: number;
 }
 
+/** 宠物窗是唯一计时宿主；UI 与工具通过回执共享执行结果。 */
 export class PomodoroService {
   phase: PomodoroPhase = "idle";
   private deadline = 0;
+  private activeBreakMin = 5;
   private config: TimerConfig = {
     standupIntervalMin: 60,
     pomodoroFocusMin: 25,
@@ -148,39 +159,53 @@ export class PomodoroService {
     this.config = await loadConfig();
     await listen(STATE_EVENTS.settingsChanged, () => {
       // 番茄钟进行中不受配置热更新影响（时间基准已在跑）；下一轮 start 生效
-      void loadConfig().then(c => (this.config = c));
+      void loadConfig().then(c => { this.config = c; this.broadcast(); });
     });
     // chat 窗遥控（Agent 工具 / PomodoroTab）
-    await listen<{ minutes?: unknown }>(STATE_EVENTS.pomodoroStart, e => {
-      const min = typeof e.payload?.minutes === "number" ? e.payload.minutes : undefined;
-      this.startFocus(min);
+    await listen<{ minutes?: unknown; requestId?: string }>(STATE_EVENTS.pomodoroStart, e => {
+      const min = e.payload?.minutes;
+      const result = min != null && typeof min !== "number"
+        ? { ok: false as const, error: "专注时长必须是数字" }
+        : this.startFocus(min ?? undefined);
+      this.reply(e.payload?.requestId, result);
     });
-    await listen(STATE_EVENTS.pomodoroStop, () => this.stop());
+    await listen<{ requestId?: string }>(STATE_EVENTS.pomodoroStop, e => {
+      this.stop();
+      this.reply(e.payload?.requestId, { ok: true, data: this.status() });
+    });
+    await listen<{ requestId?: string }>(STATE_EVENTS.pomodoroQuery, e => {
+      this.reply(e.payload?.requestId, { ok: true, data: this.status() });
+    });
 
     window.setInterval(() => this.tick(), 1000);
   }
 
-  /** 启动专注（ minutes 已由工具/UI 校验范围） */
-  startFocus(minutes?: number): void {
-    if (this.phase === "focus") return; // 已在专注中：忽略重复启动（工具返回 ok:false 由调用方判断）
+  /** 服务是最终执行边界，跨窗口广播也必须校验，不能仅信任工具层。 */
+  startFocus(minutes?: number): PomodoroResult {
+    if (this.phase === "focus") return { ok: false, error: "已有番茄钟在专注中，请先停止或等它结束" };
     const min = minutes ?? this.config.pomodoroFocusMin;
+    if (!Number.isFinite(min) || min < 5 || min > 90) {
+      return { ok: false, error: "专注时长需在 5~90 分钟之间" };
+    }
     this.phase = "focus";
     this.deadline = Date.now() + min * 60_000;
-    petState.setSystem("focus"); // 粘性：阶段结束/stop 释放
+    this.activeBreakMin = this.config.pomodoroBreakMin; // 本轮休息时长也在启动时固定
+    petState.setSystem("focus", undefined, "pomodoro"); // 粘性：阶段结束/stop 释放
     this.broadcast();
+    return { ok: true, data: this.status() };
   }
 
   stop(): void {
     if (this.phase === "idle") return;
     this.phase = "idle";
-    petState.clearSystem();
+    petState.clearSystem("pomodoro");
     this.broadcast();
   }
 
   status(): PomodoroStatus {
     const remainingSec =
       this.phase === "idle" ? 0 : Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000));
-    return { phase: this.phase, remainingSec };
+    return { phase: this.phase, remainingSec, focusMin: this.config.pomodoroFocusMin };
   }
 
   private tick(): void {
@@ -191,13 +216,13 @@ export class PomodoroService {
     // 时间戳比较触发阶段迁移（睡眠唤醒后同样正确，08 §4.1 原则 3）
     if (this.phase === "focus") {
       this.phase = "break";
-      this.deadline = Date.now() + this.config.pomodoroBreakMin * 60_000;
-      petState.setSystem("break");
-      if (this.config.notificationsEnabled) void notify("专注完成 🍅", `休息 ${this.config.pomodoroBreakMin} 分钟，麻薯等你回来`);
+      this.deadline = Date.now() + this.activeBreakMin * 60_000;
+      petState.setSystem("break", undefined, "pomodoro");
+      if (this.config.notificationsEnabled) void notify("专注完成 🍅", `休息 ${this.activeBreakMin} 分钟，麻薯等你回来`);
     } else {
       // break → idle：休息结束不自动续轮（主动承诺才叫专注，08 §4.3）
       this.phase = "idle";
-      petState.clearSystem();
+      petState.clearSystem("pomodoro");
       if (this.config.notificationsEnabled) void notify("休息结束 ☕", "准备好就开始下一轮番茄钟吧");
     }
     this.broadcast();
@@ -205,6 +230,11 @@ export class PomodoroService {
 
   private broadcast(): void {
     void emit(STATE_EVENTS.pomodoroChanged, this.status());
+  }
+
+  /** 回执在状态迁移后发送；重复启动的判定由这个唯一宿主原子完成。 */
+  private reply(requestId: string | undefined, result: PomodoroResult): void {
+    if (typeof requestId === "string") void emit(STATE_EVENTS.pomodoroResult, { requestId, result });
   }
 }
 

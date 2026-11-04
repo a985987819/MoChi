@@ -3,26 +3,14 @@
  * UI 通道在 PomodoroTab）。规格：docs/learning/08-timers-reminders-presence.md §4.4。
  *
  * PomodoroService 驻留宠物窗（常宿主），本组工具经 state://pomodoro-start/stop
- * 跨窗口遥控；状态查询读 chat 窗缓存的最近一次广播（番茄钟 Tab 打开时缓存必然新鲜）。
+ * 跨窗口遥控；启停和查询都等待宠物窗回执，不以缓存推断执行成功。
  * 参数边界校验在工具层（5~90 分钟），越界返回 ok:false 让模型向用户澄清。
  */
 
 import type { ToolDefinition } from "./registry";
+import type { PomodoroControl } from "@/services/pomodoro-control";
 
-/** 广播载荷的宽松形状（phase 用字符串而非 union：跨窗口载荷不做类型强约束） */
-export interface PomodoroStatusLite {
-  phase: string;
-  remainingSec: number;
-}
-
-/** chat 窗侧遥控 + 状态缓存（由 Facade 注入实现） */
-export interface PomodoroControl {
-  start(minutes?: number): void;
-  stop(): void;
-  /** 最近一次广播的状态；从未广播过（应用刚启动）返回 null */
-  cachedStatus(): PomodoroStatusLite | null;
-}
-
+/** 参数先校验，执行结果仍以宿主回执为准，防止两次调用并发穿过缓存。 */
 export function startPomodoroTool(ctl: PomodoroControl): ToolDefinition<{ minutes?: number }> {
   return {
     name: "start_pomodoro",
@@ -40,19 +28,14 @@ export function startPomodoroTool(ctl: PomodoroControl): ToolDefinition<{ minute
       if (args.minutes != null && !(args.minutes >= 5 && args.minutes <= 90)) {
         return { ok: false as const, error: "专注时长需在 5~90 分钟之间，请向用户确认" };
       }
-      const status = ctl.cachedStatus();
-      if (status?.phase === "focus") {
-        return {
-          ok: false as const,
-          error: `已有番茄钟在专注中（剩余 ${Math.ceil(status.remainingSec / 60)} 分钟），可先停止或等它结束`,
-        };
-      }
-      ctl.start(args.minutes);
-      return { ok: true as const, data: { message: `番茄钟已开始（${args.minutes ?? 25} 分钟）` } };
+      const result = await ctl.start(args.minutes);
+      if (!result.ok) return result;
+      return { ok: true as const, data: { message: `番茄钟已开始（${result.data.remainingSec / 60} 分钟）` } };
     },
   };
 }
 
+/** 等待停止完成后再向模型确认；通信失败必须保留错误。 */
 export function stopPomodoroTool(ctl: PomodoroControl): ToolDefinition<Record<string, never>> {
   return {
     name: "stop_pomodoro",
@@ -60,12 +43,14 @@ export function stopPomodoroTool(ctl: PomodoroControl): ToolDefinition<Record<st
     parameters: { type: "object", properties: {} },
     risk: "write",
     async execute() {
-      ctl.stop();
+      const result = await ctl.stop();
+      if (!result.ok) return result;
       return { ok: true as const, data: { message: "番茄钟已停止" } };
     },
   };
 }
 
+/** 首次打开聊天窗也能查询，未收到过广播不等于番茄钟空闲。 */
 export function pomodoroStatusTool(ctl: PomodoroControl): ToolDefinition<Record<string, never>> {
   return {
     name: "get_pomodoro_status",
@@ -73,8 +58,10 @@ export function pomodoroStatusTool(ctl: PomodoroControl): ToolDefinition<Record<
     parameters: { type: "object", properties: {} },
     risk: "read",
     async execute() {
-      const status = ctl.cachedStatus();
-      if (!status || status.phase === "idle") {
+      const result = await ctl.status();
+      if (!result.ok) return result;
+      const status = result.data;
+      if (status.phase === "idle") {
         return { ok: true as const, data: { phase: "idle", message: "当前没有进行中的番茄钟" } };
       }
       return {

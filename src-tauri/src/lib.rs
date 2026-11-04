@@ -32,6 +32,7 @@ const EVT_HIDE_CHAT: &str = "ui://hide-chat";
 const EVT_TOGGLE_PET: &str = "ui://toggle-pet";
 const EVT_QUIT_APP: &str = "ui://quit-app";
 const EVT_SHOW_ALERT: &str = "ui://show-alert";
+const EVT_HIDE_ALERT: &str = "ui://hide-alert";
 const EVT_STANDUP_ACK: &str = "ui://standup-ack";
 
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
@@ -142,6 +143,14 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
     // 站立提醒弹窗（v0.7.0）：显示在宠物正上方（点击弹窗 = standup-ack）
     let handle = app.clone();
     app.listen_any(EVT_SHOW_ALERT, move |_| show_alert(&handle));
+
+    // 服务端超时/重置也可收起弹窗，不能依赖用户一定会点击弹窗。
+    let handle = app.clone();
+    app.listen_any(EVT_HIDE_ALERT, move |_| {
+        if let Some(alert) = handle.get_webview_window("alert") {
+            let _ = alert.hide();
+        }
+    });
 
     let handle = app.clone();
     app.listen_any(EVT_STANDUP_ACK, move |_| {

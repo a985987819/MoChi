@@ -34,7 +34,7 @@
 ### 2.2 优先级仲裁（PetStateManager 的核心规则）
 
 ```
-alert  >  focus/break  >  sleep  >  mood(happy/sad…)  >  idle
+alert  >  stretch  >  focus/break  >  sleep  >  mood(happy/sad…)  >  idle
 ```
 
 | 规则 | 理由 |
@@ -42,16 +42,18 @@ alert  >  focus/break  >  sleep  >  mood(happy/sad…)  >  idle
 | `alert` 最高 | 站立提醒是应用对用户的核心承诺，任何状态都要让位 |
 | 番茄钟高于 sleep | 用户离开但番茄钟在跑：承诺仍在进行，宠物保持 `focus`（回来能看到"它一直守着"） |
 | sleep 高于 mood | 人都不在了，情绪无意义；防"离开后宠物一直 happy"的怪相 |
-| 所有非 idle 状态限时自动回落 | 防止状态卡死；回落即 `idle`（多变体轮换） |
+| 临时状态限时回落，粘性状态由所属服务释放 | 临时提醒结束后恢复仍有效的专注/站立状态；没有其他状态才回落 `idle` |
 | 同优先级新状态覆盖旧状态 | 后到的系统事件/情绪替换先前的 |
 
-实现形态：PetStateManager 持有"当前各来源状态"的槽位表（`systemSlot / moodSlot / presenceSlot`），每次变更重算最高优先级者并 diff 输出事件 `state://pet-changed`。素材加载与回退链见 `docs/pet-assets.md`（v0.2.0）。
+实现形态：PetStateManager 持有 `systems: Map<owner, SlotEntry>`、`mood`、`presence`。系统内部先按 `alert > stretch > 其余系统状态` 仲裁，同级取最新；再按 `system > presence > mood > idle` 仲裁，结果改变才广播 `state://pet-changed`。`setSystem(state, durationSec, owner)` 与 `clearSystem(owner)` 只修改所属服务的项；省略 owner 的远程控制/演示使用 `default`。素材命名和回退链不变，见 `docs/pet-assets.md`。
+
+**为何系统层也必须分 owner（2026-11-04 回归修复）**：专注时到点站立，会暂时显示 `alert`；如果二者共用一个字段，确认站立后 `clearSystem()` 就把专注也清掉了。现在 `pomodoro` 持有 focus/break，`standup` 持有 alert/stretch，`reminder` 持有 8 秒提示，各自清理后重新仲裁。无需让服务猜测“此前显示什么”，也不依赖每秒重写专注状态。
 
 ### 2.3 迟滞（hysteresis）防抖
 
 状态切换必须有迟滞，否则阈值附近抖动（如 idle 4 分 59 秒→5 分 1 秒来回横跳）：
 
-- 进入 `sleep`：无输入 > **5 分钟**；退出 `sleep`：任意输入即刻；
+- 进入 `sleep`：无输入 ≥ **5 分钟**；退出 `sleep`：恢复输入后的下一次轮询（最多约 10 秒）；
 - mood 回落：6~10s 随机（机械固定值会显得像机器人）；
 - `alert` 超时：弹窗 10 分钟无人点 → 自动播放 `stretch` 并重新计时（用户可能不在座位，别让弹窗堆着）。
 
@@ -90,7 +92,7 @@ fn get_idle_seconds() -> u64 { idle::get_idle_duration().unwrap_or_default().as_
 
 所以 v1 的使用边界（写死在设计里）：
 
-- **可以**：驱动 `sleep` 状态；提醒触发时用户不在场 → **推迟到恢复活动再弹**；番茄钟完成通知附带"你中途离开了 N 分钟"的统计；
+- **可以**：驱动 `sleep` 状态；提醒触发时用户不在场 → **推迟到恢复活动再弹**。离开时长统计尚未实现，保留后续候选；
 - **不可以**：把"无输入"当成"没在忙"从而跳过站立提醒——读纸质书的用户恰恰是最需要提醒的人。**站立计时不因 away 暂停**，只是弹窗延迟；
 - **不做**：前台窗口嗅探（`GetForegroundWindow` 可知用户在看哪个应用，能推断"工作 App = 忙碌"）——隐私敏感度高且超出 v1 范围，列为 v2 备选并需要明示用户开关。
 
@@ -120,10 +122,12 @@ fn get_idle_seconds() -> u64 { idle::get_idle_duration().unwrap_or_default().as_
      └──────────────────────── [stretch 动画 2s] ──→ [armed]（重新计时）
 ```
 
-- 配置：间隔默认 60 分钟（设置 Tab，1~120 分钟）；改配置即重置；
+- 配置：间隔默认 60 分钟（设置 Tab，1~120 分钟）；只有站立间隔改变才重置，修改 Key/模型/通知开关不重置；
 - 单击宠物 = 重置（v0.1.0 的 click 处理从"弹跳"升级为"弹跳+reset"——**弹跳保留**，给用户即时反馈）；
 - 弹窗点击 = 播放 `stretch` + 重置 + 关闭弹窗；
 - 无持久化：重启归零（用户重启机器往往伴随起身，语义合理）。
+
+**弹窗收尾要跨两层**：`ack()` 与 fired 状态下的 `rearm()` 都发 `ui://hide-alert`，Rust 监听后执行 `alert.hide()`。TS 更新 state/deadline 并不会自动隐藏原生 WebView。用户点击弹窗还会发既有 `ui://standup-ack`；超时和单击宠物走独立 hide 事件，避免再广播 ack 造成递归。
 
 ### 4.3 PomodoroService（番茄钟）
 
@@ -138,6 +142,7 @@ fn get_idle_seconds() -> u64 { idle::get_idle_duration().unwrap_or_default().as_
 - focus/break 到点：系统通知 + 宠物状态切换 + Chat 番茄钟 Tab 刷新；
 - `stop` 无需确认（打断成本远低于误启）；进行中重启应用 → 放弃本轮（v1 不恢复，roadmap 已定）；
 - 长休息（每 4 轮 15min）、轮数统计：v2。
+- 本轮 focus 截止时间与 break 时长在启动时固定；热更新只影响下一轮的时长，通知开关仍即时生效。空闲界面显示设置中的专注时长。
 
 ### 4.4 与 Agent 的接口（工具，见 [07 边界](07-agent-vs-app-boundary.md) §4.3）
 
@@ -148,6 +153,18 @@ fn get_idle_seconds() -> u64 { idle::get_idle_duration().unwrap_or_default().as_
 | `get_pomodoro_status()` | 返回当前阶段/剩余秒数 | read |
 
 工具内部**只做参数校验 + 调 PomodoroService**，业务逻辑零重复（07 铁律 2）。系统提示里补充一句："番茄钟由应用计时，你无法'帮用户记住时间'，也不要口头承诺你会提醒"。
+
+#### 4.4.1 实现走读：请求 → 执行 → 回执
+
+`src/services/pomodoro-control.ts` 是 UI/Agent 共用的聊天窗遥控服务：
+
+1. 每次请求生成 `requestId`，先订阅 `state://pomodoro-result`，再发 start/stop/query，防止快速回执早于监听就绪。
+2. 宠物窗 `PomodoroService` 同步校验与迁移状态，再返回 `{requestId, result}`。两次并发启动也只有一次成功；非法数字在宿主再次校验。
+3. 遥控服务仅接收匹配 id 的回执，完成或 3 秒超时均移除监听。窗口没响应时返回 `ok:false`，不会宣称“已启动”。
+4. `PomodoroTab` 挂载时先监听状态广播，再查询快照，解决空闲阶段不广播、刚进入页面读到默认 25 分钟的问题。启动/停止按钮等待回执期间禁用。
+5. `agent/tools/pomodoro.ts` 等待相同接口：启动确认使用实际时长，失败原样回传模型；Facade 不再保存一份容易过时的番茄钟缓存。
+
+测试位于 `services/__tests__/timers.test.ts`、`pomodoro-control.test.ts`、`pet-state.test.ts` 与 `agent/tools/__tests__/pomodoro.test.ts`：使用真实服务和 Tauri 官方 IPC/event mocks，用假时钟推进完整阶段、模拟挂起与回执超时；无需等待真实 25 分钟。
 
 ## 5. 自然语言定时提醒（NL → 到点自动提醒）
 
@@ -219,9 +236,11 @@ ReminderService（应用，确定性）：
 
 - `create(text, fireAt) → id`：落库即排程（调度器 = 与 TimerService 同款的 30s tick：扫 `active AND fire_at <= now`）；
 - **重启存活**：启动时加载全部 `active` 行——提醒是"跨时间的承诺"，必须持久化（对比：番茄钟重启即弃，语义差异见 04 记忆文档的会话/全局划分）；
-- 触发动作：系统通知 + 宠物切 `alert`（8s）+ Chat Tab 内追加一条系统侧消息"⏰ 提醒：交周报"（进入历史，但**不主动唤醒 Agent**——省 token 且不打扰，用户点开后想聊再说，v2 可选让 Agent 就提醒内容接话）；
+- 当前触发动作：系统通知（受开关控制）+ 宠物切 `alert`（8s）+ 从待触发列表移除，SQLite 保留 fired/fired_at。聊天历史中的提醒系统消息尚未实现，留作后续候选，不主动唤醒 Agent；
 - 触发时用户不在场（§3）：推迟到 presence 恢复后 30s 内补发；
 - `cancel(id)` / `list()`：供 UI 与工具使用；cancel 返回被取消条目内容（07 的可追溯规范）。
+
+取消也必须使用条件更新：先 SELECT 仅用于取回可追溯内容，真正写入是 `UPDATE ... WHERE id=$1 AND status='active'`，且只有 `rowsAffected===1` 才返回成功。否则调度器在两条 SQL 之间认领后，取消会错误覆盖 fired 状态；两个取消请求也不能都成功。`services/__tests__/storage.test.ts` 用 Node 22 内置 SQLite 执行真实建表、CRUD、并发认领与取消，IPC 仅替换 SQL 传输层，不接触用户数据库。
 
 ### 5.5 一次性 vs 周期性
 
@@ -233,7 +252,7 @@ v1 **只做一次性**（one-shot）。周期性（"每天九点提醒我站会"
 |---|---|---|
 | 状态集约定 + PetStateManager（槽位仲裁/回退/素材） | v0.2.0 | `src/services/pet-state.ts`、`docs/pet-assets.md` |
 | 状态扩展：thinking/talking（AgentEvent 映射） | v0.4.0 | `src/agent/facade.ts` → emit |
-| Rust `get_idle_seconds` + PresenceService + sleep 状态 | v0.7.0 | `src-tauri/src/idle.rs`、`src/services/presence.ts` |
+| Rust `get_idle_seconds` + PresenceService + sleep 状态 | v0.7.0 | `src-tauri/src/lib.rs`、`src/services/presence.ts` |
 | StandupService / PomodoroService / Alert 弹窗 / 通知 | v0.7.0 | `src/services/timers.ts` |
 | reminders 表 + ReminderService + 3 个工具 + 上下文注入当前时间 | v0.7.0 | `src/services/reminders.ts`、`src/agent/core/context-builder.ts` |
 
@@ -252,6 +271,9 @@ v1 **只做一次性**（one-shot）。周期性（"每天九点提醒我站会"
 9. "明早九点提醒我交周报"的四跳责任链，每跳谁负责？"半小时后"由谁算、应用如何兜底模型算错？
 10. reminders 表为什么必须持久化而番茄钟不用？用 04 文档的哪个概念解释？
 11. 模型解析出"每周一提醒"时 v1 怎么应对？为什么不在 v1 做？
+12. 默写按 owner 保存系统状态的 set/clear/recompute；站立确认后为何能恢复 focus？
+13. 为什么“事件已发送”不等于“番茄钟启动成功”？默写先监听后发请求、匹配回执、超时清理的顺序。
+14. 为什么取消提醒也要带 `status='active'` 条件？SELECT 后直接 UPDATE 存在哪个竞态？
 
 ## 8. 延伸阅读
 

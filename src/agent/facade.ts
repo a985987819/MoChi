@@ -22,8 +22,8 @@ import {
   pomodoroStatusTool,
   startPomodoroTool,
   stopPomodoroTool,
-  type PomodoroControl,
 } from "@/agent/tools/pomodoro";
+import { pomodoroControl } from "@/services/pomodoro-control";
 import { cancelReminderTool, createReminderTool, listRemindersTool } from "@/agent/tools/reminder";
 import { historyStore } from "@/agent/memory/history-store";
 import { memoryService } from "@/agent/memory/long-term";
@@ -31,7 +31,6 @@ import { foodIndex } from "@/rag/food";
 import { todoService } from "@/services/todos";
 import { reminderStore } from "@/services/reminders";
 import { loadSettings } from "@/services/settings";
-import { listen } from "@tauri-apps/api/event";
 import { sendStateEvent, STATE_EVENTS } from "@/shared/events";
 
 /** thinking 状态的单次续期时长（工具执行可能超 10s，给足量级；step-end 续期） */
@@ -44,8 +43,6 @@ const MEMORY_TOP_K = 3;
 export class AgentFacade {
   private registry = new ToolRegistry();
   private services: AppServices;
-  /** 番茄钟最近一次广播状态（get_pomodoro_status 工具读取；Tab 打开时必然新鲜） */
-  private lastPomodoro: { phase: string; remainingSec: number } | null = null;
 
   constructor() {
     // 宠物控制 = 跨窗口事件（宠物窗 PetStateManager 是宿主，v0.2.0 已装监听）
@@ -54,27 +51,12 @@ export class AgentFacade {
       memory: memoryService,
       food: foodIndex,
       reminders: reminderStore,
-      pomodoro: {
-        start: minutes => void sendStateEvent(STATE_EVENTS.pomodoroStart, { minutes }),
-        stop: () => void sendStateEvent(STATE_EVENTS.pomodoroStop),
-      },
+      pomodoro: pomodoroControl,
       pet: {
         setMood: (state, durationSec) => {
           void sendStateEvent(STATE_EVENTS.setMood, { state, durationSec });
         },
       },
-    };
-
-    // 番茄钟状态缓存（PomodoroService 每秒广播，聊天窗打开时必然新鲜）
-    void listen<{ phase: string; remainingSec: number }>(STATE_EVENTS.pomodoroChanged, e => {
-      this.lastPomodoro = e.payload ?? null;
-    });
-
-    // 番茄钟遥控注入（learning/08 §4.4：工具层校验边界，Service 层执行）
-    const pomodoroCtl: PomodoroControl = {
-      start: minutes => this.services.pomodoro.start(minutes),
-      stop: () => this.services.pomodoro.stop(),
-      cachedStatus: () => this.lastPomodoro,
     };
 
     // 工具清单：v0.4.0（todo/pet-state）+ v0.5.0（remember）+ v0.6.0（food-search）
@@ -86,9 +68,9 @@ export class AgentFacade {
     this.registry.register(setPetStateTool());
     this.registry.register(rememberTool());
     this.registry.register(foodSearchTool());
-    this.registry.register(startPomodoroTool(pomodoroCtl));
-    this.registry.register(stopPomodoroTool(pomodoroCtl));
-    this.registry.register(pomodoroStatusTool(pomodoroCtl));
+    this.registry.register(startPomodoroTool(this.services.pomodoro));
+    this.registry.register(stopPomodoroTool(this.services.pomodoro));
+    this.registry.register(pomodoroStatusTool(this.services.pomodoro));
     this.registry.register(createReminderTool(reminderStore));
     this.registry.register(cancelReminderTool(reminderStore));
     this.registry.register(listRemindersTool(reminderStore));

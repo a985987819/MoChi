@@ -105,9 +105,11 @@ export class TodoService {
     const todo = this.todos.find(t => t.id === id && !t.done);
     if (!todo) return null;
     const db = await getDb();
+    const doneAt = Date.now();
+    // 先落库再改内存：写入失败时 UI/Agent 仍应读到未完成状态。
+    await db.execute("UPDATE todos SET done = 1, done_at = $1 WHERE id = $2", [doneAt, id]);
     todo.done = true;
-    todo.doneAt = Date.now();
-    await db.execute("UPDATE todos SET done = 1, done_at = $1 WHERE id = $2", [todo.doneAt, id]);
+    todo.doneAt = doneAt;
     this.notify();
     return todo;
   }
@@ -117,8 +119,10 @@ export class TodoService {
     const idx = this.todos.findIndex(t => t.id === id);
     if (idx < 0) return null;
     const db = await getDb();
-    const [removed] = this.todos.splice(idx, 1);
+    const removed = this.todos[idx];
     await db.execute("DELETE FROM todos WHERE id = $1", [id]);
+    // 按 id 移除而不复用 await 前的下标，防止两个删除并发时删错另一条。
+    this.todos = this.todos.filter(t => t.id !== id);
     this.notify();
     return removed;
   }

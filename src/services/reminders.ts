@@ -93,7 +93,9 @@ export class ReminderStore {
       [id],
     );
     if (rows.length === 0) return null;
-    await db.execute("UPDATE reminders SET status = 'cancelled' WHERE id = $1", [id]);
+    // 查询与写入之间可能被调度器认领；取消也用条件更新，不能把 fired 覆盖回 cancelled。
+    const result = await db.execute("UPDATE reminders SET status = 'cancelled' WHERE id = $1 AND status = 'active'", [id]);
+    if (result.rowsAffected !== 1) return null;
     await this.broadcast();
     return rowToReminder(rows[0]);
   }
@@ -146,7 +148,7 @@ export class ReminderScheduler {
       );
       if ((claim.rowsAffected ?? 0) !== 1) continue;
 
-      petState.setSystem("alert", 8); // 轻量提示（区别于站立提醒的粘性 alert）
+      petState.setSystem("alert", 8, "reminder"); // 临时提示到期后恢复站立/专注状态
       if (this.notificationsEnabled) void notify("⏰ 到点提醒", row.text);
       await emit(STATE_EVENTS.remindersChanged);
     }

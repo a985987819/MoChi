@@ -21,6 +21,8 @@ export const UI_EVENTS = {
   quitApp: "ui://quit-app",
   /** 显示站立提醒弹窗（StandupService → Rust 定位到宠物正上方并 show） */
   showAlert: "ui://show-alert",
+  /** 提醒服务收尾（超时/单击宠物/修改间隔）也必须隐藏原生弹窗。 */
+  hideAlert: "ui://hide-alert",
   /** 用户点击了提醒弹窗（alert 页 → Rust 隐藏弹窗 + StandupService 重置计时） */
   standupAck: "ui://standup-ack",
 } as const;
@@ -49,6 +51,10 @@ export const STATE_EVENTS = {
   pomodoroStart: "state://pomodoro-start",
   /** 停止番茄钟 */
   pomodoroStop: "state://pomodoro-stop",
+  /** 查询权威快照；与启停一起携带 requestId，避免依赖上一秒的缓存。 */
+  pomodoroQuery: "state://pomodoro-query",
+  /** 宿主回执：{ requestId, result: { ok, data?/error? } }。 */
+  pomodoroResult: "state://pomodoro-result",
   /**
    * 请求重新显示新手引导（设置页「重新显示新手引导」→ 聊天窗 ChatApp）。
    * 引导本体在 ChatApp 内以覆盖层渲染，事件只负责"把它叫出来"（v0.9.0）。

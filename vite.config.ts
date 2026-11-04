@@ -41,8 +41,8 @@ export default defineConfig(() => ({
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
 
-  // Vitest（pnpm test）：纯函数单测（tokenizer/bm25/window/validate-schema）。
-  // node 环境——被测模块不得 import 任何 @tauri-apps/*（保持内核可测性，AGENTS.md 分层纪律）
+  // Vitest：内核纯函数 + 服务集成测试。Node 环境下使用 Tauri 官方 IPC/event mocks，
+  // SQLite 测试使用 Node 22 内置驱动，执行真实 DDL/CRUD；不依赖桌面安装或用户数据。
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
