@@ -31,10 +31,19 @@ tauri-plugin-store = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 # notification：系统通知（v0.7.0 起站立提醒/番茄钟/自定义提醒）
 tauri-plugin-notification = "2"
+# window-state：窗口位置持久化（v0.9.0 P0-04）。只开 POSITION 标志：
+# VISIBLE 会把退出时可见的 chat 窗在下次启动时弹出来（chat 设计是隐藏启动），
+# SIZE 对固定尺寸窗口无意义、DECORATIONS/FULLSCREEN 与本应用无关
+tauri-plugin-window-state = "2"
 # user-idle：跨平台"距上次输入时长"查询（v0.7.0 在场检测，learning/08 §3.1）
 user-idle = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Windows 专属：查主屏工作区（SPI_GETWORKAREA），首启定位避开任务栏（v0.9.0 P0-04）。
+# 版本对齐依赖树里既有的 windows 0.62（tao/tauri 已引入），不新增编译单元
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

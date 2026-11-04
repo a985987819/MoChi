@@ -24,6 +24,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Listener, Manager, WindowEvent,
 };
+use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 /// UI 事件名常量 —— 与 `src/shared/events.ts` 的 `UI_EVENTS` 一一对应。
 /// 改名必须两边同步（TS 侧是 `as const` 对象，Rust 侧是这些常量）。
@@ -55,6 +56,15 @@ pub fn run() {
         )
         // notification：系统通知（站立提醒/番茄钟/自定义提醒）
         .plugin(tauri_plugin_notification::init())
+        // window-state：窗口位置持久化（v0.9.0 P0-04）——拖到哪下次启动就在哪。
+        // 只持久化位置（POSITION）：见 Cargo.toml 注释，VISIBLE 会破坏 chat 的
+        // 「隐藏启动」设计。恢复时机：本插件在窗口创建时自动恢复，setup 里
+        // ensure_pet_position 再显式恢复一次 + 做可见性校验（双保险，时序确定）
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::POSITION)
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![list_user_pet_assets, get_idle_seconds]);
 
     // macOS：桌宠类应用不应出现在 Dock 上（Accessory = 无 Dock 图标、无主窗口菜单）。
@@ -66,7 +76,7 @@ pub fn run() {
         .setup(|app| {
             setup_tray(app)?;
             setup_ui_event_listeners(app.handle().clone());
-            position_pet_bottom_right(app);
+            ensure_pet_position(app);
             Ok(())
         })
         // 拦截所有窗口的关闭请求 → 隐藏。Tauri 中窗口关闭默认会销毁窗口对象，
@@ -249,27 +259,102 @@ fn toggle_pet(app: &tauri::AppHandle) {
     }
 }
 
+/// 启动时的宠物窗定位（v0.9.0 P0-04）：
+/// ① 显式恢复 window-state 持久化的上次位置（拖到哪下次启动就在哪，含副屏）；
+/// ② 校验恢复出的坐标确实落在某台显示器的可见范围内——拔掉副屏/改分辨率后
+///    旧坐标可能整个悬在屏幕外，此时回退右下角默认位（自愈，不白屏不丢失）。
+/// ③ 没有任何持久化记录（首次安装）时，restore_state 是无操作 → 走右下角默认位。
+fn ensure_pet_position(app: &tauri::App) {
+    let Some(pet) = app.get_webview_window("pet") else {
+        return;
+    };
+    let _ = pet.restore_state(StateFlags::POSITION);
+    if pet_position_visible(&pet) {
+        return;
+    }
+    position_pet_bottom_right(app);
+}
+
+/// 窗口当前外接矩形是否与任一显示器的可视范围相交。
+/// 允许部分超出（拖到屏幕边缘留一半是用户自由），只拦截"完全不可见"。
+fn pet_position_visible(pet: &tauri::WebviewWindow) -> bool {
+    let (Ok(pos), Ok(size), Ok(monitors)) =
+        (pet.outer_position(), pet.outer_size(), pet.available_monitors())
+    else {
+        return false; // 几何信息拿不到 = 状态不可信，交由调用方回退默认位
+    };
+    let (px, py, pw, ph) = (pos.x, pos.y, size.width as i32, size.height as i32);
+    monitors.iter().any(|m| {
+        let (mx, my, mw, mh) = (
+            m.position().x,
+            m.position().y,
+            m.size().width as i32,
+            m.size().height as i32,
+        );
+        px < mx + mw && px + pw > mx && py < my + mh && py + ph > my
+    })
+}
+
 /// 把宠物窗放到主屏右下角（贴边留 24 逻辑像素边距）。
 ///
 /// 坐标体系注意：monitor.size() / outer_size() 都是**物理像素**，
 /// 而 margin 我们按逻辑像素设计，所以要乘 scale_factor 再取整。
-/// 已知限制：Windows 任务栏在底部时宠物会悬浮在任务栏之上（alwaysOnTop），
-/// v0.1.0 接受此行为，后续版本考虑改用工作区（work area）计算。
+/// v0.9.0 P0-04：Windows 优先用工作区（扣除任务栏后的可见区域，SPI_GETWORKAREA）
+/// 计算——旧版用整屏高度，宠物会悬浮在任务栏之上；拿不到工作区时退回整屏算法
+/// （macOS 保持整屏算法：菜单栏/Dock 需 NSScreen.visibleFrame，留待后续版本）。
 fn position_pet_bottom_right(app: &tauri::App) {
     let Some(pet) = app.get_webview_window("pet") else {
-        return;
-    };
-    let Ok(Some(monitor)) = pet.primary_monitor() else {
         return;
     };
     let Ok(win_size) = pet.outer_size() else {
         return;
     };
 
+    #[cfg(target_os = "windows")]
+    if let Some(area) = primary_work_area() {
+        let margin = (24.0 * pet.primary_monitor().ok().flatten().map_or(1.0, |m| m.scale_factor()).round()) as i32;
+        let x = area.0 + area.2 - win_size.width as i32 - margin;
+        let y = area.1 + area.3 - win_size.height as i32 - margin;
+        let _ = pet.set_position(tauri::PhysicalPosition::new(x, y));
+        return;
+    }
+
+    // 工作区不可用（或 macOS）：退回整屏算法
+    let Ok(Some(monitor)) = pet.primary_monitor() else {
+        return;
+    };
     let scale = monitor.scale_factor();
     let margin = (24.0 * scale).round() as i32;
     let x = monitor.size().width as i32 - win_size.width as i32 - margin;
     let y = monitor.size().height as i32 - win_size.height as i32 - margin;
-
     let _ = pet.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// 主屏工作区（x, y, w, h，物理像素）——Windows 用 SPI_GETWORKAREA 查询。
+/// 返回 None 表示查询失败（调用方回退整屏算法）。
+/// DPI 注意：Tauri 清单声明 PerMonitorV2，进程对主屏坐标系是物理像素视角，
+/// 与 monitor.size() 同一体系，无需再乘 scale。
+#[cfg(target_os = "windows")]
+fn primary_work_area() -> Option<(i32, i32, i32, i32)> {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    };
+
+    let mut rect = RECT::default();
+    let ok = unsafe {
+        // SPI_GETWORKAREA：主屏工作区（扣除任务栏）；pvParam 传 RECT 指针；
+        // fWinIni 传 0 = 不广播 WM_SETTINGCHANGE（只读查询）
+        SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some((&mut rect as *mut RECT).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    };
+    if ok.is_ok() && rect.right > rect.left && rect.bottom > rect.top {
+        Some((rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top))
+    } else {
+        None
+    }
 }
