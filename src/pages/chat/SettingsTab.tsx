@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { getVersion } from "@tauri-apps/api/app";
+import { appDataDir } from "@tauri-apps/api/path";
 import { createProvider, PRESETS, getPreset } from "@/agent/providers";
 import type { ProviderError } from "@/agent/providers";
 import { memoryService, type MemoryItem } from "@/agent/memory/long-term";
@@ -173,6 +175,8 @@ export function SettingsTab() {
 
       <DangerZone />
 
+      <AboutSection />
+
       <p className="settings-note settings-note--foot">
         Key 保存在本机应用数据目录（settings.json），不上传任何服务器。
       </p>
@@ -303,6 +307,59 @@ function DangerZone() {
     <div className="settings-danger">
       <span className="settings-field-label">危险操作</span>
       <button onClick={clearHistory}>清空聊天历史</button>
+    </div>
+  );
+}
+
+/**
+ * 关于 —— v0.9.0 P0-06：版本自报 + 数据目录入口。
+ * 用户反馈问题时能自报版本号；诊断文本一键复制、可直接贴进 issue；
+ * 数据目录打开后用户可自行备份 settings.json / mochi.db / pet-assets/。
+ * 权限说明：getVersion / appDataDir 由 core:default（含 core:path:default）
+ * 覆盖；revealItemInDir 在 opener:default 内——均无需新增 capability。
+ * 剪贴板用 navigator.clipboard（WebView2 支持，零新依赖），失败给可见提示。
+ */
+function AboutSection() {
+  const [version, setVersion] = useState("");
+  const [dataDir, setDataDir] = useState("");
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
+
+  useEffect(() => {
+    void getVersion().then(setVersion);
+    void appDataDir().then(setDataDir);
+  }, []);
+
+  const copyDiagnostics = useCallback(() => {
+    const text = `Mochi v${version}\n平台：${navigator.userAgent}\n数据目录：${dataDir}`;
+    navigator.clipboard
+      .writeText(text)
+      .then(() => setCopyState("ok"))
+      .catch(() => setCopyState("fail"));
+  }, [version, dataDir]);
+
+  useEffect(() => {
+    if (copyState === "idle") return;
+    const t = window.setTimeout(() => setCopyState("idle"), 2000);
+    return () => window.clearTimeout(t);
+  }, [copyState]);
+
+  const revealDataDir = useCallback(() => {
+    if (dataDir) void revealItemInDir(dataDir).catch(() => undefined);
+  }, [dataDir]);
+
+  return (
+    <div className="settings-about">
+      <span className="settings-field-label">关于</span>
+      <p className="settings-note">Mochi v{version || "…"}</p>
+      <p className="settings-note">数据目录：{dataDir || "…"}</p>
+      <div className="settings-about__row">
+        <button className="settings-ghost-btn" onClick={copyDiagnostics}>
+          {copyState === "ok" ? "已复制 ✓" : copyState === "fail" ? "复制失败，请手动截图" : "复制诊断信息"}
+        </button>
+        <button className="settings-ghost-btn" onClick={revealDataDir}>
+          打开数据目录
+        </button>
+      </div>
     </div>
   );
 }

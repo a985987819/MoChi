@@ -576,6 +576,20 @@ body {
   padding-top: 10px;
 }
 
+/* 关于区块（v0.9.0 P0-06）：版本自报 + 诊断复制 + 数据目录入口 */
+.settings-about {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px dashed #f0dfe6;
+  padding-top: 10px;
+}
+
+.settings-about__row {
+  display: flex;
+  gap: 8px;
+}
+
 /* 使用指引（v0.9.0）：非危险操作，用中性描边按钮与下方红色危险区拉开层级 */
 .settings-help {
   display: flex;
