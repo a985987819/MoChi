@@ -10,6 +10,7 @@ import { load } from "@tauri-apps/plugin-store";
 import { getPreset } from "@/agent/providers/presets";
 import { emit } from "@tauri-apps/api/event";
 import { STATE_EVENTS } from "@/shared/events";
+import { createSettingsSaveQueue } from "./settings-debounce";
 
 export interface AppSettings {
   /** 当前选中的提供商（presets.id 或 "mock"） */
@@ -91,11 +92,42 @@ export async function loadSettings(): Promise<AppSettings> {
   return normalize(await store.get<AppSettings>(KEY));
 }
 
-export async function saveSettings(settings: AppSettings): Promise<void> {
+/**
+ * 落盘并广播。v0.9.0 P0-02：changedKeys 显式携带「本次真正变更的键」——
+ * 事件载荷的 keys 是订阅方判断相关性的唯一依据（StandupService 只在
+ * standupIntervalMin 变化时重置计时）；不传时退化为全量 key（与旧行为一致）。
+ */
+export async function saveSettings(
+  settings: AppSettings,
+  changedKeys?: ReadonlyArray<keyof AppSettings & string>,
+): Promise<void> {
   const store = await getStore();
   await store.set(KEY, settings); // autoSave: true → 自动落盘
   // 广播给常驻服务（TimerService 等）重载配置——learning/08：改站立间隔即重置计时
-  await emit(STATE_EVENTS.settingsChanged, { keys: Object.keys(settings) });
+  const keys = changedKeys ?? (Object.keys(settings) as string[]);
+  await emit(STATE_EVENTS.settingsChanged, { keys });
+}
+
+// ── 防抖适配层（P0-02）：机制在 ./settings-debounce（纯函数，有单测） ──
+
+const saveQueue = createSettingsSaveQueue((settings, changedKeys) =>
+  saveSettings(settings, changedKeys),
+);
+
+/**
+ * 字符级输入（API Key / 数字输入框）的落盘入口：350ms 防抖，最后一次为准。
+ * 离散控件（下拉/开关）仍走 saveSettings 直存——单次事件无需防抖。
+ */
+export function queueSettingsSave(
+  settings: AppSettings,
+  changedKeys: ReadonlyArray<keyof AppSettings & string>,
+): void {
+  saveQueue.queue(settings, changedKeys);
+}
+
+/** 输入框 blur / 设置面板卸载前调用：把防抖中的最后一次修改立刻落盘 */
+export function flushSettingsSave(): void {
+  saveQueue.flush();
 }
 
 /** 当前提供商是否可用（Key 要求满足）——发送前/连通性测试的闸门 */

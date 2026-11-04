@@ -7,14 +7,22 @@ import type { ProviderError } from "@/agent/providers";
 import { memoryService, type MemoryItem } from "@/agent/memory/long-term";
 import { historyStore } from "@/agent/memory/history-store";
 import { sendStateEvent, STATE_EVENTS } from "@/shared/events";
-import { loadSettings, saveSettings, type AppSettings } from "@/services/settings";
+import {
+  loadSettings,
+  saveSettings,
+  queueSettingsSave,
+  flushSettingsSave,
+  type AppSettings,
+} from "@/services/settings";
 
 /**
  * 设置 Tab —— v0.3.0：提供商/Key/模型 + 连通性测试。
  *
  * 交互设计：
  * - 每提供商独立 Key/模型桶（切提供商不丢配置，settings.ts 结构注释）；
- * - 所有更改即时落盘（plugin-store autoSave）——低频操作不需要"保存按钮"；
+ * - 离散控件（下拉/开关）即时落盘；字符级输入（Key/模型名/数字）走 350ms 防抖
+ *   （P0-02：否则输一个字符广播一次 settingsChanged，站立计时被反复重排），
+ *   blur 与面板卸载时冲刷（flushSettingsSave），最后一次输入不丢；
  * - 连通性测试：用当前表单值现场建 Provider，发 ping，首个事件定成败（10s 超时）；
  *   成功显示首字延迟——这是流式体验最敏感的指标。
  */
@@ -33,11 +41,25 @@ export function SettingsTab() {
     void loadSettings().then(setSettings);
   }, []);
 
+  // 设置面板卸载（切 Tab / 关窗）时冲刷防抖：最后一次输入不丢（P0-02）
+  useEffect(() => () => flushSettingsSave(), []);
+
   const update = useCallback((patch: Partial<AppSettings>) => {
     setSettings(prev => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
-      void saveSettings(next); // 即时持久化
+      // 离散控件（下拉/开关）：单次事件，直存
+      void saveSettings(next, Object.keys(patch) as Array<keyof AppSettings & string>);
+      return next;
+    });
+  }, []);
+
+  /** 字符级输入（数字输入框）专用：走防抖，blur 时冲刷 */
+  const updateDebounced = useCallback((patch: Partial<AppSettings>) => {
+    setSettings(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, ...patch };
+      queueSettingsSave(next, Object.keys(patch) as Array<keyof AppSettings & string>);
       return next;
     });
   }, []);
@@ -47,18 +69,19 @@ export function SettingsTab() {
       setSettings(prev => {
         if (!prev) return prev;
         const next = { ...prev, apiKeys: { ...prev.apiKeys, [providerId]: key } };
-        void saveSettings(next);
+        queueSettingsSave(next, ["apiKeys"]); // Key 逐字符输入：防抖（P0-02）
         return next;
       });
     },
     [],
   );
 
-  const updateModel = useCallback((providerId: string, model: string) => {
+  const updateModel = useCallback((providerId: string, model: string, debounce = false) => {
     setSettings(prev => {
       if (!prev) return prev;
       const next = { ...prev, models: { ...prev.models, [providerId]: model } };
-      void saveSettings(next);
+      if (debounce) queueSettingsSave(next, ["models"]);
+      else void saveSettings(next, ["models"]);
       return next;
     });
   }, []);
@@ -121,6 +144,7 @@ export function SettingsTab() {
             type="password"
             value={apiKey}
             onChange={e => updateKey(preset.id, e.target.value)}
+            onBlur={flushSettingsSave}
             placeholder={apiKey ? "已保存（输入即覆盖）" : "sk-…"}
             autoComplete="off"
           />
@@ -143,7 +167,8 @@ export function SettingsTab() {
           <>
             <input
               value={model}
-              onChange={e => preset && updateModel(preset.id, e.target.value)}
+              onChange={e => preset && updateModel(preset.id, e.target.value, true)}
+              onBlur={flushSettingsSave}
               placeholder="模型名（如 qwen2.5:7b）"
             />
             <datalist id="model-suggestions">
@@ -167,7 +192,7 @@ export function SettingsTab() {
         )}
       </div>
 
-      <TimerConfigSection settings={settings} update={update} />
+      <TimerConfigSection settings={settings} update={update} updateDebounced={updateDebounced} />
 
       <MemoriesSection />
 
@@ -186,15 +211,18 @@ export function SettingsTab() {
 
 /**
  * 计时配置 —— v0.7.0：站立间隔/番茄钟时长/通知开关。
- * 保存即广播 settingsChanged（settings.ts），常驻服务热更新（改站立间隔即重置计时，
- * learning/08 §4.2）。数值边界由 settings.normalize 夹紧（1~120 等）。
+ * 数字输入框走防抖（P0-02）：onChange 每敲一个键 queue 一次、blur 冲刷一次，
+ * 不再「输 30 就重排两次站立计时」。数值边界由 settings.normalize 夹紧
+ * （1~120 等）。通知开关是离散控件，走 update 直存 + 广播。
  */
 function TimerConfigSection({
   settings,
   update,
+  updateDebounced,
 }: {
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => void;
+  updateDebounced: (patch: Partial<AppSettings>) => void;
 }) {
   return (
     <div className="settings-timers">
@@ -206,7 +234,8 @@ function TimerConfigSection({
           min={1}
           max={120}
           value={settings.standupIntervalMin}
-          onChange={e => update({ standupIntervalMin: Number(e.target.value) })}
+          onChange={e => updateDebounced({ standupIntervalMin: Number(e.target.value) })}
+          onBlur={flushSettingsSave}
         />
       </label>
       <div className="settings-row">
@@ -217,7 +246,8 @@ function TimerConfigSection({
             min={5}
             max={90}
             value={settings.pomodoroFocusMin}
-            onChange={e => update({ pomodoroFocusMin: Number(e.target.value) })}
+            onChange={e => updateDebounced({ pomodoroFocusMin: Number(e.target.value) })}
+            onBlur={flushSettingsSave}
           />
         </label>
         <label className="settings-field">
@@ -227,7 +257,8 @@ function TimerConfigSection({
             min={1}
             max={30}
             value={settings.pomodoroBreakMin}
-            onChange={e => update({ pomodoroBreakMin: Number(e.target.value) })}
+            onChange={e => updateDebounced({ pomodoroBreakMin: Number(e.target.value) })}
+            onBlur={flushSettingsSave}
           />
         </label>
       </div>

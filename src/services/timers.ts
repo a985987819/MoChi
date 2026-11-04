@@ -72,17 +72,25 @@ export class StandupService {
     await listen(UI_EVENTS.resetStandup, () => this.rearm("reset"));
     // 用户点击提醒弹窗（alert 页 emit；Rust 同时隐藏弹窗）
     await listen(UI_EVENTS.standupAck, () => void this.ack());
-    // 配置热更新：改间隔即重置（08 §4.2）
-    await listen(STATE_EVENTS.settingsChanged, () => void this.reloadConfig());
+    // 配置热更新：先重载配置，再按变更键决定是否重置——
+    // P0-02：改通知开关不该把已经走了 40 分钟的站立计时清零
+    await listen<{ keys?: string[] }>(STATE_EVENTS.settingsChanged, e => {
+      const keys = e.payload?.keys ?? [];
+      void this.reloadConfig(keys);
+    });
     // 在场变化：away→active 时若已到点，下一 tick 立即补弹
 
     window.setInterval(() => this.tick(), 1000);
   }
 
-  /** 配置重载 + 重置计时（改配置即重置） */
-  private async reloadConfig(): Promise<void> {
+  /**
+   * 配置重载 + 条件重置（P0-02）。
+   * 先 loadConfig 再判断 rearm：顺序不能反——反了会用旧间隔重置（竞态）。
+   * keys 为空视为"旧版广播"（未携带变更键），保持旧行为直接重置。
+   */
+  private async reloadConfig(keys: string[] = []): Promise<void> {
     this.config = await loadConfig();
-    this.rearm("config");
+    if (keys.length === 0 || keys.includes("standupIntervalMin")) this.rearm("config");
   }
 
   /** 重新计时（单击/点击弹窗/改配置共用出口） */

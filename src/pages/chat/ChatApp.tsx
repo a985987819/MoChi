@@ -51,7 +51,7 @@ export function ChatApp() {
     setWelcome(false);
     setTab(destination);
     const settings = await loadSettings();
-    if (!settings.onboardingDone) await saveSettings({ ...settings, onboardingDone: true });
+    if (!settings.onboardingDone) await saveSettings({ ...settings, onboardingDone: true }, ["onboardingDone"]);
   }, []);
 
   const handleClose = useCallback(() => {
