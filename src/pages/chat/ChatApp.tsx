@@ -107,7 +107,7 @@ export function ChatApp() {
         <WelcomeGuide onFinish={finishWelcome} />
       ) : (
         <>
-          {tab === "chat" && <ChatTab />}
+          {tab === "chat" && <ChatTab onOpenSettings={() => setTab("settings")} />}
           {tab === "todos" && <TodosTab />}
           {tab === "pomodoro" && <PomodoroTab />}
           {tab === "settings" && <SettingsTab />}

@@ -8,6 +8,7 @@ import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { truncateForBubble } from "@/shared/bubble-text";
 import type { ProviderError } from "@/agent/providers";
 import { isProviderReady, loadSettings, type AppSettings } from "@/services/settings";
+import { toFriendlyError } from "@/agent/error-text";
 import { formatToolTrace } from "./tool-labels";
 
 /**
@@ -48,7 +49,7 @@ async function loadEntries(): Promise<ChatEntry[]> {
   return out;
 }
 
-export function ChatTab() {
+export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState("");
@@ -56,6 +57,7 @@ export function ChatTab() {
   const [error, setError] = useState<ProviderError | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const lastInputRef = useRef("");
 
   useEffect(() => {
     void loadSettings().then(setSettings);
@@ -73,17 +75,19 @@ export function ChatTab() {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [entries]);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
-    if (!text || busy || !settings) return;
-    const ready = isProviderReady(settings);
-    if (!ready.ok) {
-      setError({ kind: "bad-request", message: ready.reason ?? "提供商未就绪" });
-      return;
-    }
+  const doSend = useCallback(
+    async (rawText: string) => {
+      const text = rawText.trim();
+      if (!text || busy || !settings) return;
+      const ready = isProviderReady(settings);
+      if (!ready.ok) {
+        setError({ kind: "bad-request", message: ready.reason ?? "提供商未就绪" });
+        return;
+      }
+      lastInputRef.current = text; // 失败重试（P1-07/08）重发最近一次输入
 
-    setError(null);
-    setInput("");
+      setError(null);
+      setInput("");
     setBusy(true);
 
     const userEntry: ChatEntry = { id: nextId++, role: "user", content: text };
@@ -145,7 +149,12 @@ export function ChatTab() {
       setBusy(false);
       abortRef.current = null;
     }
-  }, [input, busy, settings, entries]);
+  }, [busy, settings]); // entries 不进依赖：全程用函数式更新（P2-16 顺带修复闭包重建）
+
+  const send = useCallback(() => void doSend(input), [doSend, input]);
+
+  /** 重试最近一次输入（P1-07 错误条 / P1-08 失败气泡共用） */
+  const retryLast = useCallback(() => void doSend(lastInputRef.current), [doSend]);
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
 
@@ -193,14 +202,37 @@ export function ChatTab() {
         )}
       </div>
 
-      {error && (
-        <div className="chat-error">
-          <span>
-            [{error.kind}] {error.message}
-          </span>
-          <button onClick={() => setError(null)}>×</button>
-        </div>
-      )}
+      {error &&
+        (() => {
+          // 人话错误条（P1-07）：一句话主文案 + 下一步动作按钮；原始报错收进折叠详情
+          const friendly = toFriendlyError(error);
+          return (
+            <div className="chat-error">
+              <div className="chat-error__row">
+                <span className="chat-error__text">{friendly.headline}</span>
+                {friendly.action === "settings" && (
+                  <button className="chat-error__action" onClick={onOpenSettings}>
+                    {friendly.actionLabel}
+                  </button>
+                )}
+                {friendly.action === "retry" && (
+                  <button className="chat-error__action" onClick={retryLast}>
+                    {friendly.actionLabel}
+                  </button>
+                )}
+                {friendly.action === "dismiss" && (
+                  <button className="chat-error__action" onClick={() => setError(null)}>
+                    {friendly.actionLabel}
+                  </button>
+                )}
+              </div>
+              <details className="chat-error__details">
+                <summary>详情</summary>
+                <code>{error.message}</code>
+              </details>
+            </div>
+          );
+        })()}
 
       <div className="chat-composer">
         <textarea

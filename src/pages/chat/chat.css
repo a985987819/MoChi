@@ -222,10 +222,6 @@ body {
 
 /* ── 错误条 ── */
 .chat-error {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   margin: 0 14px 6px;
   padding: 7px 10px;
   border-radius: 10px;
@@ -236,12 +232,52 @@ body {
   user-select: text;
 }
 
-.chat-error button {
-  border: none;
-  background: transparent;
-  color: inherit;
+/* 人话错误条（v0.9.0 P1-07）：主行（文案+动作按钮）+ 折叠详情 */
+.chat-error__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-error__text {
+  line-height: 1.5;
+}
+
+.chat-error__action {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border: 1px solid #f3b8c2;
+  border-radius: 8px;
+  background: #fff;
+  color: #b3455a;
+  font-size: 12px;
   cursor: pointer;
-  font-size: 14px;
+}
+
+.chat-error__action:hover {
+  background: #fff5f7;
+}
+
+.chat-error__details {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #c17d8b;
+}
+
+.chat-error__details summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.chat-error__details code {
+  display: block;
+  margin-top: 3px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: #fff;
+  word-break: break-all;
+  user-select: text;
 }
 
 /* ── 输入区 ── */
