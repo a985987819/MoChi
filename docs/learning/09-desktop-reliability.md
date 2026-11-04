@@ -222,6 +222,35 @@ TS 的 `alerts.test.ts` 覆盖初载快照、慢快照顺序、卸载清理和�
 
 **验证范围**：本次环境缺 MSVC `vcvars64.bat` 和 Rust/Cargo，执行包装脚本后无法进入 Rust 编译。上述 Rust 测试已添加，不能写成已运行通过；TS 测试也不能替代多屏、原生拖动、实际通知权限或系统睡眠的桌面验收。验收进度以 `docs/roadmap.md` 为准。
 
+本批最终 CI：代码5ecc73a的 [check run 41797319856](https://github.com/a985987819/MoChi/actions/runs/41797319856) 在Windows/macOS完成141项TS测试、前端构建和6项Rust库测试；本地缺工具链限制不再阻止跨平台编译验证。CI不启动原生窗口，真机GUI验收仍按roadmap保留。
+
+### 4.12 CI 暴露的 macOS idle 查询依赖修复
+
+本地没有 Rust 工具链，后续实际 CI 才暴露 `user-idle 0.2.1` 的 macOS `src/quartz.rs:1` 中 `use Error` 未解析（E0432）。错误来自依赖的 macOS 模块，不是提醒队列。仅以 TypeScript 测试或 Windows 构建推断 macOS 能编译是不成立的。
+
+最小修复保持 Windows 的行为，只替换 macOS 的聚合时长查询。Cargo.toml 中把 `user-idle = "0.2"` 从通用 `[dependencies]` 移到 `[target.'cfg(windows)'.dependencies]`：这条依赖仍在 Windows 使用，但 macOS 不再编译它的 quartz 模块。Cargo.lock 仍记录全目标依赖图，根包依赖集合仍含 user-idle，版本与传递依赖没有变，本次没有手改锁文件或新增 crate。
+
+`lib.rs` 中对应语句按顺序为：
+
+| 语句 | 为什么这样写 |
+|---|---|
+| `get_idle_seconds()` 调 `platform_idle_seconds()` | 前端仍 invoke 同一命令，TS 的在场检测协议不变 |
+| Windows helper 的 `#[cfg(target_os = "windows")]` | 只在 Windows 编译原来的 `UserIdle::get_time()` 路径；错误仍回落 0 |
+| FFI 块与 mac helper 的 `#[cfg(target_os = "macos")]` | Windows 不解析/链接 Apple framework，macOS 不引用 user-idle |
+| `#[link(name = "CoreGraphics", kind = "framework")]` | 链接 macOS 自带系统框架，不额外拉取某个替代 Rust 库 |
+| `unsafe extern "C"` | 声明使用 C ABI 的外部符号；Rust 2024 要求 extern 声明块显式标注 unsafe |
+| `state_id: i32` | 对应 Apple `CGEventSourceStateID` 的 int32 枚举表示 |
+| `event_type: u32` | 对应 CoreGraphics 事件类型的无符号 32 位表示，允许传“任意输入”标记 |
+| 返回 `f64` | 对应 C API 返回的 `CFTimeInterval`（秒，含小数部分） |
+| `unsafe { CGEventSourceSecondsSinceLastEventType(0, u32::MAX) }` | 0 选择当前登录会话的合并状态，u32::MAX 对应任意输入；不是错误地查询 Null 事件 |
+| `seconds.is_finite() && seconds >= 0.0` | 在转换前拒绝 NaN、无穷和负数，避免异常结果把用户判成长期 away |
+| `seconds as u64` | 与现有前端协议一致，按完整秒数返回；小数部分不影响 300 秒阈值语义 |
+| 其他目标的 cfg helper 返回 0 | 项目支持 Windows/macOS；未实现的平台按在场降级，不因缺失统计错误推迟提醒 |
+
+unsafe 的安全前提写在调用点：两个参数都是按值传入的整数，没有指针、回调、所有权转移或外部资源生命周期；调用仅查询距上次任意输入的聚合时长，不创建 event tap，也不读取键盘/鼠标事件内容。
+
+签名与语义已对照 [Apple CGEventSourceSecondsSinceLastEventType](https://developer.apple.com/documentation/coregraphics/cgeventsource/secondssincelasteventtype(_:eventtype:)?language=objc)、[Apple CGEventSourceStateID](https://developer.apple.com/documentation/coregraphics/cgeventsourcestateid?language=objc)；`CombinedSessionState=0` 另与 [core-foundation-rs 的原始事件源绑定](https://github.com/servo/core-foundation-rs/blob/master/core-graphics/src/event_source.rs) 交叉核验。修复是否完成原生编译必须以后续 CI 结果为准，不能因已替换依赖就提前写“macOS 构建通过”。
+
 ## 5. 设计取舍
 
 | 选择 | 收益 | 代价与保留边界 |
