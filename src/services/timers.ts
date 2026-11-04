@@ -72,6 +72,12 @@ export class StandupService {
     await listen(UI_EVENTS.resetStandup, () => this.rearm("reset"));
     // 用户点击提醒弹窗（alert 页 emit；Rust 同时隐藏弹窗）
     await listen(UI_EVENTS.standupAck, () => void this.ack());
+    // 暂停提醒（v0.9.0：托盘菜单「暂停 1 小时」/ 提醒弹窗「稍后 5 分钟」共用，
+    // P1-11 的弹窗按钮走同一入口）
+    await listen<{ minutes?: unknown }>(STATE_EVENTS.standupSnooze, e => {
+      const minutes = typeof e.payload?.minutes === "number" ? e.payload.minutes : 5;
+      this.snooze(minutes);
+    });
     // 配置热更新：先重载配置，再按变更键决定是否重置——
     // P0-02：改通知开关不该把已经走了 40 分钟的站立计时清零
     await listen<{ keys?: string[] }>(STATE_EVENTS.settingsChanged, e => {

@@ -41,6 +41,13 @@ const EVT_HIDE_BUBBLE: &str = "ui://hide-bubble";
 const EVT_BUBBLE_TEXT: &str = "bubble://text";
 /// Rust → chat 窗：open-chat 的 {tab} 载荷转发（P1-02 右键菜单/托盘直达 Tab）
 const EVT_CHAT_OPEN: &str = "chat://open";
+/// 状态层事件（v0.9.0 P1-03，与 events.ts 的 STATE_EVENTS 对应）——
+/// Rust 侧只做两件事：把前端广播的番茄钟状态映射成托盘 tooltip；
+/// 托盘菜单动作反向 emit 给宠物窗 Service（沿用 pomodoro-start/stop 先例）
+const EVT_POMODORO_CHANGED: &str = "state://pomodoro-changed";
+const EVT_POMODORO_START: &str = "state://pomodoro-start";
+const EVT_POMODORO_STOP: &str = "state://pomodoro-stop";
+const EVT_STANDUP_SNOOZE: &str = "state://standup-snooze";
 
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -99,13 +106,29 @@ pub fn run() {
 }
 
 /// 构建托盘：图标 + 右键菜单 + 左键单击切换宠物显示。
+/// tooltip 由前端事件驱动动态更新（set_tray_tooltip），菜单动作反向 emit 给
+/// 宠物窗 Service（state://pomodoro-start 等，P1-03）。
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     // 菜单项三要素：id（事件分发用）、文案、是否可用；第四参是快捷键（暂无）
     // 命名注意：局部变量不能与下方 toggle_pet() 函数同名，否则遮蔽导致 E0618
     let toggle_item = MenuItem::with_id(app, "toggle-pet", "显示 / 隐藏麻薯", true, None::<&str>)?;
     let open_chat = MenuItem::with_id(app, "open-chat", "打开聊天", true, None::<&str>)?;
+    let open_settings = MenuItem::with_id(app, "open-settings", "设置…", true, None::<&str>)?;
+    let pomodoro_start = MenuItem::with_id(app, "start-pomodoro", "开始番茄钟", true, None::<&str>)?;
+    let pomodoro_stop = MenuItem::with_id(app, "stop-pomodoro", "停止番茄钟", true, None::<&str>)?;
+    let snooze = MenuItem::with_id(app, "snooze-standup", "暂停站立提醒 1 小时", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 Mochi", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&toggle_item, &open_chat, &quit])?;
+    let sep1 = tauri::menu::PredefinedMenuItem::separator(app)?;
+    let sep2 = tauri::menu::PredefinedMenuItem::separator(app)?;
+    let sep3 = tauri::menu::PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(
+        app,
+        &[&toggle_item, &open_chat, &open_settings, &sep1, &pomodoro_start, &pomodoro_stop, &sep2, &snooze, &sep3, &quit],
+    )?;
+
+    // tooltip 缓存：状态没变就不调 set_tooltip（番茄钟每秒广播一次，不去重会
+    // 每秒写一次 NOTIFYICONDATA——不是不能做，是没必要）
+    app.manage(std::sync::Mutex::new("Mochi 麻薯".to_string()));
 
     TrayIconBuilder::with_id("mochi-tray")
         .icon(app.default_window_icon().expect("缺少应用图标").clone())
@@ -127,12 +150,51 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         })
         .on_menu_event(|app, event| match event.id.as_ref() {
             "toggle-pet" => toggle_pet(app),
-            "open-chat" => show_chat(app),
+            "open-chat" => {
+                show_chat(app);
+            }
+            // 设置…：直达设置 Tab（复用 open-chat 的 {tab} 载荷转发，P1-02）
+            "open-settings" => {
+                show_chat(app);
+                if let Some(chat) = app.get_webview_window("chat") {
+                    use tauri::Emitter;
+                    let _ = chat.emit(EVT_CHAT_OPEN, "{\"tab\":\"settings\"}");
+                }
+            }
+            // 托盘 → 宠物窗 Service：沿用 chat 窗遥控番茄钟的 state:// 先例
+            "start-pomodoro" => {
+                use tauri::Emitter;
+                let _ = app.emit(EVT_POMODORO_START, serde_json::json!({}));
+            }
+            "stop-pomodoro" => {
+                use tauri::Emitter;
+                let _ = app.emit(EVT_POMODORO_STOP, serde_json::json!({}));
+            }
+            "snooze-standup" => {
+                use tauri::Emitter;
+                let _ = app.emit(EVT_STANDUP_SNOOZE, serde_json::json!({ "minutes": 60 }));
+                set_tray_tooltip(app, "Mochi 麻薯"); // 暂停 = 退出「该站起来了」态
+            }
             "quit" => app.exit(0), // 唯一的真正退出入口（绕过窗口 hide 拦截）
             _ => {}
         })
         .build(app)?;
     Ok(())
+}
+
+/// 更新托盘 tooltip（内容不变则跳过；缓存为 Mutex<String>，见 setup_tray）
+fn set_tray_tooltip(app: &tauri::AppHandle, text: &str) {
+    let Some(cache) = app.try_state::<std::sync::Mutex<String>>() else {
+        return;
+    };
+    let mut last = cache.lock().expect("托盘 tooltip 缓存锁中毒");
+    if *last == text {
+        return;
+    }
+    if let Some(tray) = app.tray_by_id("mochi-tray") {
+        let _ = tray.set_tooltip(Some(text));
+        *last = text.to_string();
+    }
 }
 
 /// 注册前端 → Rust 的 UI 事件监听。
@@ -164,14 +226,40 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
     app.listen_any(EVT_QUIT_APP, move |_| handle.exit(0));
 
     // 站立提醒弹窗（v0.7.0）：显示在宠物正上方（点击弹窗 = standup-ack）
+    // 同时把托盘 tooltip 切到「该站起来了」（P1-03：托盘承载状态）
     let handle = app.clone();
-    app.listen_any(EVT_SHOW_ALERT, move |_| show_alert(&handle));
+    app.listen_any(EVT_SHOW_ALERT, move |_| {
+        set_tray_tooltip(&handle, "Mochi · 该站起来了");
+        show_alert(&handle);
+    });
 
     let handle = app.clone();
     app.listen_any(EVT_STANDUP_ACK, move |_| {
         if let Some(alert) = handle.get_webview_window("alert") {
             let _ = alert.hide();
         }
+        set_tray_tooltip(&handle, "Mochi 麻薯");
+    });
+
+    // 番茄钟状态 → tooltip（P1-03）：focus/break 显示倒计时，idle 回默认。
+    // 载荷解析失败静默跳过（tooltip 只丢一次更新，下秒的广播会补上）
+    let handle = app.clone();
+    app.listen_any(EVT_POMODORO_CHANGED, move |event| {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+            return;
+        };
+        let phase = v.get("phase").and_then(|p| p.as_str()).unwrap_or("idle");
+        let text = match phase {
+            "focus" | "break" => {
+                let label = if phase == "focus" { "专注中" } else { "休息中" };
+                match v.get("remainingSec").and_then(|s| s.as_u64()) {
+                    Some(sec) => format!("Mochi · {label} {:02}:{:02}", sec / 60, sec % 60),
+                    None => format!("Mochi · {label}"),
+                }
+            }
+            _ => "Mochi 麻薯".to_string(),
+        };
+        set_tray_tooltip(&handle, &text);
     });
 
     // 宠物气泡（v0.9.0 P1-01）：Rust 是纯路由——把 ui://show-bubble 的文本载荷

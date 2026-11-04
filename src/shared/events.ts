@@ -65,6 +65,11 @@ export const STATE_EVENTS = {
    * 引导本体在 ChatApp 内以覆盖层渲染，事件只负责"把它叫出来"（v0.9.0）。
    */
   onboardingRequested: "state://onboarding-requested",
+  /**
+   * 暂停站立提醒（v0.9.0 P1-03 托盘菜单 / P1-11 弹窗「稍后」共用）。
+   * 载荷：{ minutes?: number }（缺省 5 分钟）。收方 StandupService.snooze。
+   */
+  standupSnooze: "state://standup-snooze",
 } as const;
 
 /**
