@@ -32,6 +32,17 @@ let nextId = 1;
 /** 流式增量冲刷间隔（ms）：~12fps 的重解析频率，肉眼仍是"逐字"（P1-05） */
 const STREAM_THROTTLE_MS = 80;
 
+/**
+ * 空态指令 chips（P1-12）：点一下填入输入框（**不自动发送**——自动发送会让
+ * 用户觉得失去控制权，施工单附录 B 交互约定），聚焦输入框等用户改改再发。
+ */
+const EMPTY_CHIPS = [
+  "帮我加个待办：明天九点开周会",
+  "来个番茄钟",
+  "巨无霸多少热量",
+  "记住我晚上不喝咖啡",
+] as const;
+
 /** SQLite 协议消息 → UI 条目（tool 明细并入 assistant 的 note，不单气泡展示） */
 async function loadEntries(): Promise<ChatEntry[]> {
   const msgs = await historyStore.loadRecent(24);
@@ -60,6 +71,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [error, setError] = useState<ProviderError | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastInputRef = useRef("");
 
   useEffect(() => {
@@ -195,11 +207,21 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
       <div ref={listRef} className="chat-msg-list">
         {entries.length === 0 && (
           <div className="chat-empty">
-            <p>
-              跟麻薯说句话吧～
-              <br />
-              试试：<strong>帮我加个待办：明天九点开周会</strong>，或夸夸它。
-            </p>
+            <p>跟麻薯说句话吧～</p>
+            <div className="chat-empty__chips">
+              {EMPTY_CHIPS.map(text => (
+                <button
+                  key={text}
+                  className="chat-chip"
+                  onClick={() => {
+                    setInput(text);
+                    textareaRef.current?.focus();
+                  }}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {entries.map(e =>
@@ -275,6 +297,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
 
       <div className="chat-composer">
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={onKeyDown}

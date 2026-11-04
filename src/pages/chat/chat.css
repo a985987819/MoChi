@@ -110,6 +110,33 @@ body {
   line-height: 2;
 }
 
+/* 空态指令 chips（v0.9.0 P1-12）：点一下填输入框，不自动发送 */
+.chat-empty__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 0 12px;
+}
+
+.chat-chip {
+  padding: 5px 12px;
+  border: 1px solid #f0e4e8;
+  border-radius: 999px;
+  background: #fff;
+  color: #6f6560;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.chat-chip:hover {
+  border-color: #ffd3d8;
+  color: #3d3733;
+  background: #fdf7f9;
+}
+
 .chat-msg {
   display: flex;
 }
