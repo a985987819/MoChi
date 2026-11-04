@@ -80,6 +80,11 @@ export const STATE_EVENTS = {
    * registered=false 且 enabled=true = 键位被其他软件占用——设置页提示。
    */
   shortcutState: "state://shortcut-state",
+  /**
+   * 开机自启开关（v0.9.0 P1-14，前端 → Rust）。载荷：{ enabled: boolean }。
+   * Rust 收到后 enable/disable 系统自启项（Win 注册表 Run / mac LaunchAgent）。
+   */
+  autostartChanged: "state://autostart-changed",
 } as const;
 
 /**

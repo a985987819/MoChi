@@ -15,10 +15,11 @@ void petState.installRemoteListeners();
 // 到点提醒的瞬间才弹授权框会打断用户；Windows 恒已授权，预热幂等
 void warmupNotificationPermission();
 
-// 全局快捷键（P1-13）：启动时按设置应用开关（键位在 Rust 侧写死）。
-// 设置页切换走同一条 state://shortcut-changed 事件
+// 全局快捷键 + 开机自启（P1-13/P1-14）：启动时按设置应用开关。
+// 设置页切换走同样的 state:// 事件；Rust 只执行系统级变更
 void loadSettings().then(settings => {
   void sendStateEvent(STATE_EVENTS.shortcutChanged, { enabled: settings.shortcutEnabled });
+  void sendStateEvent(STATE_EVENTS.autostartChanged, { enabled: settings.autostartEnabled });
 });
 
 // 常驻服务（v0.7.0，learning/08）：宠物窗是应用生命周期最长的宿主窗口

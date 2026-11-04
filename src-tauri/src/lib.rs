@@ -53,6 +53,8 @@ const EVT_SHORTCUT_CHANGED: &str = "state://shortcut-changed";
 const EVT_SHORTCUT_STATE: &str = "state://shortcut-state";
 /// 快捷键键位（v1 写死；CmdOrCtrl 在 Windows=Ctrl、macOS=Cmd）
 const SHORTCUT_CHAT: &str = "CmdOrCtrl+Shift+M";
+/// 开机自启（v0.9.0 P1-14）：前端开关 → Rust 应用（enable/disable 系统项）
+const EVT_AUTOSTART_CHANGED: &str = "state://autostart-changed";
 
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -87,6 +89,12 @@ pub fn run() {
         // global-shortcut：全局快捷键（P1-13）。注册在 Rust 侧（register_chat_shortcut），
         // 插件本身只提供机制；前端经 state://shortcut-changed 开关
         .plugin(tauri_plugin_global_shortcut::Builder::default().build())
+        // autostart：开机自启（P1-14）。默认关（设置开关驱动，不默认自启是底线）；
+        // macOS 走 LaunchAgent（默认 launcher）
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![list_user_pet_assets, get_idle_seconds]);
 
     // macOS：桌宠类应用不应出现在 Dock 上（Accessory = 无 Dock 图标、无主窗口菜单）。
@@ -268,6 +276,25 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
             .and_then(|v| v.get("enabled").and_then(|b| b.as_bool()))
             .unwrap_or(false);
         register_chat_shortcut(&handle, enabled);
+    });
+
+    // 开机自启开关（P1-14）：设置是事实源，Rust 只执行系统项变更；
+    // 失败 eprintln 不弹窗（系统能力缺失时自启本来就不可能，开关下次启动可重试）
+    let handle = app.clone();
+    app.listen_any(EVT_AUTOSTART_CHANGED, move |event| {
+        use tauri_plugin_autostart::ManagerExt as _;
+        let enabled = serde_json::from_str::<serde_json::Value>(event.payload())
+            .ok()
+            .and_then(|v| v.get("enabled").and_then(|b| b.as_bool()))
+            .unwrap_or(false);
+        let result = if enabled {
+            handle.autolaunch().enable()
+        } else {
+            handle.autolaunch().disable()
+        };
+        if let Err(e) = result {
+            eprintln!("[autostart] 应用失败: {e}");
+        }
     });
 
     // 站立提醒弹窗（v0.7.0）：显示在宠物正上方（点击弹窗 = standup-ack）

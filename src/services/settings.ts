@@ -43,6 +43,12 @@ export interface AppSettings {
    * 这里只是开关。注册结果（是否被占用）经 state://shortcut-state 回传 UI。
    */
   shortcutEnabled: boolean;
+  /**
+   * 开机自启（v0.9.0 P1-14，**默认关**——不默认自启是桌宠软件的底线）。
+   * 设置是事实源：Rust 收 state://autostart-changed 后 enable/disable 系统项；
+   * 启动时前端按本字段应用一次。
+   */
+  autostartEnabled: boolean;
 }
 
 const STORE_FILE = "settings.json";
@@ -59,6 +65,7 @@ export function defaultSettings(): AppSettings {
     notificationsEnabled: true,
     onboardingDone: false,
     shortcutEnabled: true,
+    autostartEnabled: false,
   };
 }
 
@@ -84,6 +91,7 @@ function normalize(raw: unknown): AppSettings {
     // 这正是「升级用户也会看到一次引导」的期望行为——v0.9.0 之前没有引导。
     onboardingDone: typeof r.onboardingDone === "boolean" ? r.onboardingDone : d.onboardingDone,
     shortcutEnabled: typeof r.shortcutEnabled === "boolean" ? r.shortcutEnabled : d.shortcutEnabled,
+    autostartEnabled: typeof r.autostartEnabled === "boolean" ? r.autostartEnabled : d.autostartEnabled,
   };
 }
 

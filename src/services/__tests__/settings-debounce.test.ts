@@ -42,6 +42,7 @@ const base: AppSettings = {
   notificationsEnabled: true,
   onboardingDone: false,
   shortcutEnabled: true,
+  autostartEnabled: false,
 };
 
 describe("createSettingsSaveQueue", () => {

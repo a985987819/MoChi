@@ -198,6 +198,8 @@ export function SettingsTab() {
 
       <ShortcutSection settings={settings} update={update} />
 
+      <AutostartSection settings={settings} update={update} />
+
       <MemoriesSection />
 
       <OnboardingSection update={update} />
@@ -359,6 +361,42 @@ function ShortcutSection({
       {settings.shortcutEnabled && registered === false && (
         <p className="settings-note">快捷键被其他软件占用了，功能不受影响；关掉占用方后重新打开开关即可。</p>
       )}
+    </div>
+  );
+}
+
+/**
+ * 开机自启（P1-14）：默认关——不默认自启是桌宠软件的底线。
+ * 设置是事实源；Rust 收事件后改系统自启项（Win 注册表 Run / mac LaunchAgent）。
+ * 开启时说明会"开机后在托盘待命"，管理预期。
+ */
+function AutostartSection({
+  settings,
+  update,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+}) {
+  const toggle = useCallback(
+    (enabled: boolean) => {
+      update({ autostartEnabled: enabled });
+      void sendStateEvent(STATE_EVENTS.autostartChanged, { enabled });
+    },
+    [update],
+  );
+
+  return (
+    <div className="settings-autostart">
+      <span className="settings-field-label">开机自启</span>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={settings.autostartEnabled}
+          onChange={e => toggle(e.target.checked)}
+        />
+        <span>开机后自动运行（在托盘待命，不弹窗）</span>
+      </label>
+      <p className="settings-note">关闭这个开关就会恢复；也可以随时在任务管理器的「启动应用」里管理。</p>
     </div>
   );
 }
