@@ -29,6 +29,7 @@ import { petState } from "@/services/pet-state";
 import { presenceService } from "@/services/presence";
 import { notify } from "@/services/notifications";
 import { loadSettings } from "@/services/settings";
+import { advancePomodoro, type PomodoroPhase } from "@/services/pomodoro-machine";
 
 interface TimerConfig {
   standupIntervalMin: number;
@@ -162,7 +163,7 @@ export class StandupService {
 
 // ── 番茄钟 ──────────────────────────────────────────────────────────────
 
-export type PomodoroPhase = "idle" | "focus" | "break";
+export type { PomodoroPhase };
 
 export interface PomodoroStatus {
   phase: PomodoroPhase;
@@ -219,19 +220,21 @@ export class PomodoroService {
   }
 
   private tick(): void {
-    if (this.phase === "idle" || Date.now() < this.deadline) {
+    // 时间戳比较触发阶段迁移（睡眠唤醒后同样正确，08 §4.1 原则 3）；
+    // 迁移决策抽到 pomodoro-machine.ts（纯函数，有单测）——本函数只执行副作用
+    const timeUp = this.phase !== "idle" && Date.now() >= this.deadline;
+    const next = advancePomodoro(this.phase, timeUp);
+    if (next.completed === null) {
       if (this.phase !== "idle") this.broadcast(); // 倒计时刷新
       return;
     }
-    // 时间戳比较触发阶段迁移（睡眠唤醒后同样正确，08 §4.1 原则 3）
-    if (this.phase === "focus") {
-      this.phase = "break";
+    this.phase = next.phase;
+    if (next.phase === "break") {
       this.deadline = Date.now() + this.config.pomodoroBreakMin * 60_000;
       petState.setSystem("break");
       if (this.config.notificationsEnabled) void notify("专注完成 🍅", `休息 ${this.config.pomodoroBreakMin} 分钟，麻薯等你回来`);
     } else {
       // break → idle：休息结束不自动续轮（主动承诺才叫专注，08 §4.3）
-      this.phase = "idle";
       petState.clearSystem();
       if (this.config.notificationsEnabled) void notify("休息结束 ☕", "准备好就开始下一轮番茄钟吧");
     }

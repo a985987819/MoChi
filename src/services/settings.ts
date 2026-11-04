@@ -85,7 +85,11 @@ const clampInt = (v: unknown, min: number, max: number, fallback: number): numbe
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
 };
 
-function normalize(raw: unknown): AppSettings {
+/**
+ * 畸形数据归一（导出仅为单测：老配置升级 + 脏 JSON 是真实事故源，施工单 §7.1）。
+ * 规则：字段缺省/类型不对 → 用默认值；数值越界 → 夹紧；未知提供商 → 回 mock。
+ */
+export function normalize(raw: unknown): AppSettings {
   const d = defaultSettings();
   if (typeof raw !== "object" || raw === null) return d;
   const r = raw as Partial<AppSettings>;
