@@ -53,6 +53,22 @@
         "shadow": false,
         "focus": false,
         "visible": false
+      },
+      {
+        "label": "bubble",
+        "url": "bubble.html",
+        "title": "Mochi 气泡",
+        "width": 260,
+        "height": 140,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "visible": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {

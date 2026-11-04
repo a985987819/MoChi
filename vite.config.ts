@@ -16,15 +16,16 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [react()],
 
-  // Mochi 是多窗口应用：pet（宠物）/ chat（聊天）/ alert（提醒弹窗）各是一个 HTML 入口。
-  // dev 模式下 Tauri 窗口通过 devUrl + 文件名（如 /chat.html）加载对应页面；
-  // build 模式下由 rollupOptions.input 告诉 Vite 打包出三个 HTML。
+  // Mochi 是多窗口应用：pet（宠物）/ chat（聊天）/ alert（提醒弹窗）/ bubble（气泡）
+  // 各是一个 HTML 入口。dev 模式下 Tauri 窗口通过 devUrl + 文件名（如 /chat.html）
+  // 加载对应页面；build 模式下由 rollupOptions.input 告诉 Vite 打包出四个 HTML。
   build: {
     rollupOptions: {
       input: {
         pet: path.resolve(__dirname, "index.html"),
         chat: path.resolve(__dirname, "chat.html"),
         alert: path.resolve(__dirname, "alert.html"),
+        bubble: path.resolve(__dirname, "bubble.html"),
       },
     },
   },

@@ -23,6 +23,14 @@ export const UI_EVENTS = {
   showAlert: "ui://show-alert",
   /** 用户点击了提醒弹窗（alert 页 → Rust 隐藏弹窗 + StandupService 重置计时） */
   standupAck: "ui://standup-ack",
+  /**
+   * 显示宠物气泡（v0.9.0 P1-01）。载荷：string（气泡文本，纯字符串）。
+   * 聊天窗在「回复完成但用户没看着窗口」时发出 → Rust 定位到宠物正上方、
+   * 把载荷原样转发给 bubble 窗（Rust 不解析业务文本）并 show。
+   */
+  showBubble: "ui://show-bubble",
+  /** 隐藏宠物气泡（bubble 页淡出动画结束后自己叫 Rust 藏窗） */
+  hideBubble: "ui://hide-bubble",
 } as const;
 
 /** 状态层广播事件（纯前端：任意窗口 emit/listen，驱动 PetStateManager 等服务） */
@@ -56,9 +64,22 @@ export const STATE_EVENTS = {
   onboardingRequested: "state://onboarding-requested",
 } as const;
 
-/** 发射一个 UI 事件给 Rust 侧监听器 */
-export function sendUIEvent(event: (typeof UI_EVENTS)[keyof typeof UI_EVENTS]): Promise<void> {
-  return emit(event);
+/**
+ * Rust → 窗口的转发事件（v0.9.0 P1-01）：Rust 收到 ui://* 后把载荷原样转给
+ * 目标窗口。转发链见 lib.rs#show_bubble——Rust 只做路由不存业务文本，
+ * 窗口关闭后不残留状态。
+ */
+export const BRIDGE_EVENTS = {
+  /** 气泡文本（lib.rs 收 ui://show-bubble → 转给 bubble 窗）。载荷：string */
+  bubbleText: "bubble://text",
+} as const;
+
+/** 发射一个 UI 事件给 Rust 侧监听器（payload 可选：气泡文本等；Rust 端原样转发或消费） */
+export function sendUIEvent(
+  event: (typeof UI_EVENTS)[keyof typeof UI_EVENTS],
+  payload?: unknown,
+): Promise<void> {
+  return emit(event, payload);
 }
 
 /** 广播一个状态事件（载荷由调用方保证形状，收方 PetStateManager 做校验） */

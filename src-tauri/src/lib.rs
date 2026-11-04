@@ -34,6 +34,11 @@ const EVT_TOGGLE_PET: &str = "ui://toggle-pet";
 const EVT_QUIT_APP: &str = "ui://quit-app";
 const EVT_SHOW_ALERT: &str = "ui://show-alert";
 const EVT_STANDUP_ACK: &str = "ui://standup-ack";
+/// 气泡（v0.9.0 P1-01）：前端 emit 带文本载荷，Rust 定位 + 原样转发给 bubble 窗
+const EVT_SHOW_BUBBLE: &str = "ui://show-bubble";
+const EVT_HIDE_BUBBLE: &str = "ui://hide-bubble";
+/// Rust → bubble 窗的转发事件名（与 events.ts 的 BRIDGE_EVENTS.bubbleText 对应）
+const EVT_BUBBLE_TEXT: &str = "bubble://text";
 
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -159,22 +164,54 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
             let _ = alert.hide();
         }
     });
+
+    // 宠物气泡（v0.9.0 P1-01）：Rust 是纯路由——把 ui://show-bubble 的文本载荷
+    // 原样转给 bubble 窗（bubble://text），自己不解析、不缓存业务文本
+    let handle = app.clone();
+    app.listen_any(EVT_SHOW_BUBBLE, move |event| show_bubble(&handle, &event));
+
+    let handle = app.clone();
+    app.listen_any(EVT_HIDE_BUBBLE, move |_| {
+        if let Some(bubble) = handle.get_webview_window("bubble") {
+            let _ = bubble.hide();
+        }
+    });
 }
 
 /// 把提醒弹窗显示到宠物正上方居中处（learning/08 §4.2）。
-/// 几何都取物理像素：宠物位置/尺寸 + 弹窗 outer_size。
+/// 几何逻辑复用 position_above_pet；点击 ack 后由 EVT_STANDUP_ACK 监听隐藏。
 fn show_alert(app: &tauri::AppHandle) {
     let (Some(alert), Some(pet)) = (app.get_webview_window("alert"), app.get_webview_window("pet")) else {
         return;
     };
-    if let (Ok(pet_pos), Ok(pet_size), Ok(alert_size)) =
-        (pet.outer_position(), pet.outer_size(), alert.outer_size())
-    {
-        let x = pet_pos.x + (pet_size.width as i32 - alert_size.width as i32) / 2;
-        let y = pet_pos.y - alert_size.height as i32 - 12;
-        let _ = alert.set_position(tauri::PhysicalPosition::new(x, y));
-    }
+    position_above_pet(&pet, &alert, 12);
     let _ = alert.show();
+}
+
+/// 宠物气泡显示（v0.9.0 P1-01）：定位到宠物正上方 → 转发文本 → show。
+/// 载荷原样转发（前端 emit 的 JSON 字符串）——本函数不解析文本内容，
+/// 因此 Rust 侧永远不持有业务文本（气泡窗隐藏后状态自然消失）。
+fn show_bubble(app: &tauri::AppHandle, event: &tauri::Event) {
+    let (Some(bubble), Some(pet)) = (app.get_webview_window("bubble"), app.get_webview_window("pet")) else {
+        return;
+    };
+    position_above_pet(&pet, &bubble, 8);
+    use tauri::Emitter;
+    let _ = bubble.emit(EVT_BUBBLE_TEXT, event.payload());
+    let _ = bubble.show();
+}
+
+/// 把 window 定位到宠物正上方居中处（gap = 与宠物顶边的间隙，物理像素）。
+/// alert（提醒弹窗）与 bubble（对话气泡）共用同一几何规则——都是"从宠物头上长出来"。
+/// 几何全取物理像素：宠物位置/尺寸 + 目标窗 outer_size。
+fn position_above_pet(pet: &tauri::WebviewWindow, win: &tauri::WebviewWindow, gap: i32) {
+    if let (Ok(pet_pos), Ok(pet_size), Ok(win_size)) =
+        (pet.outer_position(), pet.outer_size(), win.outer_size())
+    {
+        let x = pet_pos.x + (pet_size.width as i32 - win_size.width as i32) / 2;
+        let y = pet_pos.y - win_size.height as i32 - gap;
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
 }
 
 /// 从素材文件名提取状态名（与前端 `pet-assets.ts#parseAssetName` 同一套约定，见 docs/pet-assets.md §2）。
