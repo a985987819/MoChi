@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { createProvider, PRESETS, getPreset } from "@/agent/providers";
 import type { ProviderError } from "@/agent/providers";
 import { memoryService, type MemoryItem } from "@/agent/memory/long-term";
@@ -123,11 +124,7 @@ export function SettingsTab() {
           />
         </label>
       )}
-      {preset?.keysUrl && (
-        <p className="settings-note">
-          还没有 Key？<a href={preset.keysUrl}>{preset.keysUrl}</a>（浏览器打开）
-        </p>
-      )}
+      {preset?.keysUrl && <KeysUrlNote url={preset.keysUrl} />}
 
       <label className="settings-field">
         <span>模型</span>
@@ -307,5 +304,33 @@ function DangerZone() {
       <span className="settings-field-label">危险操作</span>
       <button onClick={clearHistory}>清空聊天历史</button>
     </div>
+  );
+}
+
+/**
+ * 申请 Key 的外链提示 —— v0.9.0 P0-01。
+ * 为什么不用 <a href>：Tauri WebView 不会把外链导航交给系统浏览器（CSP 禁止
+ * 导航到外部站点），点击毫无反应——必须走 opener 插件的 openUrl。
+ * opener:default 权限已覆盖 http/https（capabilities/default.json），无需额外配置。
+ * openUrl 失败时（无默认浏览器等）退化为纯文本，用户仍可手动复制访问。
+ */
+function KeysUrlNote({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+
+  const open = useCallback(() => {
+    void openUrl(url).catch(() => setFailed(true));
+  }, [url]);
+
+  if (failed) {
+    return (
+      <p className="settings-note">
+        无法自动打开浏览器，请手动访问：{url}
+      </p>
+    );
+  }
+  return (
+    <p className="settings-note">
+      还没有 Key？<button className="settings-link" onClick={open}>{url}</button>
+    </p>
   );
 }

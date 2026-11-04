@@ -323,8 +323,17 @@ body {
   line-height: 1.6;
 }
 
-.settings-note a {
+/* 外链按钮（v0.9.0 P0-01）：样式仿链接，但用 <button> 走 opener 插件，
+   而非 <a href>——WebView 不会把外链交给系统浏览器 */
+.settings-link {
+  padding: 0;
+  border: none;
+  background: none;
   color: #e2708a;
+  font-family: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .settings-note--foot {
