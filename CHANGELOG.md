@@ -43,7 +43,7 @@ NSIS/MSI 并创建 draft Release）；macOS job **失败**——`构建并发布
 用户已授权本次推送部署；保持补丁范围，v0.9.0仍未启动。原生真机验收保持未完成，GitHub发布沿用草稿。
 
 ### 验证
-本地179项测试、类型检查与前端构建通过；发布流水线与安装包结果随实施记录更新。
+本地179项测试、类型检查与前端构建通过；dd8f526的双平台check run 41801154630成功，tag v0.8.2已推送。release run 41801504464双平台成功，Windows exe/msi与macOS universal dmg/app.tar.gz已上传[Mochi v0.8.2草稿](https://github.com/a985987819/MoChi/releases/tag/untagged-0cec4f3a23bb6eb5285c)，待所有者实测并确认公开；版本记录含附件大小与GitHub提供的SHA-256。
 
 ---
 

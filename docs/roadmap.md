@@ -214,9 +214,10 @@
 
 **验收标准**：
 - [x] 四处应用版本对齐0.8.2，功能代码保留已完成的179项测试与浏览器走查。
-- [ ] main双平台check成功后推送v0.8.2标签。
-- [ ] release工作流完成并核对Windows/macOS草稿安装包。
+- [x] main双平台check成功后推送v0.8.2标签（dd8f526；check run 41801154630，179项TS与6项Rust，2026-11-04）。
+- [x] release工作流完成并核对Windows/macOS草稿安装包（run 41801504464双平台success；exe/msi/universal dmg/app.tar.gz已上传，2026-11-04）。
 - [ ] 新安装包真机交互走查（不以CI构建代替）。
+- [ ] 所有者确认草稿并公开发布（沿用项目draft流程）。
 
 ---
 
