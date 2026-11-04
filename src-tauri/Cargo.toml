@@ -31,10 +31,13 @@ tauri-plugin-store = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 # notification：系统通知（v0.7.0 起站立提醒/番茄钟/自定义提醒）
 tauri-plugin-notification = "2"
-# user-idle：跨平台"距上次输入时长"查询（v0.7.0 在场检测，learning/08 §3.1）
-user-idle = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+# user-idle 0.2.1 的 macOS quartz 模块不能通过 Rust 2024 编译；Windows 路径仍沿用。
+# macOS 只需一个 CoreGraphics 聚合计数查询，直接链接系统 framework，避免引入替代 crate。
+user-idle = "0.2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

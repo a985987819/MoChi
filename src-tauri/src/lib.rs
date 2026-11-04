@@ -408,13 +408,43 @@ fn list_user_pet_assets(app: tauri::AppHandle) -> BTreeMap<String, Vec<String>> 
 
 /// 距上次用户输入的秒数（learning/08 §3.1）。
 /// 隐私红线：这是聚合数字，不含任何输入内容；失败返回 0（按"用户在场"处理，宁误安全向）。
-/// user-idle 内部：Windows = GetLastInputInfo，macOS = CGEventSource 查询（均无需特殊权限）。
+/// Windows 走 user-idle 的 GetLastInputInfo；macOS 直连 CoreGraphics 聚合查询。
 #[tauri::command]
 fn get_idle_seconds() -> u64 {
+    platform_idle_seconds()
+}
+
+#[cfg(target_os = "windows")]
+fn platform_idle_seconds() -> u64 {
     user_idle::UserIdle::get_time()
         .map(|idle| idle.as_seconds())
         .unwrap_or(0)
 }
+
+// Rust 2024 要求 FFI 声明块显式 unsafe；此符号由 macOS 自带的 CoreGraphics 提供。
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGEventSourceSecondsSinceLastEventType(state_id: i32, event_type: u32) -> f64;
+}
+
+#[cfg(target_os = "macos")]
+fn platform_idle_seconds() -> u64 {
+    // SAFETY: Apple API 的两个参数均为按值传入的枚举/整数，无指针或资源生命周期。
+    // 0 = kCGEventSourceStateCombinedSessionState；u32::MAX = kCGAnyInputEventType。
+    // 仅查询距上次任意输入的聚合秒数，不建立 event tap、不监听或读取输入内容。
+    let seconds = unsafe { CGEventSourceSecondsSinceLastEventType(0, u32::MAX) };
+    normalize_idle_seconds(seconds)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn normalize_idle_seconds(seconds: f64) -> u64 {
+    if seconds.is_finite() && seconds >= 0.0 { seconds as u64 } else { 0 }
+}
+
+// 本项目只支持 Windows/macOS；其他目标保守按“在场”处理，不错误推迟提醒。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn platform_idle_seconds() -> u64 { 0 }
 
 /// 显示并聚焦聊天窗。show() 不夺焦，聊天窗要接住用户输入必须显式 set_focus。
 fn show_chat(app: &tauri::AppHandle) {
@@ -471,6 +501,14 @@ mod alert_tests {
 
     fn item(id: &str) -> AppAlert {
         AppAlert { id: id.into(), kind: AlertKind::Reminder, title: "到点提醒".into(), body: "喝水".into() }
+    }
+
+    #[test]
+    fn idle_query_rejects_invalid_values_and_uses_whole_seconds() {
+        assert_eq!(normalize_idle_seconds(f64::NAN), 0);
+        assert_eq!(normalize_idle_seconds(f64::INFINITY), 0);
+        assert_eq!(normalize_idle_seconds(-1.0), 0);
+        assert_eq!(normalize_idle_seconds(300.9), 300);
     }
 
     #[test]
