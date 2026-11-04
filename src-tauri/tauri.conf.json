@@ -37,7 +37,8 @@
         "minHeight": 560,
         "visible": false,
         "center": true,
-        "decorations": false
+        "decorations": false,
+        "transparent": true
       },
       {
         "label": "alert",

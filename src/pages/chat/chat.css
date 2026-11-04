@@ -1,10 +1,14 @@
 /* 聊天窗样式 —— v0.3.0：自绘标题栏 + Tabs + 消息流 + 设置面板 */
 
+/* v0.9.0 P1-04：窗口透明化，圆角由 .chat-shell 承担——decorations:false 的
+   窗口在 Win11 上是硬直角，贴桌面像一块补丁。
+   回退预案（若实测出现黑边/拖影/GPU 飙升）：tauri.conf.json 去掉 transparent，
+   本文件 html/body 背景改回 #faf7f5、去掉 .chat-shell 的圆角阴影即可。 */
 html,
 body {
   margin: 0;
   padding: 0;
-  background: #faf7f5;
+  background: transparent;
   user-select: none;
 }
 
@@ -24,6 +28,9 @@ body {
     sans-serif;
   color: #3d3733;
   overflow: hidden;
+  border-radius: 12px;
+  background: #faf7f5;
+  box-shadow: 0 12px 32px rgba(80, 50, 60, 0.18);
 }
 
 /* ── 自绘标题栏（decorations:false 后就是窗口的"边"）── */
