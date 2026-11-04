@@ -25,3 +25,6 @@ dist-ssr
 
 # 工作区本地数据（Agent 记忆 / 会话日志，属于个人环境，不入库）
 .workbuddy/
+
+# 本地浏览器走查的会话、快照和日志（回归脚本本身放 scripts/）
+.playwright-cli/

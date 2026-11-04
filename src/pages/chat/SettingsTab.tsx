@@ -11,7 +11,7 @@ import { loadSettings, saveSettings, type AppSettings } from "@/services/setting
  *
  * 交互设计：
  * - 每提供商独立 Key/模型桶（切提供商不丢配置，settings.ts 结构注释）；
- * - 所有更改即时落盘（plugin-store autoSave）——低频操作不需要"保存按钮"；
+ * - 所有更改顺序写盘（应用服务显式 save）——失败时给出可重试反馈；
  * - 连通性测试：用当前表单值现场建 Provider，发 ping，首个事件定成败（10s 超时）；
  *   成功显示首字延迟——这是流式体验最敏感的指标。
  */
@@ -25,6 +25,14 @@ type TestState =
 export function SettingsTab() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [test, setTest] = useState<TestState>({ phase: "idle" });
+  const [saveError, setSaveError] = useState("");
+
+  const persist = useCallback((next: AppSettings) => {
+    void saveSettings(next).then(() => setSaveError("")).catch(() => {
+      // 失败也不能打印包含 Key 的整个配置；用户可保留当前表单直接重试。
+      setSaveError("设置保存失败，请检查磁盘后重试");
+    });
+  }, []);
 
   useEffect(() => {
     void loadSettings().then(setSettings);
@@ -34,31 +42,31 @@ export function SettingsTab() {
     setSettings(prev => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
-      void saveSettings(next); // 即时持久化
+      persist(next);
       return next;
     });
-  }, []);
+  }, [persist]);
 
   const updateKey = useCallback(
     (providerId: string, key: string) => {
       setSettings(prev => {
         if (!prev) return prev;
         const next = { ...prev, apiKeys: { ...prev.apiKeys, [providerId]: key } };
-        void saveSettings(next);
+        persist(next);
         return next;
       });
     },
-    [],
+    [persist],
   );
 
   const updateModel = useCallback((providerId: string, model: string) => {
     setSettings(prev => {
       if (!prev) return prev;
       const next = { ...prev, models: { ...prev.models, [providerId]: model } };
-      void saveSettings(next);
+      persist(next);
       return next;
     });
-  }, []);
+  }, [persist]);
 
   const runTest = useCallback(async () => {
     if (!settings) return;
@@ -98,6 +106,7 @@ export function SettingsTab() {
 
   return (
     <div className="settings-panel">
+      {saveError && <p role="alert">{saveError} <button onClick={() => persist(settings)}>重试保存</button></p>}
       <label className="settings-field">
         <span>提供商</span>
         <select value={settings.providerId} onChange={e => update({ providerId: e.target.value })}>

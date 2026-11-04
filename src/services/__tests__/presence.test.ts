@@ -2,6 +2,8 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { PresenceService } from "@/services/presence";
 import { petState } from "@/services/pet-state";
+import { emit } from "@tauri-apps/api/event";
+import { STATE_EVENTS } from "@/shared/events";
 
 let idleSec = 0;
 beforeEach(() => {
@@ -57,4 +59,18 @@ it("OS 查询失败按在场处理，停止后不再继续查询", async () => {
   const calls = query.mock.calls.length;
   await vi.advanceTimersByTimeAsync(30_000);
   expect(query).toHaveBeenCalledTimes(calls);
+});
+
+it("JS定时器被节流后，原生节拍仍可恢复在场状态", async () => {
+  const service = new PresenceService();
+  idleSec = 600;
+  service.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(service.current).toBe("away");
+  idleSec = 0;
+  vi.setSystemTime(Date.now() + 15_000);
+  await emit(STATE_EVENTS.nativeTick);
+  await Promise.resolve();
+  expect(service.current).toBe("active");
+  service.stop();
 });

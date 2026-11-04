@@ -43,3 +43,12 @@ it("同级系统状态取最新，旧服务清理和定时器不会清掉新状�
   await vi.advanceTimersByTimeAsync(6000);
   expect(state.current).toBe("focus");
 });
+
+it("JS timeout停顿时也可按绝对时间清理临时状态", () => {
+  const state = new PetStateManager();
+  state.setSystem("focus", undefined, "pomodoro");
+  state.setSystem("stretch", 2, "standup");
+  vi.setSystemTime(Date.now() + 10_000);
+  state.refresh();
+  expect(state.current).toBe("focus");
+});

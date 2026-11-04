@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PET_STATES, type PetState, petState } from "@/services/pet-state";
 import { sendUIEvent, UI_EVENTS } from "@/shared/events";
+import { clampMenuPosition } from "./menu-position";
 import "./context-menu.css";
+
+/** 窗口通信异常不应变成未处理 Promise，动作由原生宿主统一执行。 */
+function requestUI(event: Parameters<typeof sendUIEvent>[0]): void {
+  void sendUIEvent(event).catch(error => console.error("[pet-menu] 窗口操作失败", error));
+}
 
 /**
  * 宠物窗右键菜单（自绘，规格：roadmap v0.2.0 步骤 5）。
@@ -18,6 +24,7 @@ import "./context-menu.css";
 export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
   const [demoOpen, setDemoOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: 4, top: 4 });
 
   // 点击菜单外 / Escape 关闭：document 级监听（菜单打开期间）
   useEffect(() => {
@@ -51,16 +58,25 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     [onClose],
   );
 
-  // 夹紧到窗口视口内（菜单预估尺寸：宽 150，展开演示区时高约 240）
-  const MENU_W = 150;
-  const MENU_H = demoOpen ? 244 : 118;
-  const left = Math.max(4, Math.min(x, window.innerWidth - MENU_W - 4));
-  const top = Math.max(4, Math.min(y, window.innerHeight - MENU_H - 4));
+  useLayoutEffect(() => {
+    const size = rootRef.current?.getBoundingClientRect();
+    if (size) setPosition(clampMenuPosition(x, y, size.width, size.height, window.innerWidth, window.innerHeight));
+  }, [x, y, demoOpen]);
 
   return (
-    <div ref={rootRef} className="ctx-menu" style={{ left, top }} data-tauri-drag-region={false}>
-      {item("打开聊天", () => void sendUIEvent(UI_EVENTS.openChat))}
-      {item("隐藏麻薯", () => void sendUIEvent(UI_EVENTS.togglePet))}
+    <div
+      ref={rootRef}
+      className="ctx-menu"
+      style={position}
+      onPointerDown={e => e.stopPropagation()}
+      onPointerUp={e => e.stopPropagation()}
+      onPointerMove={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      onDoubleClick={e => e.stopPropagation()}
+      onContextMenu={e => { e.preventDefault(); e.stopPropagation(); }}
+    >
+      {item("打开聊天", () => requestUI(UI_EVENTS.openChat))}
+      {item("隐藏麻薯", () => requestUI(UI_EVENTS.togglePet))}
       <button className="ctx-item" onClick={() => setDemoOpen(v => !v)}>
         表情演示 {demoOpen ? "▾" : "▸"}
       </button>
@@ -72,7 +88,7 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
         </div>
       )}
       <div className="ctx-divider" />
-      {item("退出 Mochi", () => void sendUIEvent(UI_EVENTS.quitApp))}
+      {item("退出 Mochi", () => requestUI(UI_EVENTS.quitApp))}
     </div>
   );
 }

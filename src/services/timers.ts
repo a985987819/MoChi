@@ -1,200 +1,224 @@
 /**
- * TimerService —— 站立提醒（StandupService）+ 番茄钟（PomodoroService）。
- * 规格：docs/learning/08-timers-reminders-presence.md §4（本文件即其实现）。
- *
- * # 时间基准三原则（08 §4.1，本文件的地基）
- *
- * 1. **一切截止时间是时间戳**（epoch ms），不是剩余秒数递减——setInterval 累计会漂移；
- * 2. 每秒 tick 只做 `now >= deadline ? fire() : broadcast()`——tick 被节流/丢失不影响
- *    正确性（最坏延迟一个节流周期）；
- * 3. 睡眠/唤醒：唤醒后第一次 tick 用时间戳比较，补发一次（状态迁移幂等）。
- *
- * # 职责与联动
- *
- * - StandupService：armed →(到点且在场)→ fired（alert 弹窗+通知+宠物 alert）→
- *   用户点击弹窗（standup-ack）→ stretch 2s → 重新计时；10 分钟无人点自动收尾；
- *   away 时到点**不弹**（保持 armed，恢复在场即弹——idle≠没在忙，08 §3.2）。
- * - PomodoroService：idle→focus→break→idle（休息结束**不**自动续轮，08 §4.3）；
- *   focus/break 期间宠物 system 槽锁定；每秒广播 pomodoroChanged（Tab 倒计时）。
- * - 单击宠物重置：PetApp emit `ui://reset-standup`（v0.2.0 契约）→ 本文件监听。
- * - 配置热更新：监听 `state://settings-changed`，改站立间隔即重置（08 §4.2）。
- *
- * 驻留宠物窗（常宿主）；chat 窗通过事件遥控番茄钟（state://pomodoro-start/stop）。
+ * TimerService：时间戳是权威，原生节拍唤醒检查、JS interval 作为后备。
+ * 站立/番茄钟各自持有宠物状态和带 id 的可见提醒；系统通知只是附加通道。
+ * 设计与复盘：docs/learning/08-timers-reminders-presence.md §4。
  */
-
-import { listen } from "@tauri-apps/api/event";
-import { emit } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { UI_EVENTS, STATE_EVENTS } from "@/shared/events";
 import { petState } from "@/services/pet-state";
 import { presenceService } from "@/services/presence";
 import { notify } from "@/services/notifications";
 import { loadSettings } from "@/services/settings";
+import { showAppAlert, dismissAppAlert, type AppAlert } from "@/services/alerts";
+import { subscribeHeartbeat } from "@/services/heartbeat";
+import { ServiceScope } from "@/services/service-scope";
 import type { PomodoroResult } from "@/services/pomodoro-control";
 
-interface TimerConfig {
-  standupIntervalMin: number;
-  pomodoroFocusMin: number;
-  pomodoroBreakMin: number;
-  notificationsEnabled: boolean;
-}
-
-async function loadConfig(): Promise<TimerConfig> {
-  const s = await loadSettings();
-  return {
-    standupIntervalMin: s.standupIntervalMin,
-    pomodoroFocusMin: s.pomodoroFocusMin,
-    pomodoroBreakMin: s.pomodoroBreakMin,
-    notificationsEnabled: s.notificationsEnabled,
-  };
-}
-
-// ── 站立提醒 ────────────────────────────────────────────────────────────
-
-/** 弹窗 10 分钟无人点自动收尾（08 §2.3 迟滞表） */
+type TimerConfig = Pick<Awaited<ReturnType<typeof loadSettings>>,
+  "standupIntervalMin" | "pomodoroFocusMin" | "pomodoroBreakMin" | "notificationsEnabled">;
+const defaults = (): TimerConfig => ({ standupIntervalMin: 60, pomodoroFocusMin: 25, pomodoroBreakMin: 5, notificationsEnabled: true });
 const ALERT_AUTO_DISMISS_MS = 10 * 60_000;
 
-/** 站立计时与弹窗收尾汇入同一状态机，在场判断只推迟触发，不暂停计时。 */
+/** 站立计时不会因 away 暂停；弹窗失败保留已过期的 deadline，下一节拍重试。 */
 export class StandupService {
-  /** armed=计时中；fired=弹窗已显示（等待点击/超时） */
   state: "armed" | "fired" = "armed";
   private deadline = 0;
-  private config: TimerConfig = {
-    standupIntervalMin: 60,
-    pomodoroFocusMin: 25,
-    pomodoroBreakMin: 5,
-    notificationsEnabled: true,
-  };
-  private autoDismiss: number | null = null;
+  private config = defaults();
+  private dismissAt = 0;
+  private alertId: string | null = null;
+  private starting: Promise<void> | null = null;
+  private scope: ServiceScope | null = null;
+  private deliveryInFlight = false;
+  private pendingDismiss = new Set<string>();
+  private dismissing = new Set<string>();
 
-  async start(): Promise<void> {
-    this.config = await loadConfig();
+  /** 多次调用共用初始化；失败释放资源，允许宿主监督器稍后重试。 */
+  start(): Promise<void> {
+    if (this.starting) return this.starting;
+    const scope = new ServiceScope();
+    this.scope = scope;
+    this.starting = this.initialize(scope).catch(error => {
+      scope.dispose();
+      if (this.scope === scope) this.starting = null;
+      throw error;
+    });
+    return this.starting;
+  }
+
+  private async initialize(scope: ServiceScope): Promise<void> {
+    const config = await loadSettings();
+    if (!scope.active) return;
+    this.config = config;
     this.rearm();
-
-    // 单击宠物重置（v0.2.0 契约事件的正式消费方）
-    await listen(UI_EVENTS.resetStandup, () => this.rearm("reset"));
-    // 用户点击提醒弹窗（alert 页 emit；Rust 同时隐藏弹窗）
-    await listen(UI_EVENTS.standupAck, () => void this.ack());
-    // 配置热更新：改间隔即重置（08 §4.2）
-    await listen(STATE_EVENTS.settingsChanged, () => void this.reloadConfig());
-    // 在场变化：away→active 时若已到点，下一 tick 立即补弹
-
-    window.setInterval(() => this.tick(), 1000);
+    await scope.add(listen(UI_EVENTS.resetStandup, () => this.rearm()));
+    await scope.add(listen(UI_EVENTS.standupAck, () => this.ack())); // 旧入口兼容
+    await scope.add(listen<{ id: string; kind: string }>(STATE_EVENTS.appAlertAcked, e => {
+      if (e.payload?.kind === "standup" && e.payload.id === this.alertId) this.ack();
+    }));
+    await scope.add(listen(STATE_EVENTS.settingsChanged, () => {
+      void this.reloadConfig(scope).catch(() => undefined);
+    }));
+    await scope.add(listen<{ presence: string }>(STATE_EVENTS.presenceChanged, e => {
+      if (e.payload?.presence === "active") this.tick();
+    }));
+    await scope.add(subscribeHeartbeat(() => this.tick()));
   }
 
-  /** 重载全部配置，但只有站立间隔改变才重置计时。 */
-  private async reloadConfig(): Promise<void> {
-    const next = await loadConfig();
-    const intervalChanged = next.standupIntervalMin !== this.config.standupIntervalMin;
-    this.config = next;
-    // 保存 Key、切通知开关等也会广播设置变化，不能因此不断推迟站立提醒。
-    if (intervalChanged) this.rearm("config");
-  }
-
-  /** 重新计时（单击/点击弹窗/改配置共用出口） */
-  private rearm(_reason?: string): void {
-    if (this.state === "fired") void emit(UI_EVENTS.hideAlert);
-    this.state = "armed";
-    this.deadline = Date.now() + this.config.standupIntervalMin * 60_000;
-    if (this.autoDismiss != null) window.clearTimeout(this.autoDismiss);
-    this.autoDismiss = null;
-    // 保险：异常残留的 alert 系统状态清掉（正常路径 ack 已清）
+  /** 仅释放本服务资源和状态，用于 HMR/退出，不清理其他服务的提醒。 */
+  dispose(): void {
+    this.scope?.dispose();
+    this.starting = null;
+    this.rearm();
     petState.clearSystem("standup");
   }
 
+  private async reloadConfig(scope: ServiceScope): Promise<void> {
+    const next = await loadSettings();
+    if (!scope.active) return;
+    const changed = next.standupIntervalMin !== this.config.standupIntervalMin;
+    this.config = next;
+    if (changed) this.rearm();
+  }
+
+  private rearm(): void {
+    if (this.alertId) this.pendingDismiss.add(this.alertId);
+    this.alertId = null;
+    this.state = "armed";
+    this.dismissAt = 0;
+    this.deadline = Date.now() + this.config.standupIntervalMin * 60_000;
+    petState.clearSystem("standup");
+    this.flushDismissals();
+  }
+
   private tick(): void {
-    if (this.state !== "armed") return;
-    if (Date.now() < this.deadline) return;
-    // away 时到点：保持 armed（deadline 已过去），恢复在场后立即补弹
-    if (presenceService.current === "away") return;
+    this.flushDismissals();
+    if (this.state === "fired") {
+      // 超时同样比较时间戳，后台 setTimeout 不执行也不会留下永久弹窗。
+      if (this.dismissAt > 0 && Date.now() >= this.dismissAt) this.ack();
+      return;
+    }
+    if (Date.now() < this.deadline || presenceService.current === "away" || this.deliveryInFlight) return;
     void this.fire();
   }
 
   private async fire(): Promise<void> {
+    const id = `standup:${crypto.randomUUID()}`;
+    this.alertId = id;
     this.state = "fired";
-    petState.setSystem("alert", undefined, "standup"); // 粘性：ack 才释放
-    if (this.config.notificationsEnabled) {
-      void notify("该站起来啦 🧍", `麻薯陪你坐了 ${this.config.standupIntervalMin} 分钟，点击提醒重置计时`);
+    this.deliveryInFlight = true;
+    const scope = this.scope;
+    try {
+      await showAppAlert({ id, kind: "standup", title: "该站起来啦！", body: `已经陪你坐了 ${this.config.standupIntervalMin} 分钟，起来活动一下吧` });
+      if (this.alertId !== id || !scope?.active) {
+        // 投递期间用户重置/退出：清理刚到达的旧提醒，不得污染下一轮。
+        this.pendingDismiss.add(id);
+        this.flushDismissals();
+        return;
+      }
+      this.dismissAt = Date.now() + ALERT_AUTO_DISMISS_MS;
+      petState.setSystem("alert", undefined, "standup");
+      if (this.config.notificationsEnabled) void notify("该站起来啦 🧍", "点击麻薯的提醒弹窗重置计时");
+    } catch {
+      if (this.alertId === id) {
+        this.alertId = null;
+        this.state = "armed"; // deadline 不变，下一 tick 重试
+      }
+    } finally {
+      this.deliveryInFlight = false;
     }
-    void emit(UI_EVENTS.showAlert); // Rust：定位到宠物正上方并 show
-    this.autoDismiss = window.setTimeout(() => void this.ack(), ALERT_AUTO_DISMISS_MS);
   }
 
-  /** 点击弹窗 / 超时收尾：播放 stretch → 重新计时 */
-  private async ack(): Promise<void> {
+  private ack(): void {
     if (this.state !== "fired") return;
-    this.state = "armed";
-    if (this.autoDismiss != null) window.clearTimeout(this.autoDismiss);
-    this.autoDismiss = null;
-    // 超时与单击宠物也要隐藏原生窗口，不能只更新 TS 状态。
-    void emit(UI_EVENTS.hideAlert);
-    petState.setSystem("stretch", 2, "standup"); // 结束后恢复其他服务仍持有的状态
-    this.deadline = Date.now() + this.config.standupIntervalMin * 60_000;
+    this.rearm();
+    petState.setSystem("stretch", 2, "standup");
+  }
+
+  private flushDismissals(): void {
+    for (const id of this.pendingDismiss) {
+      if (this.dismissing.has(id)) continue;
+      this.dismissing.add(id);
+      void dismissAppAlert(id).then(() => this.pendingDismiss.delete(id)).catch(() => undefined)
+        .finally(() => this.dismissing.delete(id));
+    }
   }
 }
-
-// ── 番茄钟 ──────────────────────────────────────────────────────────────
 
 export type PomodoroPhase = "idle" | "focus" | "break";
+/** 广播包含配置时长，空闲 UI 也能显示真实设置。 */
+export interface PomodoroStatus { phase: PomodoroPhase; remainingSec: number; focusMin: number; }
 
-export interface PomodoroStatus {
-  phase: PomodoroPhase;
-  remainingSec: number;
-  /** 空闲界面展示配置值，而不是硬编码 25:00。 */
-  focusMin: number;
-}
-
-/** 宠物窗是唯一计时宿主；UI 与工具通过回执共享执行结果。 */
+/** 宠物窗是唯一权威；阶段切换同步完成，可见提醒以稳定 id 异步投递并重试。 */
 export class PomodoroService {
   phase: PomodoroPhase = "idle";
   private deadline = 0;
   private activeBreakMin = 5;
-  private config: TimerConfig = {
-    standupIntervalMin: 60,
-    pomodoroFocusMin: 25,
-    pomodoroBreakMin: 5,
-    notificationsEnabled: true,
-  };
+  private roundId = "";
+  private config = defaults();
+  private starting: Promise<void> | null = null;
+  private scope: ServiceScope | null = null;
+  private pendingAlerts = new Map<string, AppAlert>();
+  private delivering = new Set<string>();
 
-  async start(): Promise<void> {
-    this.config = await loadConfig();
-    await listen(STATE_EVENTS.settingsChanged, () => {
-      // 番茄钟进行中不受配置热更新影响（时间基准已在跑）；下一轮 start 生效
-      void loadConfig().then(c => { this.config = c; this.broadcast(); });
+  /** 失败可重试，重复初始化不会注册多套跨窗监听与心跳。 */
+  start(): Promise<void> {
+    if (this.starting) return this.starting;
+    const scope = new ServiceScope();
+    this.scope = scope;
+    this.starting = this.initialize(scope).catch(error => {
+      scope.dispose();
+      if (this.scope === scope) this.starting = null;
+      throw error;
     });
-    // chat 窗遥控（Agent 工具 / PomodoroTab）
-    await listen<{ minutes?: unknown; requestId?: string }>(STATE_EVENTS.pomodoroStart, e => {
-      const min = e.payload?.minutes;
-      const result = min != null && typeof min !== "number"
-        ? { ok: false as const, error: "专注时长必须是数字" }
-        : this.startFocus(min ?? undefined);
-      this.reply(e.payload?.requestId, result);
-    });
-    await listen<{ requestId?: string }>(STATE_EVENTS.pomodoroStop, e => {
-      this.stop();
-      this.reply(e.payload?.requestId, { ok: true, data: this.status() });
-    });
-    await listen<{ requestId?: string }>(STATE_EVENTS.pomodoroQuery, e => {
-      this.reply(e.payload?.requestId, { ok: true, data: this.status() });
-    });
-
-    window.setInterval(() => this.tick(), 1000);
+    return this.starting;
   }
 
-  /** 服务是最终执行边界，跨窗口广播也必须校验，不能仅信任工具层。 */
+  private async initialize(scope: ServiceScope): Promise<void> {
+    const config = await loadSettings();
+    if (!scope.active) return;
+    this.config = config;
+    await scope.add(listen(STATE_EVENTS.settingsChanged, () => {
+      void loadSettings().then(c => { if (scope.active) { this.config = c; this.broadcast(); } }).catch(() => undefined);
+    }));
+    await scope.add(listen<{ minutes?: unknown; requestId?: string }>(STATE_EVENTS.pomodoroStart, e => {
+      const min = e.payload?.minutes;
+      const result = min != null && typeof min !== "number"
+        ? { ok: false as const, error: "专注时长必须是数字" } : this.startFocus(min ?? undefined);
+      this.reply(e.payload?.requestId, result);
+    }));
+    await scope.add(listen<{ requestId?: string }>(STATE_EVENTS.pomodoroStop, e => {
+      this.stop();
+      this.reply(e.payload?.requestId, { ok: true, data: this.status() });
+    }));
+    await scope.add(listen<{ requestId?: string }>(STATE_EVENTS.pomodoroQuery, e => {
+      this.tick(); // 刚唤醒时查询也先结算到期阶段
+      this.reply(e.payload?.requestId, { ok: true, data: this.status() });
+    }));
+    await scope.add(subscribeHeartbeat(() => this.tick()));
+  }
+
+  /** 卸载常驻服务时释放监听；用户的停止按钮仅调用 stop，不卸载服务。 */
+  dispose(): void {
+    this.scope?.dispose();
+    this.starting = null;
+    this.stop();
+  }
+
+  /** 执行边界再次校验，防止广播绕过工具校验或并发启动穿过 UI 缓存。 */
   startFocus(minutes?: number): PomodoroResult {
     if (this.phase === "focus") return { ok: false, error: "已有番茄钟在专注中，请先停止或等它结束" };
     const min = minutes ?? this.config.pomodoroFocusMin;
-    if (!Number.isFinite(min) || min < 5 || min > 90) {
-      return { ok: false, error: "专注时长需在 5~90 分钟之间" };
-    }
+    if (!Number.isFinite(min) || min < 5 || min > 90) return { ok: false, error: "专注时长需在 5~90 分钟之间" };
+    this.roundId = crypto.randomUUID();
     this.phase = "focus";
     this.deadline = Date.now() + min * 60_000;
-    this.activeBreakMin = this.config.pomodoroBreakMin; // 本轮休息时长也在启动时固定
-    petState.setSystem("focus", undefined, "pomodoro"); // 粘性：阶段结束/stop 释放
+    this.activeBreakMin = this.config.pomodoroBreakMin;
+    petState.setSystem("focus", undefined, "pomodoro");
     this.broadcast();
     return { ok: true, data: this.status() };
   }
 
+  /** 停止只释放番茄钟自己的状态，已经到点的提醒仍保留供用户查看。 */
   stop(): void {
     if (this.phase === "idle") return;
     this.phase = "idle";
@@ -202,42 +226,54 @@ export class PomodoroService {
     this.broadcast();
   }
 
+  /** UI 与工具共用快照，剩余时间根据 deadline 计算，不做秒数累减。 */
   status(): PomodoroStatus {
-    const remainingSec =
-      this.phase === "idle" ? 0 : Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000));
-    return { phase: this.phase, remainingSec, focusMin: this.config.pomodoroFocusMin };
+    return { phase: this.phase, remainingSec: this.phase === "idle" ? 0 : Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000)), focusMin: this.config.pomodoroFocusMin };
   }
 
   private tick(): void {
+    this.flushAlerts();
     if (this.phase === "idle" || Date.now() < this.deadline) {
-      if (this.phase !== "idle") this.broadcast(); // 倒计时刷新
+      if (this.phase !== "idle") this.broadcast();
       return;
     }
-    // 时间戳比较触发阶段迁移（睡眠唤醒后同样正确，08 §4.1 原则 3）
     if (this.phase === "focus") {
       this.phase = "break";
+      // 睡过专注结束时刻：从恢复时开始一次完整休息，不连发多个阶段通知。
       this.deadline = Date.now() + this.activeBreakMin * 60_000;
       petState.setSystem("break", undefined, "pomodoro");
-      if (this.config.notificationsEnabled) void notify("专注完成 🍅", `休息 ${this.activeBreakMin} 分钟，麻薯等你回来`);
+      this.queueAlert("focus", "专注完成 🍅", `休息 ${this.activeBreakMin} 分钟，麻薯等你回来`);
     } else {
-      // break → idle：休息结束不自动续轮（主动承诺才叫专注，08 §4.3）
       this.phase = "idle";
       petState.clearSystem("pomodoro");
-      if (this.config.notificationsEnabled) void notify("休息结束 ☕", "准备好就开始下一轮番茄钟吧");
+      this.queueAlert("break", "休息结束 ☕", "准备好就开始下一轮番茄钟吧");
     }
     this.broadcast();
   }
 
-  private broadcast(): void {
-    void emit(STATE_EVENTS.pomodoroChanged, this.status());
+  private queueAlert(phase: string, title: string, body: string): void {
+    const id = `pomodoro:${this.roundId}:${phase}`;
+    this.pendingAlerts.set(id, { id, kind: "pomodoro", title, body });
+    this.flushAlerts();
   }
 
-  /** 回执在状态迁移后发送；重复启动的判定由这个唯一宿主原子完成。 */
+  private flushAlerts(): void {
+    for (const [id, alert] of this.pendingAlerts) {
+      if (this.delivering.has(id)) continue;
+      this.delivering.add(id);
+      void showAppAlert(alert).then(() => {
+        this.pendingAlerts.delete(id);
+        if (this.config.notificationsEnabled) void notify(alert.title, alert.body);
+      }).catch(() => undefined).finally(() => this.delivering.delete(id));
+    }
+  }
+
+  private broadcast(): void { void emit(STATE_EVENTS.pomodoroChanged, this.status()).catch(() => undefined); }
   private reply(requestId: string | undefined, result: PomodoroResult): void {
-    if (typeof requestId === "string") void emit(STATE_EVENTS.pomodoroResult, { requestId, result });
+    if (typeof requestId === "string") void emit(STATE_EVENTS.pomodoroResult, { requestId, result }).catch(() => undefined);
   }
 }
 
-/** 宠物窗单例（pet/main.tsx start） */
+/** 服务只在宠物窗启动，隐藏窗口不会卸载这些单例。 */
 export const standupService = new StandupService();
 export const pomodoroService = new PomodoroService();

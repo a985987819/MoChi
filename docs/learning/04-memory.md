@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS memories (
 
 **内存与数据库的一致性**：`TodoService.complete/remove` 先等待 SQL 成功，再改内存并通知订阅者。失败时内存保持原样，避免 UI 显示“已完成/已删除”但重启又恢复；并发删除按 id 过滤，不能在 await 后复用旧下标。可复盘 `services/__tests__/storage.test.ts` 中注入写入失败的测试。
 
+**连接失败可恢复与确认状态**（v0.8.1 稳定性修订）：`getDb` 初始化失败后清空失败 Promise，后续心跳可重试。`reminders.acknowledged_at` 区分已派发和已确认；未确认 fired 重启后恢复，旧库用 -1 哨兵幂等回填历史状态，详见 [08 §5.4.1](08-timers-reminders-presence.md)。设置保存也按调用顺序写入并显式 `store.save()`，落盘后再广播；失败向设置 UI 返回可重试错误，不输出 Key。
+
 TS 侧用法（参数占位符是 `$1/$2` 风格）：
 
 ```ts

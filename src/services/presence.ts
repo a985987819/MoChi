@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { STATE_EVENTS } from "@/shared/events";
 import { petState } from "@/services/pet-state";
+import { subscribeHeartbeat } from "@/services/heartbeat";
 
 export type Presence = "active" | "away";
 
@@ -23,7 +24,11 @@ const AWAY_AFTER_SEC = 300; // 迟滞：进入 away 阈值；退出阈值为 0�
 
 export class PresenceService {
   private presence: Presence = "active";
-  private timer: number | null = null;
+  private cleanup: (() => void) | null = null;
+  private running = false;
+  private generation = 0;
+  private polling = false;
+  private nextPoll = 0;
 
   get current(): Presence {
     return this.presence;
@@ -37,19 +42,34 @@ export class PresenceService {
   private listeners = new Set<(p: Presence) => void>();
 
   start(): void {
-    if (this.timer != null) return;
-    void this.poll();
-    this.timer = window.setInterval(() => void this.poll(), POLL_MS);
+    if (this.running) return;
+    this.running = true;
+    const generation = ++this.generation;
+    this.nextPoll = 0;
+    const check = () => {
+      if (!this.running || generation !== this.generation || this.polling || Date.now() < this.nextPoll) return;
+      this.nextPoll = Date.now() + POLL_MS;
+      this.polling = true;
+      void this.poll(generation).finally(() => { this.polling = false; });
+    };
+    check();
+    void subscribeHeartbeat(check).then(off => {
+      if (!this.running || generation !== this.generation) off();
+      else this.cleanup = off;
+    });
   }
 
   stop(): void {
-    if (this.timer != null) window.clearInterval(this.timer);
-    this.timer = null;
+    this.running = false;
+    this.generation += 1;
+    this.cleanup?.();
+    this.cleanup = null;
   }
 
-  private async poll(): Promise<void> {
+  private async poll(generation: number): Promise<void> {
     // 失败按 0 秒处理 = 用户在场（宁误"在场"向，不打扰）
     const idleSec = await invoke<number>("get_idle_seconds").catch(() => 0);
+    if (!this.running || generation !== this.generation) return;
     const next: Presence = idleSec >= AWAY_AFTER_SEC ? "away" : "active";
     if (next === this.presence) return;
 
@@ -60,7 +80,7 @@ export class PresenceService {
       petState.clearPresence();
     }
     for (const fn of this.listeners) fn(next);
-    void emit(STATE_EVENTS.presenceChanged, { presence: next });
+    void emit(STATE_EVENTS.presenceChanged, { presence: next }).catch(() => undefined);
   }
 }
 

@@ -16,6 +16,7 @@ body {
 }
 
 .pet-stage {
+  touch-action: none; /* 指针序列交给手势判定，避免触屏默认滚动取消拖动 */
   width: 100%;
   height: 100%;
   display: flex;
@@ -26,6 +27,11 @@ body {
 }
 
 .pet-stage__pet {
+  width: 200px;
+  height: 240px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
   line-height: 0;                 /* 消除 SVG/img 底部基线空隙 */
   animation: mochi-float 3.2s ease-in-out infinite; /* 待机漂浮 */
   transform-origin: 50% 100%;     /* 弹跳从底部发力 */
@@ -33,6 +39,9 @@ body {
 
 /* 素材图片：完整显示不裁剪（docs/pet-assets.md §4），拖动区属性不影响 img */
 .pet-stage__img {
+  /* viewBox-only SVG 没有固定 intrinsic 尺寸；仅 max-width 在 flex 中可塌成 0×0。 */
+  width: 200px;
+  height: 240px;
   max-width: 200px;
   max-height: 240px;
   object-fit: contain;

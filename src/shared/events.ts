@@ -15,6 +15,8 @@ export const UI_EVENTS = {
   hideChat: "ui://hide-chat",
   /** 显示/隐藏宠物窗（托盘菜单也用同一个入口） */
   togglePet: "ui://toggle-pet",
+  /** 手势移动超过阈值后请求 Rust 开始系统拖动，点击不进入拖动。 */
+  dragPet: "ui://drag-pet",
   /** 重置站立计时。单击宠物时发出；v0.7.0 起宠物窗 StandupService 监听 */
   resetStandup: "ui://reset-standup",
   /** 退出应用（右键菜单的「退出」；托盘菜单走 Rust 内部 app.exit，不经事件） */
@@ -29,6 +31,12 @@ export const UI_EVENTS = {
 
 /** 状态层广播事件（纯前端：任意窗口 emit/listen，驱动 PetStateManager 等服务） */
 export const STATE_EVENTS = {
+  /** 原生线程每秒发送到 pet，隐藏窗口时不依赖 WebView setInterval。 */
+  nativeTick: "state://native-tick",
+  /** Rust 队列当前提醒变更，载荷 AppAlert|null。 */
+  appAlertChanged: "state://app-alert-changed",
+  /** 用户确认了匹配 id 的提醒，载荷 { id, kind }。 */
+  appAlertAcked: "state://app-alert-acked",
   /** 设置情绪状态。载荷：{ state: string; durationSec?: number }（v0.4.0 起 Agent 工具也走它） */
   setMood: "state://set-mood",
   /** 设置系统事件状态（alert/focus/break/sleep…）。载荷同上 */

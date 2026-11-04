@@ -82,7 +82,10 @@ let storePromise: Promise<Awaited<ReturnType<typeof load>>> | null = null;
 
 /** store 实例单例（plugin-store 的 load 幂等，但收敛到一处便于替换实现） */
 function getStore() {
-  storePromise ??= load(STORE_FILE, { autoSave: true });
+  storePromise ??= load(STORE_FILE, { autoSave: true }).catch(error => {
+    storePromise = null; // 暂时不可读不应把所有后续服务启动锁死在同一个 rejected Promise
+    throw error;
+  });
   return storePromise;
 }
 
@@ -91,11 +94,20 @@ export async function loadSettings(): Promise<AppSettings> {
   return normalize(await store.get<AppSettings>(KEY));
 }
 
-export async function saveSettings(settings: AppSettings): Promise<void> {
-  const store = await getStore();
-  await store.set(KEY, settings); // autoSave: true → 自动落盘
-  // 广播给常驻服务（TimerService 等）重载配置——learning/08：改站立间隔即重置计时
-  await emit(STATE_EVENTS.settingsChanged, { keys: Object.keys(settings) });
+let pendingSave: Promise<void> = Promise.resolve();
+
+/** 串行保存快照并等待磁盘落盘；不能用插件防抖自动保存代替“保存成功”。 */
+export function saveSettings(settings: AppSettings): Promise<void> {
+  const snapshot = normalize(structuredClone(settings));
+  const save = pendingSave.catch(() => undefined).then(async () => {
+    const store = await getStore();
+    await store.set(KEY, snapshot);
+    await store.save();
+    // 广播失败不应让已经写入磁盘的设置被误报为保存失败。
+    await emit(STATE_EVENTS.settingsChanged, { keys: Object.keys(snapshot) }).catch(() => undefined);
+  });
+  pendingSave = save;
+  return save;
 }
 
 /** 当前提供商是否可用（Key 要求满足）——发送前/连通性测试的闸门 */

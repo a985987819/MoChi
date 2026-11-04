@@ -73,6 +73,9 @@ export class PetStateManager {
     return this.active;
   }
 
+  /** 原生心跳按绝对时间清过期槽，隐藏时 JS timeout 被节流也不会卡住临时表情。 */
+  refresh(): void { this.recompute(); }
+
   /** 情绪槽：Agent/演示菜单入口。durationSec 缺省 6~10s 随机 */
   setMood(state: PetState, durationSec?: number): void {
     const ms = durationSec != null ? durationSec * 1000 : this.randomMoodDuration();

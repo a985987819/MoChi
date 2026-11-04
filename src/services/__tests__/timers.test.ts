@@ -9,10 +9,13 @@ const deps = vi.hoisted(() => ({
   config: { standupIntervalMin: 1, pomodoroFocusMin: 5, pomodoroBreakMin: 1, notificationsEnabled: false },
   presence: { current: "active" },
   notify: vi.fn(),
+  showAlert: vi.fn(async (_alert: { id: string; kind: string; title: string; body: string }) => {}),
+  dismissAlert: vi.fn(async () => {}),
 }));
 vi.mock("@/services/settings", () => ({ loadSettings: async () => ({ ...deps.config }) }));
 vi.mock("@/services/presence", () => ({ presenceService: deps.presence }));
 vi.mock("@/services/notifications", () => ({ notify: deps.notify }));
+vi.mock("@/services/alerts", () => ({ showAppAlert: deps.showAlert, dismissAppAlert: deps.dismissAlert }));
 
 beforeEach(() => {
   vi.stubGlobal("window", globalThis);
@@ -22,6 +25,8 @@ beforeEach(() => {
   deps.config = { standupIntervalMin: 1, pomodoroFocusMin: 5, pomodoroBreakMin: 1, notificationsEnabled: false };
   deps.presence.current = "active";
   deps.notify.mockClear();
+  deps.showAlert.mockReset().mockResolvedValue(undefined);
+  deps.dismissAlert.mockReset().mockResolvedValue(undefined);
   petState.clearSystem();
   for (const owner of ["standup", "pomodoro", "reminder"]) petState.clearSystem(owner);
 });
@@ -125,15 +130,11 @@ describe("站立提醒闭环", () => {
   });
 
   it("超时自动收尾必须通知原生窗口隐藏", async () => {
-    const emitted: string[] = [];
-    mockIPC((cmd, args) => {
-      if (cmd === "plugin:event|emit" && args && "event" in args) emitted.push(String(args.event));
-    });
     const standup = new StandupService();
     await standup.start();
     await vi.advanceTimersByTimeAsync(660_000);
     expect(standup.state).toBe("armed");
-    expect(emitted).toContain("ui://hide-alert");
+    expect(deps.dismissAlert).toHaveBeenCalled();
   });
 
   it("更改通知等无关设置不会重置站立倒计时", async () => {
@@ -148,15 +149,12 @@ describe("站立提醒闭环", () => {
   });
 
   it("单击宠物关闭已显示的提醒并重新计时", async () => {
-    const emitted: string[] = [];
-    const { listen } = await import("@tauri-apps/api/event");
-    await listen("ui://hide-alert", () => emitted.push("hide"));
     const standup = new StandupService();
     await standup.start();
     await vi.advanceTimersByTimeAsync(60_000);
     await emit(UI_EVENTS.resetStandup);
     expect(standup.state).toBe("armed");
-    expect(emitted).toContain("hide");
+    expect(deps.dismissAlert).toHaveBeenCalled();
   });
 
   it("站立提醒结束后恢复专注，停止番茄钟不会抹掉站立提醒", async () => {
@@ -175,4 +173,59 @@ describe("站立提醒闭环", () => {
     expect(petState.current).toBe("alert");
     await emit(UI_EVENTS.standupAck);
   });
+});
+
+it("站立弹窗投递失败会重试，成功前不会当作用户已收到", async () => {
+  deps.showAlert.mockRejectedValueOnce(new Error("窗口暂不可用"));
+  const standup = new StandupService();
+  await standup.start();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(standup.state).toBe("armed");
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(standup.state).toBe("fired");
+  expect(deps.showAlert).toHaveBeenCalledTimes(2);
+});
+
+it("JS interval没有执行也能由原生节拍触发提醒与超时收尾", async () => {
+  const standup = new StandupService();
+  await standup.start();
+  vi.setSystemTime(Date.now() + 60_000);
+  await emit(STATE_EVENTS.nativeTick);
+  await Promise.resolve();
+  expect(standup.state).toBe("fired");
+  vi.setSystemTime(Date.now() + 600_000);
+  await emit(STATE_EVENTS.nativeTick);
+  expect(standup.state).toBe("armed");
+  expect(deps.dismissAlert).toHaveBeenCalled();
+});
+
+it("确认别的提醒不会重置站立，只有匹配 id 才确认", async () => {
+  const standup = new StandupService();
+  await standup.start();
+  await vi.advanceTimersByTimeAsync(60_000);
+  await emit(STATE_EVENTS.appAlertAcked, { id: "reminder:1", kind: "reminder" });
+  expect(standup.state).toBe("fired");
+  const alert = deps.showAlert.mock.calls[0]?.[0] as unknown as { id: string };
+  await emit(STATE_EVENTS.appAlertAcked, { id: alert.id, kind: "standup" });
+  expect(standup.state).toBe("armed");
+});
+
+it("番茄钟通知关闭时到点仍显示专注结束内容", async () => {
+  const pomo = new PomodoroService();
+  await pomo.start();
+  pomo.startFocus();
+  vi.setSystemTime(Date.now() + 300_000);
+  await emit(STATE_EVENTS.nativeTick);
+  expect(pomo.status().phase).toBe("break");
+  expect(deps.showAlert).toHaveBeenCalledWith(expect.objectContaining({ kind: "pomodoro", title: "专注完成 🍅" }));
+  expect(deps.notify).not.toHaveBeenCalled();
+});
+
+it("重复初始化不会重复注册番茄钟状态迁移与通知", async () => {
+  deps.config.notificationsEnabled = true;
+  const pomo = new PomodoroService();
+  await Promise.all([pomo.start(), pomo.start()]);
+  pomo.startFocus();
+  await vi.advanceTimersByTimeAsync(300_000);
+  expect(deps.notify).toHaveBeenCalledTimes(1);
 });

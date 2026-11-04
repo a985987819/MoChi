@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { petState, type PetState } from "@/services/pet-state";
 import { listVariants, pickRandom, type PetVariant } from "@/services/pet-assets";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import { sendUIEvent, UI_EVENTS } from "@/shared/events";
 import { ContextMenu } from "./ContextMenu";
+import { PetGestureController } from "./gestures";
 import "./pet.css";
 
 /**
@@ -12,7 +13,7 @@ import "./pet.css";
  * 窗口特性（tauri.conf.json）：透明、无边框、置顶、220×260、跳过任务栏。
  *
  * 交互契约：
- * - 按住拖动：舞台整体是 Tauri 拖动区（data-tauri-drag-region）；
+ * - 按住移动超过阈值：请求 Rust 拖动，避免按下就进入原生拖动吞掉双击；
  * - 单击：弹跳动画 + emit `ui://reset-standup`（v0.7.0 Rust 接站立计时重置）；
  * - 双击：打开聊天窗；右键：自绘菜单（ContextMenu.tsx）。
  *
@@ -32,10 +33,11 @@ function usePetState(): PetState {
 /**
  * 状态 → 素材展示：进入新状态时解析变体池并随机取一张；
  * 若取到静态图且池内有多张静态图，每 5~9 秒随机轮换；动画图（gif/webp）播到天荒地老不轮换。
- * 依赖数组只有 state：轮换定时器闭包内自递归，状态切换即整体重置。
+ * 轮换定时器闭包内自递归；加载失败排除 URL 后重新解析，状态切换重新挂载并允许重试。
  */
-function usePetAsset(state: PetState): PetVariant | null {
+function usePetAsset(state: PetState): { asset: PetVariant | null; onError(): void } {
   const [asset, setAsset] = useState<PetVariant | null>(null);
+  const [failedUrls, setFailedUrls] = useState<ReadonlySet<string>>(() => new Set());
   const rotateTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -55,61 +57,97 @@ function usePetAsset(state: PetState): PetVariant | null {
       }, delay);
     };
 
-    void listVariants(state).then(pool => {
+    void listVariants(state, failedUrls).then(pool => {
       if (cancelled) return;
       const first = pickRandom(pool) ?? null;
       setAsset(first);
       if (first && !first.animated) scheduleRotate(pool, first);
+    }).catch(() => {
+      if (!cancelled) setAsset(null); // 异常路径也显示占位，避免未处理 Promise 和空白宠物
     });
 
     return () => {
       cancelled = true;
       if (rotateTimer.current != null) window.clearTimeout(rotateTimer.current);
     };
-  }, [state]);
+  }, [state, failedUrls]);
 
-  return asset;
+  const onError = useCallback(() => {
+    if (!asset) return;
+    setFailedUrls(previous => new Set([...previous, asset.url]));
+    setAsset(null); // 立即呈现占位，再解析下一级素材，坏图不会永久停留
+  }, [asset]);
+
+  return { asset, onError };
+}
+
+/** 按状态重新挂载：失败 URL 只在本次显示会话内排除，用户替换文件后下次切换可重试。 */
+function PetSprite({ state }: { state: PetState }) {
+  const { asset, onError } = usePetAsset(state);
+  return asset ? (
+    <img className="pet-stage__img" src={asset.url} alt={state} draggable={false} onError={onError} />
+  ) : <MochiPlaceholder />;
 }
 
 export function PetApp() {
   const state = usePetState();
-  const asset = usePetAsset(state);
   const [bouncing, setBouncing] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
-  const handleClick = useCallback(() => {
-    // 弹跳（即时反馈）+ 重置站立计时（事件契约先立，Rust v0.7.0 接 StandupService）
-    setBouncing(false);
-    requestAnimationFrame(() => setBouncing(true));
-    void sendUIEvent(UI_EVENTS.resetStandup);
-  }, []);
+  const gestures = useMemo(() => new PetGestureController({
+    singleClick: () => {
+      setBouncing(false);
+      requestAnimationFrame(() => setBouncing(true));
+      void sendUIEvent(UI_EVENTS.resetStandup).catch(error => console.error("[pet] 重置计时失败", error));
+    },
+    doubleClick: () => {
+      void sendUIEvent(UI_EVENTS.openChat).catch(error => console.error("[pet] 打开聊天失败", error));
+    },
+    drag: () => {
+      // 当前 pointermove 先释放 DOM capture，再让系统接管拖动。
+      queueMicrotask(() => {
+        void sendUIEvent(UI_EVENTS.dragPet).catch(error => console.error("[pet] 拖动失败", error));
+      });
+    },
+  }), []);
 
-  const handleDoubleClick = useCallback(() => {
-    void sendUIEvent(UI_EVENTS.openChat);
-  }, []);
+  useEffect(() => {
+    const cancel = () => gestures.cancel();
+    window.addEventListener("blur", cancel);
+    return () => { window.removeEventListener("blur", cancel); gestures.cancel(); };
+  }, [gestures]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    gestures.cancel();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, []);
+  }, [gestures]);
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
   return (
     <main
       className={`pet-stage${bouncing ? " pet-stage--bounce" : ""}`}
-      data-tauri-drag-region
-      onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
+      onPointerDown={e => {
+        if (menu) { setMenu(null); gestures.cancel(); return; }
+        gestures.pointerDown(e.pointerId, e.clientX, e.clientY, e.button);
+        if (e.button === 0) e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={e => {
+        if (gestures.pointerMove(e.pointerId, e.clientX, e.clientY) && e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      }}
+      onPointerUp={e => {
+        gestures.pointerUp(e.pointerId, e.clientX, e.clientY);
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+      }}
+      onPointerCancel={() => gestures.cancel()}
       onContextMenu={handleContextMenu}
       onAnimationEnd={() => setBouncing(false)}
     >
-      <div className="pet-stage__pet" data-tauri-drag-region>
-        {asset ? (
-          <img className="pet-stage__img" src={asset.url} alt={state} draggable={false} />
-        ) : (
-          <MochiPlaceholder />
-        )}
+      <div className="pet-stage__pet">
+        <PetSprite key={state} state={state} />
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} onClose={closeMenu} />}
     </main>

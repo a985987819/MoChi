@@ -103,7 +103,7 @@ fn get_idle_seconds() -> u64 { idle::get_idle_duration().unwrap_or_default().as_
 ### 4.1 时间基准三原则（整个计时体系的根基）
 
 1. **一切截止时间是时间戳**（`epoch ms`），不是"剩余秒数递减"。`setInterval` 累计每 1000 次能漂移数秒；时间戳永不漂移。
-2. **每秒 tick 只做一件事**：`now >= deadline ? fire() : updateUI()`。tick 被节流/丢失无所谓——WebView 后台节流最坏把 tick 限到 1 次/分钟，触发最多延迟 1 分钟，**正确性不受影响**（v2 加固路径：把权威调度挪进 Rust tokio 定时器，Web 端只做展示）。
+2. **每秒 tick 检查截止时间**：`now >= deadline ? fire() : updateUI()`。v0.8.1 稳定性修订由 Rust 线程每秒发 `state://native-tick` 到 pet，TS `subscribeHeartbeat` 合并原生事件与 JS 后备 interval；同秒不重复计算，恢复焦点/可见性立即复核。隐藏时不再单独依赖被节流的 JS 定时器，但 WebView 完全挂起/系统睡眠时仍只能在恢复后补发，不能承诺硬实时。
 3. **睡眠/唤醒**：系统睡眠时 JS 定时器冻结；唤醒后第一次 tick 用时间戳比较即可补发"睡过头"的事件（提醒/阶段结束**只补发一次**，防重复弹窗）。
 
 ### 4.2 StandupService（站立提醒）
@@ -127,7 +127,7 @@ fn get_idle_seconds() -> u64 { idle::get_idle_duration().unwrap_or_default().as_
 - 弹窗点击 = 播放 `stretch` + 重置 + 关闭弹窗；
 - 无持久化：重启归零（用户重启机器往往伴随起身，语义合理）。
 
-**弹窗收尾要跨两层**：`ack()` 与 fired 状态下的 `rearm()` 都发 `ui://hide-alert`，Rust 监听后执行 `alert.hide()`。TS 更新 state/deadline 并不会自动隐藏原生 WebView。用户点击弹窗还会发既有 `ui://standup-ack`；超时和单击宠物走独立 hide 事件，避免再广播 ack 造成递归。
+**弹窗收尾要跨两层**（本次稳定性修订取代旧无 id 事件）：站立服务生成唯一 id，调用 `showAppAlert`；投递失败保留 deadline 并重试。用户确认通过原生 `state://app-alert-acked {id,kind}` 回调，仅匹配本服务当前 id 才重置。超时/单击/改间隔走 `dismissAppAlert(id)`，不确认或关闭别的服务提醒。10 分钟收尾同样比较绝对时间而非只用 setTimeout；投递期间重置，晚到的旧弹窗会按旧 id 收掉。
 
 ### 4.3 PomodoroService（番茄钟）
 
@@ -234,13 +234,29 @@ CREATE TABLE IF NOT EXISTS reminders (
 
 ReminderService（应用，确定性）：
 
-- `create(text, fireAt) → id`：落库即排程（调度器 = 与 TimerService 同款的 30s tick：扫 `active AND fire_at <= now`）；
-- **重启存活**：启动时加载全部 `active` 行——提醒是"跨时间的承诺"，必须持久化（对比：番茄钟重启即弃，语义差异见 04 记忆文档的会话/全局划分）；
-- 当前触发动作：系统通知（受开关控制）+ 宠物切 `alert`（8s）+ 从待触发列表移除，SQLite 保留 fired/fired_at。聊天历史中的提醒系统消息尚未实现，留作后续候选，不主动唤醒 Agent；
-- 触发时用户不在场（§3）：推迟到 presence 恢复后 30s 内补发；
+- `create(text, fireAt) → id`：落库即排程，启动立即扫，随后原生/后备心跳每秒扫 `active AND fire_at <= now`，提醒变更与恢复 active 也立即补扫；
+- **重启存活**：恢复过期 active，并重新交付 `fired AND acknowledged_at IS NULL` 的未确认记录。原生队列只是内存，持久化交付承诺仍在 SQLite；
+- 当前触发动作：包含正文的应用弹窗（独立于通知开关）+ 系统通知（可关闭）+ 宠物 `alert` 8s。先条件认领，再 await 原生 show 成功；失败按认领令牌回滚 active，下次重试。已认领后进程崩溃也可从未确认 fired 恢复；
+- 触发时用户不在场（§3）：不交付，恢复活动后立即扫描；OS 在场信号仍最多约 10 秒更新一次；
 - `cancel(id)` / `list()`：供 UI 与工具使用；cancel 返回被取消条目内容（07 的可追溯规范）。
 
 取消也必须使用条件更新：先 SELECT 仅用于取回可追溯内容，真正写入是 `UPDATE ... WHERE id=$1 AND status='active'`，且只有 `rowsAffected===1` 才返回成功。否则调度器在两条 SQL 之间认领后，取消会错误覆盖 fired 状态；两个取消请求也不能都成功。`services/__tests__/storage.test.ts` 用 Node 22 内置 SQLite 执行真实建表、CRUD、并发认领与取消，IPC 仅替换 SQL 传输层，不接触用户数据库。
+
+#### 5.4.1 未确认恢复与迁移走读（v0.8.1 稳定性修订）
+
+1. 新库 `reminders` 增加 `acknowledged_at INTEGER`，默认 NULL；Store 插入显式写 NULL，`fired` 表示派发过，非“用户看过”。
+2. 旧库先 `PRAGMA table_info` 探测，缺列则 `ALTER ... DEFAULT -1`。-1 只用于旧行迁移：旧 fired 回填 `COALESCE(fired_at,created_at)`，旧 active/cancelled 回填 NULL。迁移中断后仍可继续处理 -1，旧通知不会升级后整批重弹；并发 ALTER 重新读列确认。
+3. 每轮扫描先重试失败的回滚/确认写入，再查询未确认 fired，按稳定 `reminder:N` 交给原生去重队列；本轮服务的 delivered Set 避免每秒重复派发。恢复不重复发 OS 通知。
+4. 用户确认匹配 reminder id 后更新 acknowledged_at；写入失败保存内存令牌重试。确认后、落库前崩溃可能再次提示，选择“宁重复一次也不永久漏掉”。
+5. 扫描只有一个在途 Promise；stop/start 使用代号防旧 SQL 返回后继续交付；初始化/连接失败可重试。该保证不等于分布式 exactly-once，也不等于退出/断电时可执行代码。
+
+#### 5.4.2 原生显示通道与服务生命周期
+
+原生只承担窗口队列与节拍，业务计时/存储仍在 TS。`show/get/ack/dismiss_app_alert` 是同步主线程命令，Mutex 保护 FIFO，窗口操作和心跳重试也都回主线程。弹窗先监听内容变化再拉取快照，慢快照不能覆盖新队头；确认用同步执行锁、500ms 冷却，忽略双击后半次及按键 repeat，避免连续清掉下一条。几何使用宠物当前显示器 work_area 夹紧，含负坐标屏与任务栏；不抢输入焦点。
+
+`hostServices` 独立启动三类计时服务，失败每五秒重试，不阻塞其他服务；`ServiceScope` 负责异步监听晚到时也正确解绑；HMR 释放旧服务。PresenceService 的查询也接原生心跳，仍按十秒节奏限频，旧查询不能在 stop 后更新状态。PetStateManager.refresh 在心跳清理过期状态，避免临时表情依赖后台 timeout。
+
+原生逐语句教学走读和验收边界见 [09 桌面可靠性](09-desktop-reliability.md)。聊天历史中的提醒系统消息仍未实现，留作候选。
 
 ### 5.5 一次性 vs 周期性
 
