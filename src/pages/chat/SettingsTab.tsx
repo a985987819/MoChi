@@ -8,6 +8,7 @@ import { memoryService, type MemoryItem } from "@/agent/memory/long-term";
 import { historyStore } from "@/agent/memory/history-store";
 import { sendStateEvent, STATE_EVENTS } from "@/shared/events";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
+import { listen } from "@tauri-apps/api/event";
 import {
   loadSettings,
   saveSettings,
@@ -195,6 +196,8 @@ export function SettingsTab() {
 
       <TimerConfigSection settings={settings} update={update} updateDebounced={updateDebounced} />
 
+      <ShortcutSection settings={settings} update={update} />
+
       <MemoriesSection />
 
       <OnboardingSection update={update} />
@@ -306,6 +309,56 @@ function NotificationPermissionHint() {
         <button className="settings-link" onClick={request}>请求权限</button>
         ，或到系统设置开启（Windows：设置 → 系统 → 通知；macOS：系统设置 → 通知 → Mochi）。
       </p>
+    </div>
+  );
+}
+
+/**
+ * 全局快捷键（P1-13）：键位 Rust 侧写死 Ctrl/Cmd+Shift+M（v1 不做自定义），
+ * 这里只有开关。注册结果经 state://shortcut-state 回传——键位被其他软件
+ * 占用时提示（静默降级：聊天窗本身不受影响）。
+ */
+function ShortcutSection({
+  settings,
+  update,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+}) {
+  const [registered, setRegistered] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    void listen<{ enabled: boolean; registered: boolean }>(STATE_EVENTS.shortcutState, e => {
+      setRegistered(e.payload?.registered ?? null);
+    }).then(unlisten => {
+      off = unlisten;
+    });
+    return () => off?.();
+  }, []);
+
+  const toggle = useCallback(
+    (enabled: boolean) => {
+      update({ shortcutEnabled: enabled });
+      void sendStateEvent(STATE_EVENTS.shortcutChanged, { enabled });
+    },
+    [update],
+  );
+
+  return (
+    <div className="settings-shortcut">
+      <span className="settings-field-label">全局快捷键</span>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={settings.shortcutEnabled}
+          onChange={e => toggle(e.target.checked)}
+        />
+        <span>Ctrl/Cmd + Shift + M 打开聊天窗</span>
+      </label>
+      {settings.shortcutEnabled && registered === false && (
+        <p className="settings-note">快捷键被其他软件占用了，功能不受影响；关掉占用方后重新打开开关即可。</p>
+      )}
     </div>
   );
 }

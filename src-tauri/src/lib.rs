@@ -48,6 +48,11 @@ const EVT_POMODORO_CHANGED: &str = "state://pomodoro-changed";
 const EVT_POMODORO_START: &str = "state://pomodoro-start";
 const EVT_POMODORO_STOP: &str = "state://pomodoro-stop";
 const EVT_STANDUP_SNOOZE: &str = "state://standup-snooze";
+/// 全局快捷键（v0.9.0 P1-13）：前端开关 → Rust 注册；注册结果回传
+const EVT_SHORTCUT_CHANGED: &str = "state://shortcut-changed";
+const EVT_SHORTCUT_STATE: &str = "state://shortcut-state";
+/// 快捷键键位（v1 写死；CmdOrCtrl 在 Windows=Ctrl、macOS=Cmd）
+const SHORTCUT_CHAT: &str = "CmdOrCtrl+Shift+M";
 
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -79,6 +84,9 @@ pub fn run() {
                 .with_state_flags(StateFlags::POSITION)
                 .build(),
         )
+        // global-shortcut：全局快捷键（P1-13）。注册在 Rust 侧（register_chat_shortcut），
+        // 插件本身只提供机制；前端经 state://shortcut-changed 开关
+        .plugin(tauri_plugin_global_shortcut::Builder::default().build())
         .invoke_handler(tauri::generate_handler![list_user_pet_assets, get_idle_seconds]);
 
     // macOS：桌宠类应用不应出现在 Dock 上（Accessory = 无 Dock 图标、无主窗口菜单）。
@@ -197,6 +205,33 @@ fn set_tray_tooltip(app: &tauri::AppHandle, text: &str) {
     }
 }
 
+/// 注册/注销全局快捷键（P1-13）。开关切换与启动应用共用此入口；
+/// 先 unregister 再 register 保证幂等（重复注册同键会 Err）。
+/// 键位被占用（其他软件先注册了）：静默降级——应用功能不受影响，仅把
+/// registered=false 回传设置页提示（施工单：失败不弹错误框）。
+fn register_chat_shortcut(app: &tauri::AppHandle, enabled: bool) {
+    use tauri::Emitter;
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+    let gs = app.global_shortcut();
+    let _ = gs.unregister(SHORTCUT_CHAT);
+    if !enabled {
+        let _ = app.emit(EVT_SHORTCUT_STATE, serde_json::json!({ "enabled": false, "registered": false }));
+        return;
+    }
+    let result = gs.on_shortcut(SHORTCUT_CHAT, |app, _shortcut, event| {
+        // 只响应按下沿（Released 忽略）：触发一次即开聊天窗
+        if event.state() == ShortcutState::Pressed {
+            show_chat(app);
+        }
+    });
+    let registered = result.is_ok();
+    if let Err(e) = result {
+        eprintln!("[shortcut] 注册失败（可能被占用）: {e}");
+    }
+    let _ = app.emit(EVT_SHORTCUT_STATE, serde_json::json!({ "enabled": true, "registered": registered }));
+}
+
 /// 注册前端 → Rust 的 UI 事件监听。
 /// `listen_any` 监听全局广播事件（前端 `emit()` 发出的事件所有监听者可见）。
 fn setup_ui_event_listeners(app: tauri::AppHandle) {
@@ -224,6 +259,16 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
     // 右键菜单「退出」（托盘菜单直接调 app.exit，不走事件）
     let handle = app.clone();
     app.listen_any(EVT_QUIT_APP, move |_| handle.exit(0));
+
+    // 快捷键开关（P1-13）：前端设置页切换 / 启动时按 settings 应用
+    let handle = app.clone();
+    app.listen_any(EVT_SHORTCUT_CHANGED, move |event| {
+        let enabled = serde_json::from_str::<serde_json::Value>(event.payload())
+            .ok()
+            .and_then(|v| v.get("enabled").and_then(|b| b.as_bool()))
+            .unwrap_or(false);
+        register_chat_shortcut(&handle, enabled);
+    });
 
     // 站立提醒弹窗（v0.7.0）：显示在宠物正上方（点击弹窗 = standup-ack）
     // 同时把托盘 tooltip 切到「该站起来了」（P1-03：托盘承载状态）

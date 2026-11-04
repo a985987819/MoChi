@@ -35,6 +35,9 @@ tauri-plugin-notification = "2"
 # VISIBLE 会把退出时可见的 chat 窗在下次启动时弹出来（chat 设计是隐藏启动），
 # SIZE 对固定尺寸窗口无意义、DECORATIONS/FULLSCREEN 与本应用无关
 tauri-plugin-window-state = "2"
+# global-shortcut：全局快捷键（v0.9.0 P1-13，默认 Ctrl/Cmd+Shift+M 开聊天）。
+# 注册在 Rust 侧完成（OS 级钩子必须原生），前端经事件开关——不需要 JS 包与 capability
+tauri-plugin-global-shortcut = "2"
 # user-idle：跨平台"距上次输入时长"查询（v0.7.0 在场检测，learning/08 §3.1）
 user-idle = "0.2"
 serde = { version = "1", features = ["derive"] }

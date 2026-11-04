@@ -37,6 +37,12 @@ export interface AppSettings {
    * 3. 设置页「重新显示新手引导」= 把它置回 false，零额外状态。
    */
   onboardingDone: boolean;
+  /**
+   * 全局快捷键开关（v0.9.0 P1-13，默认开）。
+   * 键位本身写死在 Rust 侧（Ctrl/Cmd+Shift+M 开聊天窗）——v1 不做自定义键位；
+   * 这里只是开关。注册结果（是否被占用）经 state://shortcut-state 回传 UI。
+   */
+  shortcutEnabled: boolean;
 }
 
 const STORE_FILE = "settings.json";
@@ -52,6 +58,7 @@ export function defaultSettings(): AppSettings {
     pomodoroBreakMin: 5,
     notificationsEnabled: true,
     onboardingDone: false,
+    shortcutEnabled: true,
   };
 }
 
@@ -76,6 +83,7 @@ function normalize(raw: unknown): AppSettings {
     // 老版本 settings.json 没有这个字段：undefined → false（当作没看过引导）。
     // 这正是「升级用户也会看到一次引导」的期望行为——v0.9.0 之前没有引导。
     onboardingDone: typeof r.onboardingDone === "boolean" ? r.onboardingDone : d.onboardingDone,
+    shortcutEnabled: typeof r.shortcutEnabled === "boolean" ? r.shortcutEnabled : d.shortcutEnabled,
   };
 }
 

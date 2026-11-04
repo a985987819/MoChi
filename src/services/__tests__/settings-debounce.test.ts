@@ -41,6 +41,7 @@ const base: AppSettings = {
   pomodoroBreakMin: 5,
   notificationsEnabled: true,
   onboardingDone: false,
+  shortcutEnabled: true,
 };
 
 describe("createSettingsSaveQueue", () => {

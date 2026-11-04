@@ -6,7 +6,7 @@ import { standupService, pomodoroService } from "@/services/timers";
 import { reminderScheduler } from "@/services/reminders";
 import { loadSettings } from "@/services/settings";
 import { warmupNotificationPermission } from "@/services/notifications";
-import { sendUIEvent, UI_EVENTS } from "@/shared/events";
+import { sendStateEvent, sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 
 // 跨窗口遥控监听（state://set-mood 等）只装一次：宠物窗是宠物状态的宿主窗口
 void petState.installRemoteListeners();
@@ -14,6 +14,12 @@ void petState.installRemoteListeners();
 // 通知权限预热（P0-03）：macOS 首次会弹系统询问，集中在启动时做——
 // 到点提醒的瞬间才弹授权框会打断用户；Windows 恒已授权，预热幂等
 void warmupNotificationPermission();
+
+// 全局快捷键（P1-13）：启动时按设置应用开关（键位在 Rust 侧写死）。
+// 设置页切换走同一条 state://shortcut-changed 事件
+void loadSettings().then(settings => {
+  void sendStateEvent(STATE_EVENTS.shortcutChanged, { enabled: settings.shortcutEnabled });
+});
 
 // 常驻服务（v0.7.0，learning/08）：宠物窗是应用生命周期最长的宿主窗口
 // （关闭=隐藏、进程常驻托盘），计时器/在场检测/提醒调度都驻留这里

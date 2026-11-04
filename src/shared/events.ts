@@ -70,6 +70,16 @@ export const STATE_EVENTS = {
    * 载荷：{ minutes?: number }（缺省 5 分钟）。收方 StandupService.snooze。
    */
   standupSnooze: "state://standup-snooze",
+  /**
+   * 全局快捷键开关（v0.9.0 P1-13，前端 → Rust）。载荷：{ enabled: boolean }。
+   * Rust 收到后注册/注销系统级快捷键（默认 Ctrl/Cmd+Shift+M 开聊天窗）。
+   */
+  shortcutChanged: "state://shortcut-changed",
+  /**
+   * 快捷键注册结果（Rust → 前端）。载荷：{ enabled: boolean; registered: boolean }。
+   * registered=false 且 enabled=true = 键位被其他软件占用——设置页提示。
+   */
+  shortcutState: "state://shortcut-state",
 } as const;
 
 /**
