@@ -196,6 +196,8 @@ export function SettingsTab() {
 
       <TimerConfigSection settings={settings} update={update} updateDebounced={updateDebounced} />
 
+      <PetSizeSection settings={settings} update={update} />
+
       <ShortcutSection settings={settings} update={update} />
 
       <AutostartSection settings={settings} update={update} />
@@ -397,6 +399,40 @@ function AutostartSection({
         <span>开机后自动运行（在托盘待命，不弹窗）</span>
       </label>
       <p className="settings-note">关闭这个开关就会恢复；也可以随时在任务管理器的「启动应用」里管理。</p>
+    </div>
+  );
+}
+
+/**
+ * 宠物大小（P1-15）：三档（0.8/1/1.2）。窗口尺寸由 Rust 改（右下角锚点 +
+ * 屏内 clamp），宠物窗写 CSS 变量缩放形象——本组件只落盘 + 广播。
+ */
+function PetSizeSection({
+  settings,
+  update,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+}) {
+  const change = useCallback(
+    (scale: number) => {
+      update({ petScale: scale });
+      void sendStateEvent(STATE_EVENTS.petScaleChanged, { scale });
+    },
+    [update],
+  );
+
+  return (
+    <div className="settings-petsize">
+      <span className="settings-field-label">宠物大小</span>
+      <label className="settings-field">
+        <span>麻薯的个头</span>
+        <select value={String(settings.petScale)} onChange={e => change(Number(e.target.value))}>
+          <option value="0.8">小（0.8×）</option>
+          <option value="1">标准</option>
+          <option value="1.2">大（1.2×）</option>
+        </select>
+      </label>
     </div>
   );
 }

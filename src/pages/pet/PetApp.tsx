@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { petState, type PetState } from "@/services/pet-state";
 import { listVariants, pickRandom, type PetVariant } from "@/services/pet-assets";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
-import { sendUIEvent, UI_EVENTS } from "@/shared/events";
+import { loadSettings } from "@/services/settings";
+import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { ContextMenu } from "./ContextMenu";
 import "./pet.css";
 
@@ -76,6 +78,20 @@ export function PetApp() {
   const asset = usePetAsset(state);
   const [bouncing, setBouncing] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  // 宠物大小（P1-15）：档位写进 CSS 变量缩放形象（窗口尺寸由 Rust 改）。
+  // 启动读一次设置 + 监听变更，两个来源汇到同一个变量
+  useEffect(() => {
+    const apply = (scale: number) => document.documentElement.style.setProperty("--pet-scale", String(scale));
+    void loadSettings().then(s => apply(s.petScale));
+    let off: (() => void) | undefined;
+    void listen<{ scale: number }>(STATE_EVENTS.petScaleChanged, e => {
+      if (typeof e.payload?.scale === "number") apply(e.payload.scale);
+    }).then(unlisten => {
+      off = unlisten;
+    });
+    return () => off?.();
+  }, []);
 
   const handleClick = useCallback(() => {
     // 弹跳（即时反馈）+ 重置站立计时（事件契约先立，Rust v0.7.0 接 StandupService）

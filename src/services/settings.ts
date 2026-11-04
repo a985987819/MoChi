@@ -49,6 +49,12 @@ export interface AppSettings {
    * 启动时前端按本字段应用一次。
    */
   autostartEnabled: boolean;
+  /**
+   * 宠物大小档位（v0.9.0 P1-15）：0.8 | 1 | 1.2，默认 1。
+   * Rust 收 state://pet-scale-changed 后改窗口尺寸（保持右下角锚点 + 屏内
+   * clamp）；宠物窗把同值写进 CSS 变量 --pet-scale 缩放形象。
+   */
+  petScale: number;
 }
 
 const STORE_FILE = "settings.json";
@@ -66,8 +72,12 @@ export function defaultSettings(): AppSettings {
     onboardingDone: false,
     shortcutEnabled: true,
     autostartEnabled: false,
+    petScale: 1,
   };
 }
+
+/** 宠物大小允许的档位（P1-15）：normalize 之外的值一律回落 1 */
+export const PET_SCALES = [0.8, 1, 1.2] as const;
 
 /** 数值字段夹紧（防设置页输入 0/负数/离谱值） */
 const clampInt = (v: unknown, min: number, max: number, fallback: number): number => {
@@ -92,6 +102,8 @@ function normalize(raw: unknown): AppSettings {
     onboardingDone: typeof r.onboardingDone === "boolean" ? r.onboardingDone : d.onboardingDone,
     shortcutEnabled: typeof r.shortcutEnabled === "boolean" ? r.shortcutEnabled : d.shortcutEnabled,
     autostartEnabled: typeof r.autostartEnabled === "boolean" ? r.autostartEnabled : d.autostartEnabled,
+    // 浮点档位比较：容差 1e-6（0.8+0.1 之类的浮点误差不至于把合法值打成非法）
+    petScale: PET_SCALES.find(s => Math.abs((typeof r.petScale === "number" ? r.petScale : 1) - s) < 1e-6) ?? d.petScale,
   };
 }
 

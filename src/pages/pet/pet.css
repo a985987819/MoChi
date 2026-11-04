@@ -31,10 +31,11 @@ body {
   transform-origin: 50% 100%;     /* 弹跳从底部发力 */
 }
 
-/* 素材图片：完整显示不裁剪（docs/pet-assets.md §4），拖动区属性不影响 img */
+/* 素材图片：完整显示不裁剪（docs/pet-assets.md §4），拖动区属性不影响 img。
+   v0.9.0 P1-15：大小档位经 --pet-scale 缩放（窗口尺寸由 Rust 同步改） */
 .pet-stage__img {
-  max-width: 200px;
-  max-height: 240px;
+  max-width: calc(200px * var(--pet-scale, 1));
+  max-height: calc(240px * var(--pet-scale, 1));
   object-fit: contain;
 }
 

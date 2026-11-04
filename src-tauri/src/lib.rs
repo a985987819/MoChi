@@ -55,6 +55,11 @@ const EVT_SHORTCUT_STATE: &str = "state://shortcut-state";
 const SHORTCUT_CHAT: &str = "CmdOrCtrl+Shift+M";
 /// 开机自启（v0.9.0 P1-14）：前端开关 → Rust 应用（enable/disable 系统项）
 const EVT_AUTOSTART_CHANGED: &str = "state://autostart-changed";
+/// 宠物大小档位（v0.9.0 P1-15）：前端 → Rust（改窗口尺寸）+ 宠物窗（CSS 变量）
+const EVT_PET_SCALE_CHANGED: &str = "state://pet-scale-changed";
+/// 宠物窗设计基准尺寸（tauri.conf.json 声明值；缩放按逻辑像素乘档位）
+const PET_BASE_WIDTH: f64 = 220.0;
+const PET_BASE_HEIGHT: f64 = 260.0;
 
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -278,6 +283,17 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
         register_chat_shortcut(&handle, enabled);
     });
 
+    // 宠物大小（P1-15）：Rust 改窗口尺寸（保持右下角锚点 + 屏内 clamp）；
+    // 宠物窗自己监听同一事件把档位写进 CSS 变量
+    let handle = app.clone();
+    app.listen_any(EVT_PET_SCALE_CHANGED, move |event| {
+        let scale = serde_json::from_str::<serde_json::Value>(event.payload())
+            .ok()
+            .and_then(|v| v.get("scale").and_then(|s| s.as_f64()))
+            .unwrap_or(1.0);
+        apply_pet_scale(&handle, scale);
+    });
+
     // 开机自启开关（P1-14）：设置是事实源，Rust 只执行系统项变更；
     // 失败 eprintln 不弹窗（系统能力缺失时自启本来就不可能，开关下次启动可重试）
     let handle = app.clone();
@@ -478,7 +494,7 @@ fn ensure_pet_position(app: &tauri::App) {
     if pet_position_visible(&pet) {
         return;
     }
-    position_pet_bottom_right(app);
+    position_pet_bottom_right(app.handle());
 }
 
 /// 窗口当前外接矩形是否与任一显示器的可视范围相交。
@@ -501,6 +517,34 @@ fn pet_position_visible(pet: &tauri::WebviewWindow) -> bool {
     })
 }
 
+/// 应用宠物大小档位（P1-15）：改窗口逻辑尺寸 → 保持右下角锚点重定位 →
+/// 屏内 clamp（贴边缩小时可能顶出屏幕上沿，与 P0-04 共用自愈路径）。
+fn apply_pet_scale(app: &tauri::AppHandle, scale: f64) {
+    let Some(pet) = app.get_webview_window("pet") else {
+        return;
+    };
+    let Ok(old_pos) = pet.outer_position() else {
+        return;
+    };
+    let Ok(old_size) = pet.outer_size() else {
+        return;
+    };
+    // 按逻辑像素缩放：高 DPI 物理换算交给 Tauri（设计基准 220×260，见常量注释）
+    if pet.set_size(tauri::LogicalSize::new(PET_BASE_WIDTH * scale, PET_BASE_HEIGHT * scale)).is_err() {
+        return;
+    }
+    let Ok(new_size) = pet.outer_size() else {
+        return;
+    };
+    // 右下角锚点：用户把宠物放在角落时，缩放不应让它"跳走"
+    let x = old_pos.x + (old_size.width as i32 - new_size.width as i32);
+    let y = old_pos.y + (old_size.height as i32 - new_size.height as i32);
+    let _ = pet.set_position(tauri::PhysicalPosition::new(x, y));
+    if !pet_position_visible(&pet) {
+        position_pet_bottom_right(app);
+    }
+}
+
 /// 把宠物窗放到主屏右下角（贴边留 24 逻辑像素边距）。
 ///
 /// 坐标体系注意：monitor.size() / outer_size() 都是**物理像素**，
@@ -508,7 +552,7 @@ fn pet_position_visible(pet: &tauri::WebviewWindow) -> bool {
 /// v0.9.0 P0-04：Windows 优先用工作区（扣除任务栏后的可见区域，SPI_GETWORKAREA）
 /// 计算——旧版用整屏高度，宠物会悬浮在任务栏之上；拿不到工作区时退回整屏算法
 /// （macOS 保持整屏算法：菜单栏/Dock 需 NSScreen.visibleFrame，留待后续版本）。
-fn position_pet_bottom_right(app: &tauri::App) {
+fn position_pet_bottom_right(app: &tauri::AppHandle) {
     let Some(pet) = app.get_webview_window("pet") else {
         return;
     };

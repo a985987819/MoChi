@@ -85,6 +85,12 @@ export const STATE_EVENTS = {
    * Rust 收到后 enable/disable 系统自启项（Win 注册表 Run / mac LaunchAgent）。
    */
   autostartChanged: "state://autostart-changed",
+  /**
+   * 宠物大小档位（v0.9.0 P1-15，前端 → Rust + 宠物窗）。
+   * 载荷：{ scale: number }（0.8 | 1 | 1.2）。Rust 改窗口尺寸（右下角锚点 +
+   * 屏内 clamp）；宠物窗写 CSS 变量 --pet-scale 缩放形象。
+   */
+  petScaleChanged: "state://pet-scale-changed",
 } as const;
 
 /**
