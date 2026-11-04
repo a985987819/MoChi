@@ -7,6 +7,7 @@ import type { ProviderError } from "@/agent/providers";
 import { memoryService, type MemoryItem } from "@/agent/memory/long-term";
 import { historyStore } from "@/agent/memory/history-store";
 import { sendStateEvent, STATE_EVENTS } from "@/shared/events";
+import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import {
   loadSettings,
   saveSettings,
@@ -270,6 +271,41 @@ function TimerConfigSection({
         />
         <span>启用系统通知（站立提醒 / 番茄钟 / 到点提醒）</span>
       </label>
+      <NotificationPermissionHint />
+    </div>
+  );
+}
+
+/**
+ * 通知权限状态（P0-03）：让用户知道到点提醒到底会不会有系统通知。
+ * 插件只暴露"是否已授权"布尔值（没有"被拒绝/未询问"之分）——未授权时给出
+ * 两条路：页面内重新请求，或去系统设置开（权限被永久拒绝时页面内请求无效）。
+ * 查询中渲染 null，避免闪一下"未授权"。
+ */
+function NotificationPermissionHint() {
+  const [granted, setGranted] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void isPermissionGranted()
+      .then(setGranted)
+      .catch(() => setGranted(false));
+  }, []);
+
+  const request = useCallback(() => {
+    void requestPermission().then(state => setGranted(state === "granted"));
+  }, []);
+
+  if (granted === null) return null;
+  if (granted) return <p className="settings-note">系统通知权限：已授权 ✓</p>;
+  return (
+    <div>
+      <p className="settings-note">
+        系统通知权限：未授权，到点提醒只弹宠物提醒窗、没有系统通知。
+      </p>
+      <p className="settings-note">
+        <button className="settings-link" onClick={request}>请求权限</button>
+        ，或到系统设置开启（Windows：设置 → 系统 → 通知；macOS：系统设置 → 通知 → Mochi）。
+      </p>
     </div>
   );
 }
