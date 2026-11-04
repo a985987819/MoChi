@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { listen } from "@tauri-apps/api/event";
@@ -23,6 +23,9 @@ interface ChatEntry {
 }
 
 let nextId = 1;
+
+/** 流式增量冲刷间隔（ms）：~12fps 的重解析频率，肉眼仍是"逐字"（P1-05） */
+const STREAM_THROTTLE_MS = 80;
 
 /** SQLite 协议消息 → UI 条目（tool 明细并入 assistant 的 note，不单气泡展示） */
 async function loadEntries(): Promise<ChatEntry[]> {
@@ -90,20 +93,36 @@ export function ChatTab() {
     const patchAssistant = (patch: Partial<ChatEntry>) =>
       setEntries(prev => prev.map(e => (e.id === assistantEntry.id ? { ...e, ...patch } : e)));
 
+    // 流式节流（P1-05）：delta 高频到达，直接 setState 会让 MarkdownView 每秒
+    // 重解析几十次——攒进缓冲，80ms 冲刷一次（~12fps，肉眼即"逐字"）
+    let streamBuffer = "";
+    let lastFlush = 0;
+    const flushStream = (force = false) => {
+      const now = performance.now();
+      if (!force && now - lastFlush < STREAM_THROTTLE_MS) return;
+      if (!streamBuffer) return;
+      const chunk = streamBuffer;
+      streamBuffer = "";
+      lastFlush = now;
+      setEntries(prev => prev.map(e => (e.id === assistantEntry.id ? { ...e, content: e.content + chunk } : e)));
+    };
+
     try {
       // 历史与持久化都在 Facade 内部闭环（v0.5.0 起 runTurn 不再接收 history）
       let finalText = "";
       for await (const ev of agentFacade.runTurn({ userInput: text, signal: controller.signal })) {
         if (ev.type === "text-delta") {
           finalText += ev.text;
-          setEntries(prev => prev.map(e => (e.id === assistantEntry.id ? { ...e, content: e.content + ev.text } : e)));
+          streamBuffer += ev.text;
+          flushStream();
         } else if (ev.type === "step-end") {
           const trace = ev.toolSummaries.map(s => `${s.name} ${s.ok ? "✓" : "✗"}`).join(" · ");
           setEntries(prev => [...prev, { id: nextId++, role: "note", content: `🔧 ${trace}` }]);
         } else if (ev.type === "done") {
-          // done.text 恒为终答全文（含 hitMaxSteps 的兜底文案），覆盖增量拼接更可靠
+          // done.text 恒为终答全文（含 hitMaxSteps 兜底），权威覆盖，清掉缓冲
           finalText = ev.text;
-          if (ev.hitMaxSteps) patchAssistant({ content: ev.text });
+          streamBuffer = "";
+          patchAssistant({ content: ev.text });
         }
       }
       // 气泡（P1-01）：回复完成但用户没看着聊天窗（关窗=隐藏，进程常驻），
@@ -117,6 +136,7 @@ export function ChatTab() {
     } catch (e) {
       setError({ kind: "network", message: String(e) });
     } finally {
+      flushStream(true); // 中断/出错时冲刷缓冲：已生成的部分文本保留在界面上
       patchAssistant({ streaming: false });
       setBusy(false);
       abortRef.current = null;
@@ -155,13 +175,13 @@ export function ChatTab() {
           ) : (
             <div key={e.id} className={`chat-msg chat-msg--${e.role}`}>
               <div className="chat-msg__bubble">
-                {e.role === "assistant" && !e.streaming ? (
-                  <MarkdownView text={e.content} />
+                {e.role === "assistant" ? (
+                  // 流式也走 Markdown（P1-05）：结束才切换会导致排版跳变；
+                  // 节流 + memo 把重解析控制在 ~12fps。光标用 CSS ::after
+                  // 挂在最后一个元素上（.chat-md--streaming）
+                  <MarkdownView text={e.content} streaming={e.streaming === true} />
                 ) : (
-                  <span className="chat-msg__plain">
-                    {e.content}
-                    {e.streaming && <span className="chat-cursor" aria-hidden />}
-                  </span>
+                  <span className="chat-msg__plain">{e.content}</span>
                 )}
               </div>
             </div>
@@ -200,12 +220,14 @@ export function ChatTab() {
   );
 }
 
-function MarkdownView({ text }: { text: string }) {
-  if (!text.trim()) return <span className="chat-msg__plain">（空回复）</span>;
+/** Markdown 渲染（memo 化，P1-05）：非流式消息在流式重渲染中零开销——
+ *  entry 对象引用不变，memo 直接跳过重解析 */
+const MarkdownView = memo(function MarkdownView({ text, streaming }: { text: string; streaming?: boolean }) {
+  if (!text.trim() && !streaming) return <span className="chat-msg__plain">（空回复）</span>;
   return (
-    <div className="chat-md">
+    <div className={`chat-md${streaming ? " chat-md--streaming" : ""}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
   );
-}
+});
 
