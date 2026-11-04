@@ -27,6 +27,8 @@ import idleImg from "@/assets/pet/idle.svg";
 interface WelcomeGuideProps {
   /** destination 决定关闭后落在哪个 Tab */
   onFinish: (destination: "chat" | "settings") => void;
+  /** 「以后不再自动显示」（P1-09）：不切 Tab、只落盘退出——给想直接关掉的人 */
+  onDismissForever: () => void;
 }
 
 interface Step {
@@ -53,7 +55,7 @@ const STEPS: Step[] = [
   },
 ];
 
-export function WelcomeGuide({ onFinish }: WelcomeGuideProps) {
+export function WelcomeGuide({ onFinish, onDismissForever }: WelcomeGuideProps) {
   const goSettings = useCallback(() => onFinish("settings"), [onFinish]);
   const goChat = useCallback(() => onFinish("chat"), [onFinish]);
 
@@ -94,6 +96,9 @@ export function WelcomeGuide({ onFinish }: WelcomeGuideProps) {
         聊天记录、待办、记忆都只存在这台电脑上，随时可以在设置里清空。
         <br />
         这份引导之后能在「设置 → 重新显示新手引导」再看一次。
+        <button className="welcome__skip" onClick={onDismissForever}>
+          以后不再自动显示
+        </button>
       </p>
     </section>
   );

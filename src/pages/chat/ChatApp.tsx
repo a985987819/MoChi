@@ -70,6 +70,13 @@ export function ChatApp() {
     if (!settings.onboardingDone) await saveSettings({ ...settings, onboardingDone: true }, ["onboardingDone"]);
   }, []);
 
+  /** 「以后不再自动显示」（P1-09）：不切 Tab，只落盘退出引导 */
+  const dismissForever = useCallback(async () => {
+    setWelcome(false);
+    const settings = await loadSettings();
+    if (!settings.onboardingDone) await saveSettings({ ...settings, onboardingDone: true }, ["onboardingDone"]);
+  }, []);
+
   const handleClose = useCallback(() => {
     void sendUIEvent(UI_EVENTS.hideChat);
   }, []);
@@ -104,7 +111,7 @@ export function ChatApp() {
       </header>
 
       {welcome ? (
-        <WelcomeGuide onFinish={finishWelcome} />
+        <WelcomeGuide onFinish={finishWelcome} onDismissForever={() => void dismissForever()} />
       ) : (
         <>
           {tab === "chat" && <ChatTab onOpenSettings={() => setTab("settings")} />}
