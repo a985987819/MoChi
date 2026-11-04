@@ -74,3 +74,32 @@ it("JS定时器被节流后，原生节拍仍可恢复在场状态", async () =>
   expect(service.current).toBe("active");
   service.stop();
 });
+
+it("活动段独立于站立计时，离开和恢复后重新计算", async () => {
+  const service = new PresenceService();
+  service.start();
+  await vi.advanceTimersByTimeAsync(45 * 60_000);
+  expect(service.activitySnapshot().activeMinutes).toBe(45);
+  idleSec = 600;
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(service.activitySnapshot().activeMinutes).toBe(0);
+  idleSec = 0;
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(service.activitySnapshot()).toEqual({ activeMinutes: 0, recentlyReturned: true });
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(service.activitySnapshot().recentlyReturned).toBe(false);
+  service.stop();
+});
+
+it("长时间未观测后不会把睡眠时间累加为持续活动", async () => {
+  const service = new PresenceService();
+  service.start();
+  await vi.advanceTimersByTimeAsync(0);
+  vi.setSystemTime(Date.now() + 3_600_000);
+  // 点击可能先于恢复后的第一次原生poll，读取快照本身也不能累计睡眠。
+  expect(service.activitySnapshot()).toEqual({ activeMinutes: 0, recentlyReturned: true });
+  await emit(STATE_EVENTS.nativeTick);
+  await Promise.resolve();
+  expect(service.activitySnapshot()).toEqual({ activeMinutes: 0, recentlyReturned: true });
+  service.stop();
+});

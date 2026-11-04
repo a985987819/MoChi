@@ -5,6 +5,10 @@ import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import { sendUIEvent, UI_EVENTS } from "@/shared/events";
 import { ContextMenu } from "./ContextMenu";
 import { PetGestureController } from "./gestures";
+import { TimedBubble, type BubbleDisplay } from "./bubble-display";
+import { PetBubble } from "./PetBubble";
+import { PetChatter, type BubbleLine } from "@/services/pet-chatter";
+import { loadChatterContext } from "@/services/pet-chatter-context";
 import "./pet.css";
 
 /**
@@ -93,35 +97,53 @@ export function PetApp() {
   const state = usePetState();
   const [bouncing, setBouncing] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [bubble, setBubble] = useState<BubbleDisplay<BubbleLine> | null>(null);
+  const chatter = useMemo(() => new PetChatter(), []);
+  const bubbleDisplay = useMemo(() => new TimedBubble<BubbleLine>(setBubble), []);
+
+  useEffect(() => {
+    bubbleDisplay.activate();
+    return () => bubbleDisplay.dispose();
+  }, [bubbleDisplay]);
 
   const gestures = useMemo(() => new PetGestureController({
     singleClick: () => {
       setBouncing(false);
       requestAnimationFrame(() => setBouncing(true));
       void sendUIEvent(UI_EVENTS.resetStandup).catch(error => console.error("[pet] 重置计时失败", error));
+      void bubbleDisplay.showContext(loadChatterContext, context => chatter.next(context));
     },
     doubleClick: () => {
+      bubbleDisplay.cancel();
       void sendUIEvent(UI_EVENTS.openChat).catch(error => console.error("[pet] 打开聊天失败", error));
     },
     drag: () => {
+      bubbleDisplay.cancel();
       // 当前 pointermove 先释放 DOM capture，再让系统接管拖动。
       queueMicrotask(() => {
         void sendUIEvent(UI_EVENTS.dragPet).catch(error => console.error("[pet] 拖动失败", error));
       });
     },
-  }), []);
+  }), [bubbleDisplay, chatter]);
 
   useEffect(() => {
-    const cancel = () => gestures.cancel();
+    const cancel = () => { gestures.cancel(); bubbleDisplay.cancel(); };
+    const visibilityChanged = () => { if (document.hidden) cancel(); };
     window.addEventListener("blur", cancel);
-    return () => { window.removeEventListener("blur", cancel); gestures.cancel(); };
-  }, [gestures]);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    return () => {
+      window.removeEventListener("blur", cancel);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+      gestures.cancel();
+    };
+  }, [gestures, bubbleDisplay]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     gestures.cancel();
+    bubbleDisplay.cancel();
     setMenu({ x: e.clientX, y: e.clientY });
-  }, [gestures]);
+  }, [gestures, bubbleDisplay]);
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -129,7 +151,7 @@ export function PetApp() {
     <main
       className={`pet-stage${bouncing ? " pet-stage--bounce" : ""}`}
       onPointerDown={e => {
-        if (menu) { setMenu(null); gestures.cancel(); return; }
+        if (menu) { setMenu(null); gestures.cancel(); bubbleDisplay.cancel(); return; }
         gestures.pointerDown(e.pointerId, e.clientX, e.clientY, e.button);
         if (e.button === 0) e.currentTarget.setPointerCapture(e.pointerId);
       }}
@@ -144,11 +166,14 @@ export function PetApp() {
       }}
       onPointerCancel={() => gestures.cancel()}
       onContextMenu={handleContextMenu}
-      onAnimationEnd={() => setBouncing(false)}
+      onAnimationEnd={event => {
+        if (event.animationName === "mochi-bounce") setBouncing(false);
+      }}
     >
       <div className="pet-stage__pet">
         <PetSprite key={state} state={state} />
       </div>
+      {bubble && <PetBubble key={bubble.sequence} text={bubble.line.text} leaving={bubble.leaving} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} onClose={closeMenu} />}
     </main>
   );

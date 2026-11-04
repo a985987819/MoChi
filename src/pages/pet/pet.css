@@ -16,6 +16,7 @@ body {
 }
 
 .pet-stage {
+  position: relative;
   touch-action: none; /* 指针序列交给手势判定，避免触屏默认滚动取消拖动 */
   width: 100%;
   height: 100%;
@@ -24,6 +25,68 @@ body {
   justify-content: center;
   padding-bottom: 6px;
   box-sizing: border-box;
+}
+
+/* 奶油纸条式气泡留在原生窗口内部，既不挡住脸，也不改变宠物/窗口尺寸。 */
+.pet-bubble {
+  position: absolute;
+  z-index: 20;
+  top: 4px;
+  left: 10px;
+  right: 10px;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid #dfc8b4;
+  border-radius: 14px 14px 13px 5px;
+  background: #fffaf0;
+  color: #654c3f;
+  box-shadow: 0 4px 12px #7250391c, inset 0 1px 0 #ffffff;
+  font-family: "STKaiti", "KaiTi", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 17px;
+  letter-spacing: 0.15px;
+  text-align: left;
+  pointer-events: none;
+  transform-origin: 46px 100%;
+  animation: pet-bubble-pop 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.pet-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -5px;
+  left: 39px;
+  width: 8px;
+  height: 8px;
+  background: #fffaf0;
+  border-right: 1px solid #dfc8b4;
+  border-bottom: 1px solid #dfc8b4;
+  transform: rotate(45deg);
+}
+
+.pet-bubble__text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  /* line-clamp 只限制视觉高度；完整正文保留在 DOM 与可访问树中。 */
+}
+
+.pet-bubble--leaving {
+  animation: pet-bubble-away 200ms ease-in both;
+}
+
+@keyframes pet-bubble-pop {
+  from { opacity: 0; transform: translateY(7px) scale(0.93) rotate(-1deg); }
+  65% { opacity: 1; transform: translateY(-1px) scale(1.015); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes pet-bubble-away {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(3px) scale(0.97); }
 }
 
 .pet-stage__pet {
@@ -76,4 +139,9 @@ body {
   100% {
     transform: scale(1, 1) translateY(0);
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-bubble, .pet-stage__pet, .pet-stage--bounce .pet-stage__pet { animation: none; }
+  .pet-bubble--leaving { opacity: 0; }
 }

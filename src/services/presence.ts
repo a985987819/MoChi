@@ -29,9 +29,21 @@ export class PresenceService {
   private generation = 0;
   private polling = false;
   private nextPoll = 0;
+  private activeSince = Date.now();
+  private returnedAt: number | null = null;
+  private lastObservedAt: number | null = null;
 
   get current(): Presence {
     return this.presence;
+  }
+
+  /** 仅估计当前活动段，不代表工作强度/坐姿；供点击文案选择，不参与提醒计时。 */
+  activitySnapshot(now = Date.now()): { activeMinutes: number; recentlyReturned: boolean } {
+    const observationStale = this.lastObservedAt != null && now - this.lastObservedAt >= AWAY_AFTER_SEC * 1000;
+    return {
+      activeMinutes: this.presence === "away" || observationStale ? 0 : Math.max(0, (now - this.activeSince) / 60_000),
+      recentlyReturned: observationStale || (this.returnedAt != null && now >= this.returnedAt && now - this.returnedAt < 60_000),
+    };
   }
 
   subscribe(fn: (p: Presence) => void): () => void {
@@ -44,6 +56,9 @@ export class PresenceService {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.activeSince = Date.now();
+    this.returnedAt = null;
+    this.lastObservedAt = null;
     const generation = ++this.generation;
     this.nextPoll = 0;
     const check = () => {
@@ -70,6 +85,13 @@ export class PresenceService {
     // 失败按 0 秒处理 = 用户在场（宁误"在场"向，不打扰）
     const idleSec = await invoke<number>("get_idle_seconds").catch(() => 0);
     if (!this.running || generation !== this.generation) return;
+    const now = Date.now();
+    // 挂起/长时间没有观测后不能把睡眠时间也算作持续活动。
+    if (this.lastObservedAt != null && now - this.lastObservedAt >= AWAY_AFTER_SEC * 1000) {
+      this.activeSince = now;
+      if (idleSec < AWAY_AFTER_SEC) this.returnedAt = now;
+    }
+    this.lastObservedAt = now;
     const next: Presence = idleSec >= AWAY_AFTER_SEC ? "away" : "active";
     if (next === this.presence) return;
 
@@ -77,6 +99,8 @@ export class PresenceService {
     if (next === "away") {
       petState.setPresence("sleep"); // presence 槽（sticky），恢复由本服务清
     } else {
+      this.activeSince = now;
+      this.returnedAt = now;
       petState.clearPresence();
     }
     for (const fn of this.listeners) fn(next);
