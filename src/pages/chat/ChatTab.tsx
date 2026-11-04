@@ -22,6 +22,9 @@ interface ChatEntry {
   role: "user" | "assistant" | "note";
   content: string;
   streaming?: boolean;
+  /** 本轮失败（流中断/异常）——气泡下出「重试」按钮，记着当时的用户输入（P1-08） */
+  failed?: boolean;
+  retryText?: string;
 }
 
 let nextId = 1;
@@ -143,6 +146,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
       }
     } catch (e) {
       setError({ kind: "network", message: String(e) });
+      patchAssistant({ failed: true, retryText: text }); // 失败气泡出「重试」（P1-08）
     } finally {
       flushStream(true); // 中断/出错时冲刷缓冲：已生成的部分文本保留在界面上
       patchAssistant({ streaming: false });
@@ -155,6 +159,24 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
 
   /** 重试最近一次输入（P1-07 错误条 / P1-08 失败气泡共用） */
   const retryLast = useCallback(() => void doSend(lastInputRef.current), [doSend]);
+
+  // 复制（P1-08）：取气泡内 Markdown 渲染后的可见文本（innerText 保留换行），
+  // 失败降级为复制源文本；「已复制」1.5s 后回落
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const copyEntry = useCallback((entry: ChatEntry, bubble: HTMLElement | null) => {
+    const rendered = bubble?.querySelector<HTMLElement>(".chat-md")?.innerText;
+    const text = rendered?.trim() ? rendered : entry.content;
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => setCopiedId(entry.id))
+      .catch(() => setCopiedId(null));
+  }, []);
+
+  useEffect(() => {
+    if (copiedId === null) return;
+    const t = window.setTimeout(() => setCopiedId(null), 1500);
+    return () => window.clearTimeout(t);
+  }, [copiedId]);
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
 
@@ -188,6 +210,16 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
           ) : (
             <div key={e.id} className={`chat-msg chat-msg--${e.role}`}>
               <div className="chat-msg__bubble">
+                {e.role === "assistant" && (
+                  // 复制（P1-08）：hover 浮现。复制的是**渲染文本**
+                  // （气泡 DOM 的 innerText，用户预期是"我刚看到的字"）
+                  <button
+                    className="chat-copy-btn"
+                    onClick={ev => copyEntry(e, ev.currentTarget.closest(".chat-msg__bubble"))}
+                  >
+                    {copiedId === e.id ? "已复制" : "复制"}
+                  </button>
+                )}
                 {e.role === "assistant" ? (
                   // 流式也走 Markdown（P1-05）：结束才切换会导致排版跳变；
                   // 节流 + memo 把重解析控制在 ~12fps。光标用 CSS ::after
@@ -197,6 +229,13 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
                   <span className="chat-msg__plain">{e.content}</span>
                 )}
               </div>
+              {e.failed && (
+                // 失败重试（P1-08）：重发**该轮**的用户输入（比"最后一条"更准——
+                // 连续多轮失败时每条气泡知道自己的输入）
+                <button className="chat-retry-btn" onClick={() => void doSend(e.retryText ?? "")}>
+                  重试
+                </button>
+              )}
             </div>
           ),
         )}

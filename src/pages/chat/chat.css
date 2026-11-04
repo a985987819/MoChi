@@ -280,6 +280,47 @@ body {
   user-select: text;
 }
 
+/* 复制/重试（v0.9.0 P1-08） */
+.chat-msg__bubble {
+  position: relative;
+}
+
+.chat-copy-btn {
+  position: absolute;
+  top: -10px;
+  right: 8px;
+  padding: 2px 8px;
+  border: 1px solid #f0dfe6;
+  border-radius: 8px;
+  background: #fff;
+  color: #8a7e76;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.chat-msg:hover .chat-copy-btn {
+  opacity: 1;
+}
+
+.chat-retry-btn {
+  align-self: flex-start;
+  margin: 3px 0 0 46px;
+  padding: 3px 12px;
+  border: 1px solid #f0dfe6;
+  border-radius: 8px;
+  background: #fff;
+  color: #6f6560;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chat-retry-btn:hover {
+  border-color: #ffd3d8;
+  color: #b3455a;
+}
+
 /* ── 输入区 ── */
 .chat-composer {
   display: flex;
