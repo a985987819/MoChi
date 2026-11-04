@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { sendStateEvent, STATE_EVENTS } from "@/shared/events";
 import { reminderStore, type Reminder } from "@/services/reminders";
-import { PomodoroControl } from "@/agent/tools/pomodoro";
 
 /**
  * 番茄钟 Tab —— v0.7.0：番茄钟 UI 通道 + 提醒列表。
@@ -37,12 +36,8 @@ export function PomodoroTab() {
     };
   }, []);
 
-  const ctl: PomodoroControl = {
-    start: minutes => void sendStateEvent(STATE_EVENTS.pomodoroStart, { minutes }),
-    stop: () => void sendStateEvent(STATE_EVENTS.pomodoroStop),
-    cachedStatus: () => pomodoro,
-  };
-  void ctl; // 保留形状说明；本 Tab 直接发事件（见上）
+  // 启停直接发事件（P2-16 清理：曾有构造 PomodoroControl 再 void 掉的死代码——
+  // 本 Tab 是纯事件通道，不需要工具层的 Control 形状）
 
   const start = useCallback(() => {
     void sendStateEvent(STATE_EVENTS.pomodoroStart, {});
