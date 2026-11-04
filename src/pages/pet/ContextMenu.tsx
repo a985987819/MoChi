@@ -131,6 +131,9 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       )}
       <div className="ctx-divider" />
       {item("退出 Mochi", () => void sendUIEvent(UI_EVENTS.quitApp))}
+      {/* 手势备忘（P1-10）：不可点的静态行——三个手势没有任何视觉暗示，
+          菜单每次打开都在，是最便宜的"持续提示位" */}
+      <div className="ctx-hint">拖动移动 · 单击重置站立 · 双击聊天</div>
     </div>
   );
 }

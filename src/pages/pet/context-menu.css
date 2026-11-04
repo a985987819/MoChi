@@ -41,6 +41,16 @@
   background: #f0e4e8;
 }
 
+/* 手势备忘行（v0.9.0 P1-10）：纯展示，无 hover 无手型 */
+.ctx-hint {
+  padding: 4px 10px 5px;
+  color: #b5a9a2;
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
+  cursor: default;
+}
+
 /* 表情演示：2 列网格，10 个状态按钮 */
 .ctx-demo {
   display: grid;
