@@ -63,6 +63,35 @@ body {
   margin-top: 8px;
 }
 
+/* 双按钮（v0.9.0 P1-11）：主行动（起来活动）与缓兵（稍后）拉开层级 */
+.alert-card__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.alert-card__btn {
+  padding: 6px 16px;
+  border: 1px solid #f0dfe6;
+  border-radius: 9px;
+  background: #fff;
+  color: #6f6560;
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.alert-card__btn:hover {
+  border-color: #ffc4d0;
+  color: #3d3733;
+}
+
+.alert-card__btn--primary {
+  border-color: #ffc4d0;
+  background: #fff5f7;
+  color: #b3455a;
+}
+
 /* 出现动画：从小弹到正常 */
 @keyframes alert-pop {
   0% {

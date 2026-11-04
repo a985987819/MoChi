@@ -26,6 +26,8 @@ export const UI_EVENTS = {
   showAlert: "ui://show-alert",
   /** 用户点击了提醒弹窗（alert 页 → Rust 隐藏弹窗 + StandupService 重置计时） */
   standupAck: "ui://standup-ack",
+  /** 仅隐藏提醒弹窗（P1-11「稍后」路径：无 ack 的 stretch/重置副作用） */
+  hideAlert: "ui://hide-alert",
   /**
    * 显示宠物气泡（v0.9.0 P1-01）。载荷：string（气泡文本，纯字符串）。
    * 聊天窗在「回复完成但用户没看着窗口」时发出 → Rust 定位到宠物正上方、

@@ -34,6 +34,8 @@ const EVT_TOGGLE_PET: &str = "ui://toggle-pet";
 const EVT_QUIT_APP: &str = "ui://quit-app";
 const EVT_SHOW_ALERT: &str = "ui://show-alert";
 const EVT_STANDUP_ACK: &str = "ui://standup-ack";
+/// 仅隐藏提醒弹窗（P1-11「稍后 5 分钟」：不触发 ack 的 stretch/重置副作用）
+const EVT_HIDE_ALERT: &str = "ui://hide-alert";
 /// 气泡（v0.9.0 P1-01）：前端 emit 带文本载荷，Rust 定位 + 原样转发给 bubble 窗
 const EVT_SHOW_BUBBLE: &str = "ui://show-bubble";
 const EVT_HIDE_BUBBLE: &str = "ui://hide-bubble";
@@ -327,6 +329,14 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
             let _ = alert.hide();
         }
         set_tray_tooltip(&handle, "Mochi 麻薯");
+    });
+
+    // 「稍后」路径（P1-11）：只藏弹窗；计时器侧由 state://standup-snooze 驱动
+    let handle = app.clone();
+    app.listen_any(EVT_HIDE_ALERT, move |_| {
+        if let Some(alert) = handle.get_webview_window("alert") {
+            let _ = alert.hide();
+        }
     });
 
     // 番茄钟状态 → tooltip（P1-03）：focus/break 显示倒计时，idle 回默认。
