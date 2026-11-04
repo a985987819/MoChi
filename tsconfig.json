@@ -24,7 +24,11 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* 显式引入 node 类型（TS 6 不再自动展开 @types）：单测用 node:fs 扫描工具
+       注册名（tool-labels 全等断言）、vite.config.ts 也要 node:path/url/process */
+    "types": ["node"]
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]

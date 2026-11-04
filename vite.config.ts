@@ -3,7 +3,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-// @ts-expect-error type error without @types/node package
 import process from "node:process";
 
 // package.json 声明了 "type": "module"，vite.config.ts 按 ESM 加载，没有 __dirname，

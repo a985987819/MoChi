@@ -8,6 +8,7 @@ import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { truncateForBubble } from "@/shared/bubble-text";
 import type { ProviderError } from "@/agent/providers";
 import { isProviderReady, loadSettings, type AppSettings } from "@/services/settings";
+import { formatToolTrace } from "./tool-labels";
 
 /**
  * 聊天 Tab —— v0.5.0：历史从 SQLite 恢复（情景记忆），发送走 Facade（内部闭环
@@ -35,8 +36,10 @@ async function loadEntries(): Promise<ChatEntry[]> {
     if (m.role === "user") {
       out.push({ id: nextId++, role: "user", content: m.content ?? "" });
     } else if (m.role === "assistant") {
-      if (m.toolCalls?.length) {
-        out.push({ id: nextId++, role: "note", content: `🔧 调用了 ${m.toolCalls.map(c => c.name).join(" · ")}` });
+      // 历史轨迹同样走人话文案（P1-06）；历史里没有 ok 记录（都执行过），按成功渲染
+      const trace = formatToolTrace(m.toolCalls?.map(c => ({ name: c.name, ok: true })) ?? []);
+      if (trace) {
+        out.push({ id: nextId++, role: "note", content: `🔧 ${trace}` });
       }
       if (m.content) out.push({ id: nextId++, role: "assistant", content: m.content });
     }
@@ -116,8 +119,9 @@ export function ChatTab() {
           streamBuffer += ev.text;
           flushStream();
         } else if (ev.type === "step-end") {
-          const trace = ev.toolSummaries.map(s => `${s.name} ${s.ok ? "✓" : "✗"}`).join(" · ");
-          setEntries(prev => [...prev, { id: nextId++, role: "note", content: `🔧 ${trace}` }]);
+          // 工具轨迹人话化（P1-06）：内部动作（set_pet_state）不产生 note
+          const trace = formatToolTrace(ev.toolSummaries);
+          if (trace) setEntries(prev => [...prev, { id: nextId++, role: "note", content: `🔧 ${trace}` }]);
         } else if (ev.type === "done") {
           // done.text 恒为终答全文（含 hitMaxSteps 兜底），权威覆盖，清掉缓冲
           finalText = ev.text;
