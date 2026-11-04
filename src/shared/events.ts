@@ -9,7 +9,10 @@ import { emit } from "@tauri-apps/api/event";
 
 /** UI → Rust 事件（Rust 侧 lib.rs 监听） */
 export const UI_EVENTS = {
-  /** 打开（显示并聚焦）聊天窗口 */
+  /**
+   * 打开（显示并聚焦）聊天窗口。载荷：{ tab?: "chat"|"todos"|"pomodoro"|"settings" }
+   * （v0.9.0 P1-02：右键菜单/托盘可直达指定 Tab；无载荷 = 聊天 Tab）
+   */
   openChat: "ui://open-chat",
   /** 隐藏聊天窗口（聊天窗的关闭按钮 = 隐藏，进程仍驻留托盘） */
   hideChat: "ui://hide-chat",
@@ -72,6 +75,11 @@ export const STATE_EVENTS = {
 export const BRIDGE_EVENTS = {
   /** 气泡文本（lib.rs 收 ui://show-bubble → 转给 bubble 窗）。载荷：string */
   bubbleText: "bubble://text",
+  /**
+   * 打开聊天窗并切 Tab（lib.rs 收 ui://open-chat → 转给 chat 窗）。
+   * 载荷：{ tab?: "chat"|"todos"|"pomodoro"|"settings" }（v0.9.0 P1-02）
+   */
+  chatOpen: "chat://open",
 } as const;
 
 /** 发射一个 UI 事件给 Rust 侧监听器（payload 可选：气泡文本等；Rust 端原样转发或消费） */

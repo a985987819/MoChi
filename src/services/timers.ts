@@ -93,6 +93,27 @@ export class StandupService {
     if (keys.length === 0 || keys.includes("standupIntervalMin")) this.rearm("config");
   }
 
+  /** 距下次提醒的秒数（右键菜单「还剩 N 分钟」展示用；fired 态返回 0） */
+  remainingSec(): number {
+    if (this.state !== "armed") return 0;
+    return Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000));
+  }
+
+  /**
+   * 暂停提醒：把截止时间推到 now + minutes，不改配置里的常规间隔。
+   * 与 rearm 的差别：rearm 用配置间隔（单击宠物=重新开始本轮），snooze 是
+   * "我知道了但想多坐会儿"——语义不同，入口不同（右键菜单/弹窗稍后按钮）。
+   */
+  snooze(minutes: number): void {
+    if (this.autoDismiss != null) {
+      window.clearTimeout(this.autoDismiss);
+      this.autoDismiss = null;
+    }
+    if (petState.current === "alert") petState.clearSystem(); // alert 态暂停 = 同时收掉弹窗
+    this.state = "armed";
+    this.deadline = Date.now() + minutes * 60_000;
+  }
+
   /** 重新计时（单击/点击弹窗/改配置共用出口） */
   private rearm(_reason?: string): void {
     this.state = "armed";

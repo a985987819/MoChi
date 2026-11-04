@@ -37,8 +37,10 @@ const EVT_STANDUP_ACK: &str = "ui://standup-ack";
 /// 气泡（v0.9.0 P1-01）：前端 emit 带文本载荷，Rust 定位 + 原样转发给 bubble 窗
 const EVT_SHOW_BUBBLE: &str = "ui://show-bubble";
 const EVT_HIDE_BUBBLE: &str = "ui://hide-bubble";
-/// Rust → bubble 窗的转发事件名（与 events.ts 的 BRIDGE_EVENTS.bubbleText 对应）
+/// Rust → 窗口的转发事件名（与 events.ts 的 BRIDGE_EVENTS 对应）
 const EVT_BUBBLE_TEXT: &str = "bubble://text";
+/// Rust → chat 窗：open-chat 的 {tab} 载荷转发（P1-02 右键菜单/托盘直达 Tab）
+const EVT_CHAT_OPEN: &str = "chat://open";
 
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -137,8 +139,15 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 /// `listen_any` 监听全局广播事件（前端 `emit()` 发出的事件所有监听者可见）。
 fn setup_ui_event_listeners(app: tauri::AppHandle) {
     // 闭包需要持有自己的 AppHandle 副本（'static 生命周期要求）
+    // open-chat：显示聊天窗，并把 {tab} 载荷原样转发给 chat 窗（P1-02 直达 Tab）
     let handle = app.clone();
-    app.listen_any(EVT_OPEN_CHAT, move |_| show_chat(&handle));
+    app.listen_any(EVT_OPEN_CHAT, move |event| {
+        show_chat(&handle);
+        if let Some(chat) = handle.get_webview_window("chat") {
+            use tauri::Emitter;
+            let _ = chat.emit(EVT_CHAT_OPEN, event.payload());
+        }
+    });
 
     let handle = app.clone();
     app.listen_any(EVT_HIDE_CHAT, move |_| {

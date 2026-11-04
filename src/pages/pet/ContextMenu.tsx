@@ -1,22 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PET_STATES, type PetState, petState } from "@/services/pet-state";
-import { sendUIEvent, UI_EVENTS } from "@/shared/events";
+import { todoService } from "@/services/todos";
+import { pomodoroService, standupService } from "@/services/timers";
+import { sendStateEvent, sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import "./context-menu.css";
 
 /**
- * 宠物窗右键菜单（自绘，规格：roadmap v0.2.0 步骤 5）。
+ * 宠物窗右键菜单（自绘，规格：roadmap v0.2.0 步骤 5；P1-02 信息密度改版）。
  *
  * 设计要点：
  * - **自绘而非系统菜单**：与宠物窗的透明风格一致，且教学上是"HTML 就是 UI"的直接体现；
- * - **菜单必须夹在窗口内**：宠物窗只有 220×260，光标在边缘时菜单会溢出——
- *   打开前测量自身尺寸，把位置夹进视口（clamp）；
- * - 「表情演示」是 v0.2.0 的**验收工具**：无 Agent（v0.4.0）与计时器（v0.7.0）时，
- *   人工触发各状态验证素材回退链/优先级。情绪类走 mood 槽、功能类走 system 槽（8s），
- *   正好能演示"系统状态期间情绪不抢占"（roadmap v0.2.0 验收第 4 条）；
- * - 番茄钟/待办/设置项随各自版本（v0.7/v0.4/v0.3）加入，不提前占位。
+ * - **夹紧用实测尺寸**（P1-02 修复）：旧版用 MENU_W/MENU_H 常量预估，菜单项变多后
+ *   必然溢出。现在 useLayoutEffect 里 getBoundingClientRect 测真实尺寸再 clamp——
+ *   layoutEffect 在 paint 之前跑，用户看不到溢出帧；
+ * - **状态行是活的**：番茄钟/站立提醒每秒重读服务状态（菜单本来就开在宠物窗，
+ *   三个 Service 单例就地可读，无需跨窗口事件）；
+ * - 「调试 → 表情演示」收进子菜单：它是素材回退链的验收工具（roadmap v0.2.0），
+ *   保留但不再占据一级菜单——用户菜单该以任务为导向。
  */
 export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
   const [demoOpen, setDemoOpen] = useState(false);
+  const [todoCount, setTodoCount] = useState<number | null>(null);
+  const [pomo, setPomo] = useState(pomodoroService.status());
+  const [standupSec, setStandupSec] = useState(standupService.remainingSec());
   const rootRef = useRef<HTMLDivElement>(null);
 
   // 点击菜单外 / Escape 关闭：document 级监听（菜单打开期间）
@@ -35,6 +41,41 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     };
   }, [onClose]);
 
+  // 待办数：等宠物窗实例完成 SQLite 加载（宠物窗平时没人碰 todoService，
+  // ready 在此首次推进）——打开菜单的瞬间读到的是当前真实数量
+  useEffect(() => {
+    let mounted = true;
+    void todoService.ready.then(() => {
+      if (mounted) setTodoCount(todoService.list().length);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // 番茄钟 + 站立提醒剩余时间：每秒重读（菜单生命周期短，轮询比订阅简单可靠）
+  useEffect(() => {
+    const refresh = () => {
+      setPomo(pomodoroService.status());
+      setStandupSec(standupService.remainingSec());
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // 夹紧到窗口视口内：用实测尺寸（P1-02），依赖 demoOpen——子菜单展开后高度变化要重新夹
+  const [pos, setPos] = useState({ left: x, top: y });
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setPos({
+      left: Math.max(4, Math.min(x, window.innerWidth - rect.width - 4)),
+      top: Math.max(4, Math.min(y, window.innerHeight - rect.height - 4)),
+    });
+  }, [x, y, demoOpen]);
+
   const item = useCallback(
     (label: string, action: () => void) => (
       <button
@@ -51,18 +92,35 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     [onClose],
   );
 
-  // 夹紧到窗口视口内（菜单预估尺寸：宽 150，展开演示区时高约 240）
-  const MENU_W = 150;
-  const MENU_H = demoOpen ? 244 : 118;
-  const left = Math.max(4, Math.min(x, window.innerWidth - MENU_W - 4));
-  const top = Math.max(4, Math.min(y, window.innerHeight - MENU_H - 4));
+  const standupLabel =
+    standupSec === 0
+      ? "站立提醒 · 等你点击提醒窗"
+      : standupSec < 60
+        ? "站立提醒 · 还剩不到 1 分钟"
+        : `站立提醒 · 还剩 ${Math.ceil(standupSec / 60)} 分钟`;
 
   return (
-    <div ref={rootRef} className="ctx-menu" style={{ left, top }} data-tauri-drag-region={false}>
+    <div ref={rootRef} className="ctx-menu" style={{ left: pos.left, top: pos.top }} data-tauri-drag-region={false}>
       {item("打开聊天", () => void sendUIEvent(UI_EVENTS.openChat))}
+      {item(todoCount === 0 ? "待办" : `待办（${todoCount ?? "…"}）`, () =>
+        void sendUIEvent(UI_EVENTS.openChat, { tab: "todos" }),
+      )}
+      {pomo.phase === "idle"
+        ? item("开始番茄钟", () => void sendStateEvent(STATE_EVENTS.pomodoroStart, {}))
+        : item(
+            pomo.phase === "focus"
+              ? `番茄钟 · 专注中 ${formatCountdown(pomo.remainingSec)}`
+              : `番茄钟 · 休息中 ${formatCountdown(pomo.remainingSec)}`,
+            () => void sendStateEvent(STATE_EVENTS.pomodoroStop),
+          )}
+      {item(standupLabel, () => void sendUIEvent(UI_EVENTS.resetStandup))}
+      <div className="ctx-divider" />
+      {item("设置…", () => void sendUIEvent(UI_EVENTS.openChat, { tab: "settings" }))}
+      {item("暂停提醒 1 小时", () => standupService.snooze(60))}
+      <div className="ctx-divider" />
       {item("隐藏麻薯", () => void sendUIEvent(UI_EVENTS.togglePet))}
       <button className="ctx-item" onClick={() => setDemoOpen(v => !v)}>
-        表情演示 {demoOpen ? "▾" : "▸"}
+        调试 {demoOpen ? "▾" : "▸"}
       </button>
       {demoOpen && (
         <div className="ctx-demo">
@@ -75,6 +133,13 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       {item("退出 Mochi", () => void sendUIEvent(UI_EVENTS.quitApp))}
     </div>
   );
+}
+
+/** 番茄钟倒计时 mm:ss（菜单行内展示） */
+function formatCountdown(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 /** 演示按钮：情绪类(happy/sad)走 mood 槽走默认寿命；功能类走 system 槽 8s，可演示优先级抢占 */

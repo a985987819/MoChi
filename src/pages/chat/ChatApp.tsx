@@ -5,7 +5,7 @@ import { TodosTab } from "./TodosTab";
 import { PomodoroTab } from "./PomodoroTab";
 import { SettingsTab } from "./SettingsTab";
 import { WelcomeGuide } from "./WelcomeGuide";
-import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
+import { sendUIEvent, BRIDGE_EVENTS, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { loadSettings, saveSettings } from "@/services/settings";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import "./chat.css";
@@ -18,6 +18,11 @@ import "./chat.css";
  * 触发来源有两处——首次启动（pet 窗自动打开聊天窗）与设置页的「重新显示」事件。
  */
 type TabId = "chat" | "todos" | "pomodoro" | "settings";
+
+/** open-chat 载荷的 tab 字段收窄（非法值回落 chat——收方校验，协议文档见 events.ts） */
+function asTabId(v: unknown): TabId {
+  return v === "todos" || v === "pomodoro" || v === "settings" || v === "chat" ? v : "chat";
+}
 
 export function ChatApp() {
   const [tab, setTab] = useState<TabId>("chat");
@@ -36,6 +41,17 @@ export function ChatApp() {
     void listen(STATE_EVENTS.onboardingRequested, () => {
       setTab("chat");
       setWelcome(true);
+    }).then(unlisten => {
+      off = unlisten;
+    });
+    return () => off?.();
+  }, []);
+
+  // ③ 右键菜单/托盘「设置…」等直达入口（P1-02）：Rust 转发 open-chat 的 {tab} 载荷
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    void listen<{ tab?: unknown }>(BRIDGE_EVENTS.chatOpen, e => {
+      setTab(asTabId(e.payload?.tab));
     }).then(unlisten => {
       off = unlisten;
     });
