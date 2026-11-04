@@ -34,6 +34,21 @@ scripts\vsenv.cmd pnpm tauri dev
 #    （没有 Key 也可以选 Mock 提供商体验全流程）
 ```
 
+## 首次打开（macOS）
+
+Mochi 的 macOS 包**未签名公证**，首次打开会被 Gatekeeper 拦下（提示"无法打开，
+因为无法验证开发者"）。两种放行方式任选其一：
+
+1. **右键 → 打开 → 再点「打开」**（推荐，无需命令行）；
+2. 或解除隔离属性后正常打开：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Mochi.app
+```
+
+> 出现这个提示不是包损坏，而是没有开发者签名的应用的默认待遇。
+> 应用内「设置 → 关于」可查看版本与数据目录，遇到问题可把诊断信息贴进 issue。
+
 ## 打包与发布
 
 ```bash
