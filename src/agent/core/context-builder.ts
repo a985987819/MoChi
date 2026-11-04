@@ -7,7 +7,8 @@
  * 塞进 system：角色定义不被污染 + 符合 lost-in-the-middle 尾端优势（03 §2.2/§5）。
  */
 
-import { SYSTEM_PROMPT } from "./prompt";
+import { buildSystemPrompt } from "./prompt";
+import type { AddressingPreferences } from "@/shared/addressing";
 import type { ChatMessage } from "@/agent/providers/types";
 
 export interface BuildContextInput {
@@ -20,10 +21,13 @@ export interface BuildContextInput {
   retrievedKnowledge?: string;
   /** v0.7.0：当前时间（NL 提醒的时间解析锚点，learning/08 §5.2——模型不知道现在几点） */
   now?: Date;
+  /** 设置页保存的称呼偏好；由 Facade 每轮读取，内核不自行访问持久化。 */
+  addressing?: AddressingPreferences;
 }
 
+/** 每轮重建 system 并按固定层序拼装，偏好变更无需清历史或重启应用。 */
 export function buildMessages(input: BuildContextInput): ChatMessage[] {
-  const messages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }];
+  const messages: ChatMessage[] = [{ role: "system", content: buildSystemPrompt(input.addressing) }];
 
   if (input.memories?.length) {
     messages.push({

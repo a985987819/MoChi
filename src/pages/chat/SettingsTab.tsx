@@ -108,6 +108,25 @@ export function SettingsTab() {
     <div className="settings-panel">
       {saveError && <p role="alert">{saveError} <button onClick={() => persist(settings)}>重试保存</button></p>}
       <label className="settings-field">
+        <span>ta自称</span>
+        <input
+          type="text"
+          value={settings.petSelfName}
+          onChange={e => update({ petSelfName: e.target.value })}
+          placeholder="麻薯"
+        />
+      </label>
+      <label className="settings-field">
+        <span>ta对我的称呼</span>
+        <input
+          type="text"
+          value={settings.userNickname}
+          onChange={e => update({ userNickname: e.target.value })}
+          placeholder="人"
+        />
+      </label>
+      <p className="settings-note">保存后从下一轮对话生效；留空时分别使用「麻薯」和「人」。</p>
+      <label className="settings-field">
         <span>提供商</span>
         <select value={settings.providerId} onChange={e => update({ providerId: e.target.value })}>
           {PRESETS.map(p => (

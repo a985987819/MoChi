@@ -10,8 +10,9 @@ import { load } from "@tauri-apps/plugin-store";
 import { getPreset } from "@/agent/providers/presets";
 import { emit } from "@tauri-apps/api/event";
 import { STATE_EVENTS } from "@/shared/events";
+import { DEFAULT_ADDRESSING, normalizeAddressing, type AddressingPreferences } from "@/shared/addressing";
 
-export interface AppSettings {
+export interface AppSettings extends AddressingPreferences {
   /** 当前选中的提供商（presets.id 或 "mock"） */
   providerId: string;
   /** 每提供商独立保存 Key（格式随机，脱敏展示在 UI） */
@@ -46,6 +47,7 @@ export function defaultSettings(): AppSettings {
     providerId: "mock",
     apiKeys: {},
     models: {},
+    ...DEFAULT_ADDRESSING,
     standupIntervalMin: 60,
     pomodoroFocusMin: 25,
     pomodoroBreakMin: 5,
@@ -68,6 +70,7 @@ function normalize(raw: unknown): AppSettings {
     providerId: typeof r.providerId === "string" && getPreset(r.providerId) ? r.providerId : d.providerId,
     apiKeys: typeof r.apiKeys === "object" && r.apiKeys !== null ? r.apiKeys : d.apiKeys,
     models: typeof r.models === "object" && r.models !== null ? r.models : d.models,
+    ...normalizeAddressing(r),
     standupIntervalMin: clampInt(r.standupIntervalMin, 1, 120, d.standupIntervalMin),
     pomodoroFocusMin: clampInt(r.pomodoroFocusMin, 5, 90, d.pomodoroFocusMin),
     pomodoroBreakMin: clampInt(r.pomodoroBreakMin, 1, 30, d.pomodoroBreakMin),
@@ -90,6 +93,8 @@ function getStore() {
 }
 
 export async function loadSettings(): Promise<AppSettings> {
+  // 输入后立刻切回聊天时也读取最新快照；保存链路不反向调用 loadSettings，避免自等待。
+  await pendingSave.catch(() => undefined);
   const store = await getStore();
   return normalize(await store.get<AppSettings>(KEY));
 }

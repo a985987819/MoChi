@@ -104,6 +104,7 @@ export class AgentFacade {
       userInput: opts.userInput,
       memories,
       now: new Date(),
+      addressing: { petSelfName: settings.petSelfName, userNickname: settings.userNickname },
     });
 
     this.services.pet.setMood("thinking", THINKING_SECONDS);

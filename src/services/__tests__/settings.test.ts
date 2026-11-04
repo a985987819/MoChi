@@ -39,3 +39,21 @@ it("写盘失败后的下一次保存仍可执行，快照按用户操作顺序�
 it("真实提供商缺 Key 时明确拒绝，核心计时不经过此闸门", () => {
   expect(isProviderReady({ ...defaultSettings(), providerId: "deepseek" }).ok).toBe(false);
 });
+
+it("旧配置缺称呼时使用麻薯与人，已有称呼去首尾空白后保留", async () => {
+  store.raw = { providerId: "mock" };
+  expect(await loadSettings()).toMatchObject({ petSelfName: "麻薯", userNickname: "人" });
+  store.raw = { petSelfName: "  小团子  ", userNickname: "  阿明  " };
+  expect(await loadSettings()).toMatchObject({ petSelfName: "小团子", userNickname: "阿明" });
+});
+
+it("空白称呼回落默认值，保存中的称呼立即读取也能一致", async () => {
+  store.set.mockImplementation(async (_key: string, value: unknown) => { store.raw = value; });
+  const save = saveSettings({ ...defaultSettings(), petSelfName: "  ", userNickname: "\t" });
+  const loaded = loadSettings();
+  await save;
+  expect(await loaded).toMatchObject({ petSelfName: "麻薯", userNickname: "人" });
+  const changed = saveSettings({ ...defaultSettings(), petSelfName: "团团", userNickname: "小林" });
+  expect(await loadSettings()).toMatchObject({ petSelfName: "团团", userNickname: "小林" });
+  await changed;
+});
