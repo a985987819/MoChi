@@ -4,6 +4,7 @@ import { petState, type PetState } from "@/services/pet-state";
 import { listVariants, pickRandom, type PetVariant } from "@/services/pet-assets";
 import { loadSettings } from "@/services/settings";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
+import { playShowTransition, onWindowShown } from "@/shared/show-transition";
 import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { ContextMenu } from "./ContextMenu";
 import { PetGestureController } from "./gestures";
@@ -109,6 +110,7 @@ export function PetApp() {
   const [bouncing, setBouncing] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [bubble, setBubble] = useState<BubbleDisplay<PetBubbleLine> | null>(null);
+  const shellRef = useRef<HTMLElement>(null);
   const chatter = useMemo(() => new PetChatter(), []);
   const bubbleDisplay = useMemo(() => new TimedBubble<PetBubbleLine>(setBubble), []);
 
@@ -116,6 +118,10 @@ export function PetApp() {
     bubbleDisplay.activate();
     return () => bubbleDisplay.dispose();
   }, [bubbleDisplay]);
+
+  // 窗口唤回（托盘切换/退出隐藏）时的轻过渡：淡入+上浮 160ms。
+  // 硬切闪现会显得"系统卡了一下"；合成器动画不产生任何布局成本。
+  useEffect(() => onWindowShown(() => playShowTransition(shellRef.current)), []);
 
   // 宠物大小（P1-15）：档位写进 CSS 变量缩放形象（窗口尺寸由 Rust 改）。
   // 启动读一次设置 + 监听变更，两个来源汇到同一个变量
@@ -147,9 +153,13 @@ export function PetApp() {
   }, [bubbleDisplay]);
 
   const gestures = useMemo(() => new PetGestureController({
-    singleClick: () => {
+    // 即时视觉反馈（抬指即弹）：0 延迟的"按下去了"确认——感知流畅度的关键。
+    // 弹跳零副作用，双击时多弹一次无碍；语义动作仍在 singleClick 等判定。
+    clickFeedback: () => {
       setBouncing(false);
       requestAnimationFrame(() => setBouncing(true));
+    },
+    singleClick: () => {
       void sendUIEvent(UI_EVENTS.resetStandup).catch(error => console.error("[pet] 重置计时失败", error));
       void bubbleDisplay.showContext(loadChatterContext, context => ({ text: chatter.next(context).text }));
     },
@@ -189,6 +199,7 @@ export function PetApp() {
 
   return (
     <main
+      ref={shellRef}
       className={`pet-stage${bouncing ? " pet-stage--bounce" : ""}`}
       onPointerDown={e => {
         if (menu) { setMenu(null); gestures.cancel(); bubbleDisplay.cancel(); return; }

@@ -138,6 +138,27 @@ StandupService 不抽（核心只是一次时间戳比较，抽象成本>收益�
   托盘状态化/宠物缩放（v0.9.0）全量并存，activation policy 按 v0.8.1 修复移入 setup。
 
 **验证**：pnpm check / **213 tests** / pnpm build / cargo check / cargo test 6 例全绿。
+
+### 手感与交互优化（2026-11-06）
+
+**变更**：手势控制器新增 clickFeedback——弹跳从「500ms 双击判定后」提前到「抬指瞬间」，
+语义动作（重置计时/暖心气泡）判定逻辑不变（+3 例行为断言）；新增 shared/show-transition
+（WAAPI 淡入上浮 160ms + visibilitychange），聊天窗/宠物窗唤回不再硬切闪现；alert 弹窗
+按 alert.id 重挂卡片，每条提醒重播入场动画（此前只有第一条有）；右键菜单 140ms ease-out
+展开动画；宠物窗 will-change 合成层提示 + grab 光标可供性。
+
+**动机与取舍**：点击到反馈的延迟就是用户感知的"掉帧"——纯视觉反馈不该陪语义判定等
+500ms；唤回过渡走 WAAPI 而非 key 重挂（重挂聊天窗全量 DOM 是掉帧源）；动画统一
+cubic-bezier(0.22,1,0.36,1) ease-out 家族，不引入弹簧库；拖动"握持"视觉明确不做
+（拿不到可靠 drag-end 信号，防过度工程）。
+
+**学习要点**：感知性能 = 反馈延迟 × 动画连续性，两者要分开治理——前者砍语义等待，
+后者保证 transform/opacity-only + 常驻合成层；"窗口隐藏不销毁"意味着 CSS 入场动画
+只播一次，需要按内容 id 重挂或 WAAPI 重播。
+
+**版本规划影响**：桌宠手感基线确立（ease-out 统一曲线族）；拖动握持视觉与
+WindowEvent::Moved 跟踪列入后续候选。**验证**：216/216 tests、check/build 全绿；
+真机手感走查待用户。
 ---
 
 ## [v0.8.2] - 2026-11-04 — 稳定性与陪伴体验发布

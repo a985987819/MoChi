@@ -72,7 +72,9 @@ export function AlertApp() {
           void handleAck({ repeat: event.repeat });
         }
       }}>
-      <div className="alert-card">
+      {/* key=alert.id：窗口隐藏不销毁，CSS 入场动画只在首次挂载播过一次——
+          按 id 重挂卡片让每条新提醒都重播 pop（卡片节点极小，重挂零成本） */}
+      <div key={alert?.id ?? "empty"} className="alert-card">
         <img className="alert-card__img" src={alertImg} alt="" draggable={false} />
         <h1>{alert?.title ?? "提醒"}</h1>
         <p className="alert-card__body">{alert?.body ?? "正在读取提醒…"}</p>

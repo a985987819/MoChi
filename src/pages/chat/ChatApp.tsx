@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ChatTab } from "./ChatTab";
 import { TodosTab } from "./TodosTab";
@@ -6,6 +6,7 @@ import { PomodoroTab } from "./PomodoroTab";
 import { SettingsTab } from "./SettingsTab";
 import { WelcomeGuide } from "./WelcomeGuide";
 import { sendUIEvent, BRIDGE_EVENTS, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
+import { playShowTransition, onWindowShown } from "@/shared/show-transition";
 import { loadSettings, saveSettings } from "@/services/settings";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import "./chat.css";
@@ -27,6 +28,11 @@ function asTabId(v: unknown): TabId {
 export function ChatApp() {
   const [tab, setTab] = useState<TabId>("chat");
   const [welcome, setWelcome] = useState(false);
+  const shellRef = useRef<HTMLElement>(null);
+
+  // 窗口唤回（托盘/快捷键打开已隐藏的聊天窗）时的轻过渡：淡入+上浮 160ms。
+  // show() 本身是硬切，闪现显得像卡顿；WAAPI 合成器动画零布局成本。
+  useEffect(() => onWindowShown(() => playShowTransition(shellRef.current)), []);
 
   // ① 首装/升级用户：读设置判断是否要展示引导
   useEffect(() => {
@@ -82,7 +88,7 @@ export function ChatApp() {
   }, []);
 
   return (
-    <main className="chat-shell">
+    <main ref={shellRef} className="chat-shell">
       {/* 自绘标题栏：整体是拖动区，按钮 stopPropagation 保住点击 */}
       <header className="chat-titlebar" data-tauri-drag-region>
         <span className="chat-titlebar__title" data-tauri-drag-region>

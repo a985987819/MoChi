@@ -3,6 +3,14 @@ export interface PetGestureActions {
   singleClick(): void;
   doubleClick(): void;
   drag(): void;
+  /**
+   * 纯视觉的即时点击反馈（v0.9.0 手感优化）：抬指瞬间触发，不等双击判定。
+   * singleClick 里的语义副作用（重置站立计时/暖心气泡）必须等 500ms 判定窗口
+   * 结束——否则双击会被拆成两次"重置计时"。但弹跳这类零副作用的视觉反馈
+   * 没有理由陪判：点击到弹跳的延迟就是用户感知到的"掉帧/不跟手"。
+   * 可选注入：既有测试与调用方不受影响。
+   */
+  clickFeedback?(): void;
 }
 
 interface Point { pointerId: number; x: number; y: number }
@@ -34,7 +42,11 @@ export class PetGestureController {
     return true;
   }
 
-  /** 小幅抖动算单击；同位置短时间内第二次抬起算双击，仅执行打开聊天。 */
+  /**
+   * 小幅抖动算单击；同位置短时间内第二次抬起算双击，仅执行打开聊天。
+   * 每一次"未成为拖动"的抬指都先触发 clickFeedback（纯视觉即时反馈），
+   * 语义动作再按双击判定结果分发。
+   */
   pointerUp(pointerId: number, x: number, y: number): void {
     const start = this.pressed;
     this.pressed = null;
@@ -43,6 +55,7 @@ export class PetGestureController {
       this.clearPending();
       return;
     }
+    this.actions.clickFeedback?.();
     if (this.pending) {
       const sameSpot = Math.hypot(x - this.pending.x, y - this.pending.y) < DRAG_DISTANCE;
       this.clearPending();

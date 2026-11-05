@@ -21,6 +21,20 @@
     "Microsoft YaHei",
     sans-serif;
   user-select: none;
+  /* 菜单展开动画（v0.9.0 手感优化）：从点击处轻微上浮淡入。
+     140ms + ease-out（0.22,1,0.36,1）：菜单是即时操作 UI，动画只做"确认出现"，
+     不能挡住第一次点击；transform/opacity 走合成器线程，不掉帧。 */
+  transform-origin: 12px 8px;
+  animation: ctx-menu-in 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes ctx-menu-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctx-menu { animation: none; }
 }
 
 .ctx-item {
