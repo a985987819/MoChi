@@ -28,3 +28,4 @@ dist-ssr
 
 # 本地浏览器走查的会话、快照和日志（回归脚本本身放 scripts/）
 .playwright-cli/
+.zcode/
