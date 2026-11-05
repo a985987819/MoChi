@@ -69,6 +69,27 @@ macOS universal .dmg，未签名），自动附到 GitHub Release（draft）。*
 运行数据全部在本机：`{应用数据目录}/com.mochi.pet/`（SQLite mochi.db + settings.json +
 pet-assets/ 自定义素材）。卸载重装/升级均保留；"清空聊天历史"在设置页。
 
+## 日常动作与提醒
+
+- 按住宠物移动约 5px 开始拖动；双击打开聊天；单击会等待约 500ms 区分双击，再弹跳并重置站立计时；右键菜单操作不重置计时。
+- 单击还会弹出一张约7秒的小纸条：144条早晚问候、专注陪伴、轻休息建议和摸摸玩笑，按时间/应用状态轮换，使用设置中的称呼；无Key也可用。文案规则见[单击小纸条](docs/pet-chatter.md)。
+- 隐藏宠物或关闭聊天窗仍驻留托盘，提醒服务继续运行；真正退出应用后不执行提醒。
+- 站立、番茄钟和定时提醒均显示包含正文的应用弹窗，同时到点会排队。系统通知开关只影响 OS 通知，不会关闭应用弹窗。
+- 离开时站立/定时提醒推迟到恢复活动后展示；系统睡眠期间不能弹窗，恢复后补检查。
+- 定时提醒未确认即退出时，重启会恢复；确认已落库的不重复展示。番茄钟和站立倒计时仍不跨退出恢复。
+
+开发验证：`pnpm check`、`pnpm test`、`pnpm build`。`.github/workflows/check.yml` 对日常 main 推送做 Windows/macOS 检查，独立于发布流程。
+
+本地浏览器界面回归（使用 Tauri 官方 IPC mocks，验证前端，不代替原生窗口验收）：
+
+```powershell
+pnpm dev
+# 在另一个终端运行；首次会安装 Playwright CLI，需本机 Chrome
+npx --yes --package @playwright/cli playwright-cli open http://localhost:1420 --browser chrome
+npx --yes --package @playwright/cli playwright-cli run-code --filename scripts/ui-smoke.cjs
+npx --yes --package @playwright/cli playwright-cli close
+```
+
 ## 文档导航
 
 | 文档 | 内容 |

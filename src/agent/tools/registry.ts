@@ -16,6 +16,7 @@ import type { MemoryService } from "@/agent/memory/long-term";
 import type { FoodIndexService } from "@/rag/food";
 import type { ReminderStore } from "@/services/reminders";
 import { validateSchema } from "./validate-schema";
+import type { PomodoroControl } from "@/services/pomodoro-control";
 
 /** 工具依赖注入的出口：Agent 内核不 import 任何具体业务模块（AGENTS.md 目录职责） */
 export interface AppServices {
@@ -25,7 +26,7 @@ export interface AppServices {
   /** 提醒 CRUD（聊天窗 store；触发调度在宠物窗 Scheduler，learning/08 §5.4） */
   reminders: ReminderStore;
   /** 番茄钟遥控（跨窗口事件到宠物窗 PomodoroService） */
-  pomodoro: { start(minutes?: number): void; stop(): void };
+  pomodoro: PomodoroControl;
   /** 宠物情绪控制（跨窗口：经 state://set-mood 事件到宠物窗的 PetStateManager） */
   pet: { setMood(state: PetState, durationSec?: number): void };
 }

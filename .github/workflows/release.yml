@@ -36,7 +36,7 @@ jobs:
       - name: 安装 pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 12
+          version: 10.33.0
 
       - name: 安装 Node
         uses: actions/setup-node@v4

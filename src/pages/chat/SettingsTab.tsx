@@ -22,6 +22,8 @@ import {
  *
  * 交互设计：
  * - 每提供商独立 Key/模型桶（切提供商不丢配置，settings.ts 结构注释）；
+ * - 所有更改**顺序写盘**（v0.8.2：saveSettings 串行 + 显式 store.save）——失败时
+ *   给出可重试反馈（saveError 横幅），不用 autoSave 的"假成功"；
  * - 离散控件（下拉/开关）即时落盘；字符级输入（Key/模型名/数字）走 350ms 防抖
  *   （P0-02：否则输一个字符广播一次 settingsChanged，站立计时被反复重排），
  *   blur 与面板卸载时冲刷（flushSettingsSave），最后一次输入不丢；
@@ -38,6 +40,7 @@ type TestState =
 export function SettingsTab() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [test, setTest] = useState<TestState>({ phase: "idle" });
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     void loadSettings().then(setSettings);
@@ -46,22 +49,29 @@ export function SettingsTab() {
   // 设置面板卸载（切 Tab / 关窗）时冲刷防抖：最后一次输入不丢（P0-02）
   useEffect(() => () => flushSettingsSave(), []);
 
+  /** 统一写盘出口：失败打印不含 Key 的可见提示，用户可保留当前表单直接重试。 */
+  const persist = useCallback((next: AppSettings) => {
+    void saveSettings(next).then(() => setSaveError("")).catch(() => {
+      // 失败也不能打印包含 Key 的整个配置。
+      setSaveError("设置保存失败，请检查磁盘后重试");
+    });
+  }, []);
+
   const update = useCallback((patch: Partial<AppSettings>) => {
     setSettings(prev => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
-      // 离散控件（下拉/开关）：单次事件，直存
-      void saveSettings(next, Object.keys(patch) as Array<keyof AppSettings & string>);
+      persist(next); // 离散控件（下拉/开关）：单次事件，直存
       return next;
     });
-  }, []);
+  }, [persist]);
 
   /** 字符级输入（数字输入框）专用：走防抖，blur 时冲刷 */
   const updateDebounced = useCallback((patch: Partial<AppSettings>) => {
     setSettings(prev => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
-      queueSettingsSave(next, Object.keys(patch) as Array<keyof AppSettings & string>);
+      queueSettingsSave(next);
       return next;
     });
   }, []);
@@ -71,7 +81,7 @@ export function SettingsTab() {
       setSettings(prev => {
         if (!prev) return prev;
         const next = { ...prev, apiKeys: { ...prev.apiKeys, [providerId]: key } };
-        queueSettingsSave(next, ["apiKeys"]); // Key 逐字符输入：防抖（P0-02）
+        queueSettingsSave(next); // Key 逐字符输入：防抖（P0-02）
         return next;
       });
     },
@@ -82,11 +92,11 @@ export function SettingsTab() {
     setSettings(prev => {
       if (!prev) return prev;
       const next = { ...prev, models: { ...prev.models, [providerId]: model } };
-      if (debounce) queueSettingsSave(next, ["models"]);
-      else void saveSettings(next, ["models"]);
+      if (debounce) queueSettingsSave(next);
+      else persist(next);
       return next;
     });
-  }, []);
+  }, [persist]);
 
   const runTest = useCallback(async () => {
     if (!settings) return;
@@ -126,6 +136,28 @@ export function SettingsTab() {
 
   return (
     <div className="settings-panel">
+      {saveError && <p role="alert">{saveError} <button onClick={() => persist(settings)}>重试保存</button></p>}
+
+      <label className="settings-field">
+        <span>ta自称</span>
+        <input
+          type="text"
+          value={settings.petSelfName}
+          onChange={e => update({ petSelfName: e.target.value })}
+          placeholder="麻薯"
+        />
+      </label>
+      <label className="settings-field">
+        <span>ta对我的称呼</span>
+        <input
+          type="text"
+          value={settings.userNickname}
+          onChange={e => update({ userNickname: e.target.value })}
+          placeholder="人"
+        />
+      </label>
+      <p className="settings-note">保存后从下一轮对话生效；留空时分别使用「麻薯」和「人」。</p>
+
       <label className="settings-field">
         <span>提供商</span>
         <select value={settings.providerId} onChange={e => update({ providerId: e.target.value })}>

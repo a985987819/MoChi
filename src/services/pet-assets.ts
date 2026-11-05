@@ -56,16 +56,16 @@ export function parseAssetName(name: string): { state: string; ext: string } | n
 }
 
 /**
- * 取某状态的全部可用变体（用户目录优先，内置垫底）。
+ * 取某状态优先级最高且未加载失败的一组变体（用户目录优先，内置垫底）。
  * 空数组 = 该状态无任何素材 → 渲染层显示占位 SVG。
  * 每次调用都重扫用户目录（见头注释"为什么不做 watcher"）。
  */
-export async function listVariants(state: PetState): Promise<PetVariant[]> {
+export async function listVariants(state: PetState, failedUrls: ReadonlySet<string> = new Set()): Promise<PetVariant[]> {
   const variants: PetVariant[] = [];
 
   const push = (name: string, url: string, fromUser: boolean): void => {
     const parsed = parseAssetName(name);
-    if (parsed && parsed.state === state) {
+    if (parsed && parsed.state === state && !failedUrls.has(url)) {
       variants.push({ url, animated: ANIMATED_EXTS.has(parsed.ext), fromUser });
     }
   };
@@ -84,7 +84,10 @@ export async function listVariants(state: PetState): Promise<PetVariant[]> {
   // ② 内置素材
   for (const [name, url] of bundledUrls) push(name, url, false);
 
-  return variants;
+  // 用户图与内置图不能混在一个随机池：否则“放图替换形象”只会偶尔生效。
+  // img.onerror 由渲染层把失败 URL 回传；全部用户图失败时才退到内置图。
+  const userVariants = variants.filter(variant => variant.fromUser);
+  return userVariants.length > 0 ? userVariants : variants;
 }
 
 /** 从变体池随机取一张 */

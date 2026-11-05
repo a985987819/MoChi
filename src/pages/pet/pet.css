@@ -16,6 +16,8 @@ body {
 }
 
 .pet-stage {
+  position: relative;
+  touch-action: none; /* 指针序列交给手势判定，避免触屏默认滚动取消拖动 */
   width: 100%;
   height: 100%;
   display: flex;
@@ -25,15 +27,86 @@ body {
   box-sizing: border-box;
 }
 
+/* 奶油纸条式气泡留在原生窗口内部，既不挡住脸，也不改变宠物/窗口尺寸。 */
+.pet-bubble {
+  position: absolute;
+  z-index: 20;
+  top: 4px;
+  left: 10px;
+  right: 10px;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid #dfc8b4;
+  border-radius: 14px 14px 13px 5px;
+  background: #fffaf0;
+  color: #654c3f;
+  box-shadow: 0 4px 12px #7250391c, inset 0 1px 0 #ffffff;
+  font-family: "STKaiti", "KaiTi", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 17px;
+  letter-spacing: 0.15px;
+  text-align: left;
+  pointer-events: none;
+  transform-origin: 46px 100%;
+  animation: pet-bubble-pop 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.pet-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -5px;
+  left: 39px;
+  width: 8px;
+  height: 8px;
+  background: #fffaf0;
+  border-right: 1px solid #dfc8b4;
+  border-bottom: 1px solid #dfc8b4;
+  transform: rotate(45deg);
+}
+
+.pet-bubble__text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  /* line-clamp 只限制视觉高度；完整正文保留在 DOM 与可访问树中。 */
+}
+
+.pet-bubble--leaving {
+  animation: pet-bubble-away 200ms ease-in both;
+}
+
+@keyframes pet-bubble-pop {
+  from { opacity: 0; transform: translateY(7px) scale(0.93) rotate(-1deg); }
+  65% { opacity: 1; transform: translateY(-1px) scale(1.015); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes pet-bubble-away {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(3px) scale(0.97); }
+}
+
+/* 宠物舞台盒（v0.9.0 P1-15）：随 --pet-scale 缩放——Rust 同步改窗口物理尺寸，
+   CSS 里再缩内容盒，形象与窗口边缘的比例才不会因放大档位而留白。 */
 .pet-stage__pet {
+  width: calc(200px * var(--pet-scale, 1));
+  height: calc(240px * var(--pet-scale, 1));
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
   line-height: 0;                 /* 消除 SVG/img 底部基线空隙 */
   animation: mochi-float 3.2s ease-in-out infinite; /* 待机漂浮 */
   transform-origin: 50% 100%;     /* 弹跳从底部发力 */
 }
 
-/* 素材图片：完整显示不裁剪（docs/pet-assets.md §4），拖动区属性不影响 img。
-   v0.9.0 P1-15：大小档位经 --pet-scale 缩放（窗口尺寸由 Rust 同步改） */
+/* 素材图片：完整显示不裁剪（docs/pet-assets.md §4），拖动区属性不影响 img */
 .pet-stage__img {
+  /* viewBox-only SVG 没有固定 intrinsic 尺寸；仅 max-width 在 flex 中可塌成 0×0。 */
+  width: calc(200px * var(--pet-scale, 1));
+  height: calc(240px * var(--pet-scale, 1));
   max-width: calc(200px * var(--pet-scale, 1));
   max-height: calc(240px * var(--pet-scale, 1));
   object-fit: contain;
@@ -68,4 +141,9 @@ body {
   100% {
     transform: scale(1, 1) translateY(0);
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-bubble, .pet-stage__pet, .pet-stage--bounce .pet-stage__pet { animation: none; }
+  .pet-bubble--leaving { opacity: 0; }
 }

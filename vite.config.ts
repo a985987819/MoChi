@@ -15,16 +15,16 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [react()],
 
-  // Mochi 是多窗口应用：pet（宠物）/ chat（聊天）/ alert（提醒弹窗）/ bubble（气泡）
+  // Mochi 是多窗口应用：pet（宠物）/ chat（聊天）/ alert（提醒弹窗）
   // 各是一个 HTML 入口。dev 模式下 Tauri 窗口通过 devUrl + 文件名（如 /chat.html）
-  // 加载对应页面；build 模式下由 rollupOptions.input 告诉 Vite 打包出四个 HTML。
+  // 加载对应页面；build 模式下由 rollupOptions.input 告诉 Vite 打包出三个 HTML。
+  // （v0.9.0 合并：独立 bubble 窗已删除，Agent 回复气泡改由宠物窗内 PetBubble 展示。）
   build: {
     rollupOptions: {
       input: {
         pet: path.resolve(__dirname, "index.html"),
         chat: path.resolve(__dirname, "chat.html"),
         alert: path.resolve(__dirname, "alert.html"),
-        bubble: path.resolve(__dirname, "bubble.html"),
       },
     },
   },
@@ -41,8 +41,8 @@ export default defineConfig(() => ({
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
 
-  // Vitest（pnpm test）：纯函数单测（tokenizer/bm25/window/validate-schema）。
-  // node 环境——被测模块不得 import 任何 @tauri-apps/*（保持内核可测性，AGENTS.md 分层纪律）
+  // Vitest：内核纯函数 + 服务集成测试。Node 环境下使用 Tauri 官方 IPC/event mocks，
+  // SQLite 测试使用 Node 22 内置驱动，执行真实 DDL/CRUD；不依赖桌面安装或用户数据。
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],

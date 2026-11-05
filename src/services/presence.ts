@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { STATE_EVENTS } from "@/shared/events";
 import { petState } from "@/services/pet-state";
+import { subscribeHeartbeat } from "@/services/heartbeat";
 
 export type Presence = "active" | "away";
 
@@ -23,10 +24,26 @@ const AWAY_AFTER_SEC = 300; // 迟滞：进入 away 阈值；退出阈值为 0�
 
 export class PresenceService {
   private presence: Presence = "active";
-  private timer: number | null = null;
+  private cleanup: (() => void) | null = null;
+  private running = false;
+  private generation = 0;
+  private polling = false;
+  private nextPoll = 0;
+  private activeSince = Date.now();
+  private returnedAt: number | null = null;
+  private lastObservedAt: number | null = null;
 
   get current(): Presence {
     return this.presence;
+  }
+
+  /** 仅估计当前活动段，不代表工作强度/坐姿；供点击文案选择，不参与提醒计时。 */
+  activitySnapshot(now = Date.now()): { activeMinutes: number; recentlyReturned: boolean } {
+    const observationStale = this.lastObservedAt != null && now - this.lastObservedAt >= AWAY_AFTER_SEC * 1000;
+    return {
+      activeMinutes: this.presence === "away" || observationStale ? 0 : Math.max(0, (now - this.activeSince) / 60_000),
+      recentlyReturned: observationStale || (this.returnedAt != null && now >= this.returnedAt && now - this.returnedAt < 60_000),
+    };
   }
 
   subscribe(fn: (p: Presence) => void): () => void {
@@ -37,19 +54,44 @@ export class PresenceService {
   private listeners = new Set<(p: Presence) => void>();
 
   start(): void {
-    if (this.timer != null) return;
-    void this.poll();
-    this.timer = window.setInterval(() => void this.poll(), POLL_MS);
+    if (this.running) return;
+    this.running = true;
+    this.activeSince = Date.now();
+    this.returnedAt = null;
+    this.lastObservedAt = null;
+    const generation = ++this.generation;
+    this.nextPoll = 0;
+    const check = () => {
+      if (!this.running || generation !== this.generation || this.polling || Date.now() < this.nextPoll) return;
+      this.nextPoll = Date.now() + POLL_MS;
+      this.polling = true;
+      void this.poll(generation).finally(() => { this.polling = false; });
+    };
+    check();
+    void subscribeHeartbeat(check).then(off => {
+      if (!this.running || generation !== this.generation) off();
+      else this.cleanup = off;
+    });
   }
 
   stop(): void {
-    if (this.timer != null) window.clearInterval(this.timer);
-    this.timer = null;
+    this.running = false;
+    this.generation += 1;
+    this.cleanup?.();
+    this.cleanup = null;
   }
 
-  private async poll(): Promise<void> {
+  private async poll(generation: number): Promise<void> {
     // 失败按 0 秒处理 = 用户在场（宁误"在场"向，不打扰）
     const idleSec = await invoke<number>("get_idle_seconds").catch(() => 0);
+    if (!this.running || generation !== this.generation) return;
+    const now = Date.now();
+    // 挂起/长时间没有观测后不能把睡眠时间也算作持续活动。
+    if (this.lastObservedAt != null && now - this.lastObservedAt >= AWAY_AFTER_SEC * 1000) {
+      this.activeSince = now;
+      if (idleSec < AWAY_AFTER_SEC) this.returnedAt = now;
+    }
+    this.lastObservedAt = now;
     const next: Presence = idleSec >= AWAY_AFTER_SEC ? "away" : "active";
     if (next === this.presence) return;
 
@@ -57,10 +99,12 @@ export class PresenceService {
     if (next === "away") {
       petState.setPresence("sleep"); // presence 槽（sticky），恢复由本服务清
     } else {
+      this.activeSince = now;
+      this.returnedAt = now;
       petState.clearPresence();
     }
     for (const fn of this.listeners) fn(next);
-    void emit(STATE_EVENTS.presenceChanged, { presence: next });
+    void emit(STATE_EVENTS.presenceChanged, { presence: next }).catch(() => undefined);
   }
 }
 

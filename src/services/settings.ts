@@ -4,15 +4,23 @@
  * 安全规范（AGENTS.md）：API Key 只存这里；禁止硬编码、入仓库、入日志。
  * 结构设计：apiKeys/models 按 providerId 分桶——切换提供商不丢各自的配置。
  * v0.7.0 的计时器配置（间隔/番茄钟时长）也进这个文件。
+ *
+ * 写盘纪律（v0.8.2 + v0.9.0 合并）：
+ * - saveSettings 串行执行并**显式等待磁盘落盘**（store.save()），失败如实抛出，
+ *   UI 给可重试反馈——「已派发」不等于「已确认」；
+ * - 字符级输入（Key/数字框）走 350ms 防抖（settings-debounce，P0-02），
+ *   避免每次按键都写盘 + 广播；离散控件直存；
+ * - loadSettings 会先等在途保存完成：输入后立刻切窗也能读到最新快照。
  */
 
 import { load } from "@tauri-apps/plugin-store";
 import { getPreset } from "@/agent/providers/presets";
 import { emit } from "@tauri-apps/api/event";
 import { STATE_EVENTS } from "@/shared/events";
+import { DEFAULT_ADDRESSING, normalizeAddressing, type AddressingPreferences } from "@/shared/addressing";
 import { createSettingsSaveQueue } from "./settings-debounce";
 
-export interface AppSettings {
+export interface AppSettings extends AddressingPreferences {
   /** 当前选中的提供商（presets.id 或 "mock"） */
   providerId: string;
   /** 每提供商独立保存 Key（格式随机，脱敏展示在 UI） */
@@ -65,6 +73,7 @@ export function defaultSettings(): AppSettings {
     providerId: "mock",
     apiKeys: {},
     models: {},
+    ...DEFAULT_ADDRESSING,
     standupIntervalMin: 60,
     pomodoroFocusMin: 25,
     pomodoroBreakMin: 5,
@@ -97,6 +106,7 @@ export function normalize(raw: unknown): AppSettings {
     providerId: typeof r.providerId === "string" && getPreset(r.providerId) ? r.providerId : d.providerId,
     apiKeys: typeof r.apiKeys === "object" && r.apiKeys !== null ? r.apiKeys : d.apiKeys,
     models: typeof r.models === "object" && r.models !== null ? r.models : d.models,
+    ...normalizeAddressing(r),
     standupIntervalMin: clampInt(r.standupIntervalMin, 1, 120, d.standupIntervalMin),
     pomodoroFocusMin: clampInt(r.pomodoroFocusMin, 5, 90, d.pomodoroFocusMin),
     pomodoroBreakMin: clampInt(r.pomodoroBreakMin, 1, 30, d.pomodoroBreakMin),
@@ -115,49 +125,49 @@ let storePromise: Promise<Awaited<ReturnType<typeof load>>> | null = null;
 
 /** store 实例单例（plugin-store 的 load 幂等，但收敛到一处便于替换实现） */
 function getStore() {
-  storePromise ??= load(STORE_FILE, { autoSave: true });
+  storePromise ??= load(STORE_FILE, { autoSave: true }).catch(error => {
+    storePromise = null; // 暂时不可读不应把所有后续服务启动锁死在同一个 rejected Promise
+    throw error;
+  });
   return storePromise;
 }
 
 export async function loadSettings(): Promise<AppSettings> {
+  // 输入后立刻切回聊天时也读取最新快照；保存链路不反向调用 loadSettings，避免自等待。
+  await pendingSave.catch(() => undefined);
   const store = await getStore();
   return normalize(await store.get<AppSettings>(KEY));
 }
 
-/**
- * 落盘并广播。v0.9.0 P0-02：changedKeys 显式携带「本次真正变更的键」——
- * 事件载荷的 keys 是订阅方判断相关性的唯一依据（StandupService 只在
- * standupIntervalMin 变化时重置计时）；不传时退化为全量 key（与旧行为一致）。
- */
-export async function saveSettings(
-  settings: AppSettings,
-  changedKeys?: ReadonlyArray<keyof AppSettings & string>,
-): Promise<void> {
-  const store = await getStore();
-  await store.set(KEY, settings); // autoSave: true → 自动落盘
-  // 广播给常驻服务（TimerService 等）重载配置——learning/08：改站立间隔即重置计时
-  const keys = changedKeys ?? (Object.keys(settings) as string[]);
-  await emit(STATE_EVENTS.settingsChanged, { keys });
+let pendingSave: Promise<void> = Promise.resolve();
+
+/** 串行保存快照并等待磁盘落盘；不能用插件防抖自动保存代替“保存成功”。 */
+export function saveSettings(settings: AppSettings): Promise<void> {
+  const snapshot = normalize(structuredClone(settings));
+  const save = pendingSave.catch(() => undefined).then(async () => {
+    const store = await getStore();
+    await store.set(KEY, snapshot);
+    await store.save();
+    // 广播失败不应让已经写入磁盘的设置被误报为保存失败。
+    await emit(STATE_EVENTS.settingsChanged, { keys: Object.keys(snapshot) }).catch(() => undefined);
+  });
+  pendingSave = save;
+  return save;
 }
 
 // ── 防抖适配层（P0-02）：机制在 ./settings-debounce（纯函数，有单测） ──
 
-const saveQueue = createSettingsSaveQueue((settings, changedKeys) =>
-  saveSettings(settings, changedKeys),
-);
+const saveQueue = createSettingsSaveQueue(settings => saveSettings(settings));
 
 /**
- * 字符级输入（API Key / 数字输入框）的落盘入口：350ms 防抖，最后一次为准。
+ * 字符级输入（API Key / 模型名 / 数字输入框）的落盘入口：350ms 防抖，最后一次为准。
  * 离散控件（下拉/开关）仍走 saveSettings 直存——单次事件无需防抖。
  */
-export function queueSettingsSave(
-  settings: AppSettings,
-  changedKeys: ReadonlyArray<keyof AppSettings & string>,
-): void {
-  saveQueue.queue(settings, changedKeys);
+export function queueSettingsSave(settings: AppSettings): void {
+  saveQueue.queue(settings);
 }
 
-/** 输入框 blur / 设置面板卸载前调用：把防抖中的最后一次修改立刻落盘 */
+/** 立即落盘防抖队列（输入框 blur / 设置面板卸载时调用，最后一次输入不丢） */
 export function flushSettingsSave(): void {
   saveQueue.flush();
 }

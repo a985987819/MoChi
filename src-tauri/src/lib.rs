@@ -8,7 +8,7 @@
 //!
 //! 这样做的原因：
 //! 1. **权限最小化**：前端 capability 只给 `core:default`，不授予窗口控制权限；
-//! 2. **逻辑单一来源**：托盘、双击宠物、快捷键（未来）都汇聚到同一组函数；
+//! 2. **逻辑单一来源**：托盘、双击宠物、快捷键都汇聚到同一组函数；
 //! 3. **学习友好**：前端工程师只需要理解「emit 事件 → Rust 处理」这一条通信协议。
 //!
 //! # 生命周期模型
@@ -16,13 +16,21 @@
 //! 应用进程常驻托盘。三个窗口的「关闭按钮/系统关闭」一律被拦截为**隐藏**
 //! （见 `on_window_event`），真正退出只走托盘菜单「退出 Mochi」。
 //! 宠物窗（pet）是事实上的主窗口：它常驻可见，承载计时器（v0.7.0）等长期服务。
+//!
+//! # v0.9.0 合并说明
+//!
+//! v0.8.2 的可靠交付架构（原生提醒队列 + 每秒原生节拍 + 平台隔离的空闲查询）
+//! 是本文件的骨架；v0.9.0 的体验功能（window-state 位置持久化、全局快捷键、
+//! 开机自启、托盘状态化、宠物大小三档）挂载其上。原独立气泡窗已删除——
+//! Agent 回复气泡由宠物窗内的 PetBubble 组件直接监听 `ui://show-bubble` 实现，
+//! Rust 不再持有第四窗口与 `bubble://text` 转发链。
 
-use std::collections::BTreeMap;
+use std::{collections::{BTreeMap, VecDeque}, sync::Mutex, time::Duration};
 
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Listener, Manager, WindowEvent,
+    Emitter, Listener, Manager, WindowEvent,
 };
 use tauri_plugin_window_state::{StateFlags, WindowExt};
 
@@ -33,14 +41,12 @@ const EVT_HIDE_CHAT: &str = "ui://hide-chat";
 const EVT_TOGGLE_PET: &str = "ui://toggle-pet";
 const EVT_QUIT_APP: &str = "ui://quit-app";
 const EVT_SHOW_ALERT: &str = "ui://show-alert";
-const EVT_STANDUP_ACK: &str = "ui://standup-ack";
-/// 仅隐藏提醒弹窗（P1-11「稍后 5 分钟」：不触发 ack 的 stretch/重置副作用）
 const EVT_HIDE_ALERT: &str = "ui://hide-alert";
-/// 气泡（v0.9.0 P1-01）：前端 emit 带文本载荷，Rust 定位 + 原样转发给 bubble 窗
-const EVT_SHOW_BUBBLE: &str = "ui://show-bubble";
-const EVT_HIDE_BUBBLE: &str = "ui://hide-bubble";
-/// Rust → 窗口的转发事件名（与 events.ts 的 BRIDGE_EVENTS 对应）
-const EVT_BUBBLE_TEXT: &str = "bubble://text";
+const EVT_STANDUP_ACK: &str = "ui://standup-ack";
+const EVT_DRAG_PET: &str = "ui://drag-pet";
+const EVT_ALERT_CHANGED: &str = "state://app-alert-changed";
+const EVT_ALERT_ACKED: &str = "state://app-alert-acked";
+const EVT_NATIVE_TICK: &str = "state://native-tick";
 /// Rust → chat 窗：open-chat 的 {tab} 载荷转发（P1-02 右键菜单/托盘直达 Tab）
 const EVT_CHAT_OPEN: &str = "chat://open";
 /// 状态层事件（v0.9.0 P1-03，与 events.ts 的 STATE_EVENTS 对应）——
@@ -49,6 +55,7 @@ const EVT_CHAT_OPEN: &str = "chat://open";
 const EVT_POMODORO_CHANGED: &str = "state://pomodoro-changed";
 const EVT_POMODORO_START: &str = "state://pomodoro-start";
 const EVT_POMODORO_STOP: &str = "state://pomodoro-stop";
+/// 暂停站立提醒（P1-03 托盘菜单「暂停 1 小时」/ P1-11 弹窗「稍后」共用）
 const EVT_STANDUP_SNOOZE: &str = "state://standup-snooze";
 /// 全局快捷键（v0.9.0 P1-13）：前端开关 → Rust 注册；注册结果回传
 const EVT_SHORTCUT_CHANGED: &str = "state://shortcut-changed";
@@ -63,11 +70,57 @@ const EVT_PET_SCALE_CHANGED: &str = "state://pet-scale-changed";
 const PET_BASE_WIDTH: f64 = 220.0;
 const PET_BASE_HEIGHT: f64 = 260.0;
 
+/// 原生队列只管理“显示哪条提醒”，计时与提醒持久化仍由 TS 应用服务负责。
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+#[serde(rename_all = "lowercase")]
+enum AlertKind { Standup, Reminder, Pomodoro }
+
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
+struct AppAlert {
+    id: String,
+    kind: AlertKind,
+    title: String,
+    body: String,
+}
+
+/// 互斥锁串行化多个窗口同时到达的 show/ack，id 去重使失败重试不产生重复弹窗。
+/// 线程约束：以下命令保持同步（Tauri 默认在主线程执行）；heartbeat 也先
+/// run_on_main_thread 再取得此锁。不要把命令直接改为 async 后持锁调用窗口 API，
+/// 否则可能形成“后台持锁等 UI、UI 等锁”的环路。见 Tauri calling-rust / Async Commands。
+#[derive(Default)]
+struct AlertQueue {
+    items: VecDeque<AppAlert>,
+    needs_present: bool,
+}
+
+impl AlertQueue {
+    fn enqueue(&mut self, alert: AppAlert) -> bool {
+        if self.items.iter().any(|item| item.id == alert.id) { return false; }
+        self.items.push_back(alert);
+        true
+    }
+
+    fn acknowledge(&mut self, id: &str) -> Option<AppAlert> {
+        if self.items.front().is_some_and(|item| item.id == id) { self.items.pop_front() }
+        else { None }
+    }
+
+    fn dismiss(&mut self, id: &str) -> bool {
+        let was_current = self.items.front().is_some_and(|item| item.id == id);
+        self.items.retain(|item| item.id != id);
+        was_current
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+struct AlertAck { id: String, kind: AlertKind }
+
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // single-instance 必须最先注册：第二次启动进程时，回调在「已有实例」里执行
     let builder = tauri::Builder::default()
+        .manage(Mutex::new(AlertQueue::default()))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 用户再次双击图标：不启动新进程，而是把已有宠物的窗口唤回前台
             if let Some(pet) = app.get_webview_window("pet") {
@@ -102,18 +155,24 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .invoke_handler(tauri::generate_handler![list_user_pet_assets, get_idle_seconds]);
-
-    // macOS：桌宠类应用不应出现在 Dock 上（Accessory = 无 Dock 图标、无主窗口菜单）。
-    // Windows 下此 API 不存在，用 cfg 条件编译隔离平台差异。
-    #[cfg(target_os = "macos")]
-    let builder = builder.set_activation_policy(tauri::ActivationPolicy::Accessory);
+        .invoke_handler(tauri::generate_handler![
+            list_user_pet_assets, get_idle_seconds,
+            show_app_alert, get_app_alert, ack_app_alert, dismiss_app_alert
+        ]);
 
     builder
         .setup(|app| {
+            // Tauri 2 的 activation policy 属于 App，而不是 Builder；仅 macOS 提供。
+            // 在 setup 拿到 App 后设置 Accessory，才能跨平台编译并隐藏 Dock 图标
+            // （v0.8.1 修复：旧 Builder 链式写法在 macOS 编译失败）。
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             setup_tray(app)?;
             setup_ui_event_listeners(app.handle().clone());
+            // v0.9.0 P0-04：先恢复持久化位置 + 可见性校验，失败回退右下角默认位
             ensure_pet_position(app);
+            // v0.8.2：原生节拍——隐藏窗口时 WebView 的 setInterval 会被节流
+            start_native_tick(app.handle().clone());
             Ok(())
         })
         // 拦截所有窗口的关闭请求 → 隐藏。Tauri 中窗口关闭默认会销毁窗口对象，
@@ -121,7 +180,17 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
+                if window.label() == "alert" {
+                    // Alt+F4 也确认当前提醒；单纯 hide 会留下一个永不再显示的队头。
+                    let app = window.app_handle().clone();
+                    if let Ok(Some(current)) = get_app_alert(app.clone()) {
+                        let _ = ack_app_alert(app, current.id);
+                    } else {
+                        let _ = window.hide();
+                    }
+                } else {
+                    let _ = window.hide();
+                }
             }
         })
         .run(tauri::generate_context!())
@@ -180,21 +249,17 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             "open-settings" => {
                 show_chat(app);
                 if let Some(chat) = app.get_webview_window("chat") {
-                    use tauri::Emitter;
                     let _ = chat.emit(EVT_CHAT_OPEN, "{\"tab\":\"settings\"}");
                 }
             }
             // 托盘 → 宠物窗 Service：沿用 chat 窗遥控番茄钟的 state:// 先例
             "start-pomodoro" => {
-                use tauri::Emitter;
                 let _ = app.emit(EVT_POMODORO_START, serde_json::json!({}));
             }
             "stop-pomodoro" => {
-                use tauri::Emitter;
                 let _ = app.emit(EVT_POMODORO_STOP, serde_json::json!({}));
             }
             "snooze-standup" => {
-                use tauri::Emitter;
                 let _ = app.emit(EVT_STANDUP_SNOOZE, serde_json::json!({ "minutes": 60 }));
                 set_tray_tooltip(app, "Mochi 麻薯"); // 暂停 = 退出「该站起来了」态
             }
@@ -225,7 +290,6 @@ fn set_tray_tooltip(app: &tauri::AppHandle, text: &str) {
 /// 键位被占用（其他软件先注册了）：静默降级——应用功能不受影响，仅把
 /// registered=false 回传设置页提示（施工单：失败不弹错误框）。
 fn register_chat_shortcut(app: &tauri::AppHandle, enabled: bool) {
-    use tauri::Emitter;
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
     let gs = app.global_shortcut();
@@ -256,7 +320,6 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
     app.listen_any(EVT_OPEN_CHAT, move |event| {
         show_chat(&handle);
         if let Some(chat) = handle.get_webview_window("chat") {
-            use tauri::Emitter;
             let _ = chat.emit(EVT_CHAT_OPEN, event.payload());
         }
     });
@@ -270,6 +333,14 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
 
     let handle = app.clone();
     app.listen_any(EVT_TOGGLE_PET, move |_| toggle_pet(&handle));
+
+    // 只有前端手势已越过移动阈值才进原生拖动，单击/双击不再被 mousedown 抢走。
+    let handle = app.clone();
+    app.listen_any(EVT_DRAG_PET, move |_| {
+        if let Some(pet) = handle.get_webview_window("pet") {
+            let _ = pet.start_dragging();
+        }
+    });
 
     // 右键菜单「退出」（托盘菜单直接调 app.exit，不走事件）
     let handle = app.clone();
@@ -315,27 +386,39 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
         }
     });
 
-    // 站立提醒弹窗（v0.7.0）：显示在宠物正上方（点击弹窗 = standup-ack）
-    // 同时把托盘 tooltip 切到「该站起来了」（P1-03：托盘承载状态）
+    // 旧入口兼容：v0.7.0 的无 id 弹窗显示事件。托盘 tooltip 切到「该站起来了」
+    // （P1-03）；正文提醒的真实通道是 show_app_alert 命令 + 队列。
     let handle = app.clone();
     app.listen_any(EVT_SHOW_ALERT, move |_| {
         set_tray_tooltip(&handle, "Mochi · 该站起来了");
         show_alert(&handle);
     });
 
+    // 服务端超时/重置也可收起弹窗，不能依赖用户一定会点击弹窗。
+    // 收尾不等于确认：不触发 standup-ack 的副作用（P1-11「稍后」语义）。
     let handle = app.clone();
-    app.listen_any(EVT_STANDUP_ACK, move |_| {
-        if let Some(alert) = handle.get_webview_window("alert") {
-            let _ = alert.hide();
-        }
+    app.listen_any(EVT_HIDE_ALERT, move |_| {
+        hide_legacy_alert(&handle);
         set_tray_tooltip(&handle, "Mochi 麻薯");
     });
 
-    // 「稍后」路径（P1-11）：只藏弹窗；计时器侧由 state://standup-snooze 驱动
     let handle = app.clone();
-    app.listen_any(EVT_HIDE_ALERT, move |_| {
-        if let Some(alert) = handle.get_webview_window("alert") {
-            let _ = alert.hide();
+    app.listen_any(EVT_STANDUP_ACK, move |_| {
+        hide_legacy_alert(&handle);
+        set_tray_tooltip(&handle, "Mochi 麻薯");
+    });
+
+    // 原生提醒队列变化（v0.8.2）→ 托盘 tooltip：站立提醒弹出即提示，
+    // 队列清空回默认。载荷为 Option<AppAlert>（null = 队列空）。
+    let handle = app.clone();
+    app.listen_any(EVT_ALERT_CHANGED, move |event| {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+            return;
+        };
+        let kind = v.get("kind").and_then(|k| k.as_str());
+        match kind {
+            Some("standup") => set_tray_tooltip(&handle, "Mochi · 该站起来了"),
+            _ => set_tray_tooltip(&handle, "Mochi 麻薯"),
         }
     });
 
@@ -359,54 +442,136 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
         };
         set_tray_tooltip(&handle, &text);
     });
-
-    // 宠物气泡（v0.9.0 P1-01）：Rust 是纯路由——把 ui://show-bubble 的文本载荷
-    // 原样转给 bubble 窗（bubble://text），自己不解析、不缓存业务文本
-    let handle = app.clone();
-    app.listen_any(EVT_SHOW_BUBBLE, move |event| show_bubble(&handle, &event));
-
-    let handle = app.clone();
-    app.listen_any(EVT_HIDE_BUBBLE, move |_| {
-        if let Some(bubble) = handle.get_webview_window("bubble") {
-            let _ = bubble.hide();
-        }
-    });
 }
 
 /// 把提醒弹窗显示到宠物正上方居中处（learning/08 §4.2）。
-/// 几何逻辑复用 position_above_pet；点击 ack 后由 EVT_STANDUP_ACK 监听隐藏。
+/// 几何都取物理像素：宠物位置/尺寸 + 弹窗 outer_size。
 fn show_alert(app: &tauri::AppHandle) {
-    let (Some(alert), Some(pet)) = (app.get_webview_window("alert"), app.get_webview_window("pet")) else {
-        return;
-    };
-    position_above_pet(&pet, &alert, 12);
-    let _ = alert.show();
+    let _ = position_and_show_alert(app);
 }
 
-/// 宠物气泡显示（v0.9.0 P1-01）：定位到宠物正上方 → 转发文本 → show。
-/// 载荷原样转发（前端 emit 的 JSON 字符串）——本函数不解析文本内容，
-/// 因此 Rust 侧永远不持有业务文本（气泡窗隐藏后状态自然消失）。
-fn show_bubble(app: &tauri::AppHandle, event: &tauri::Event) {
-    let (Some(bubble), Some(pet)) = (app.get_webview_window("bubble"), app.get_webview_window("pet")) else {
-        return;
-    };
-    position_above_pet(&pet, &bubble, 8);
-    use tauri::Emitter;
-    let _ = bubble.emit(EVT_BUBBLE_TEXT, event.payload());
-    let _ = bubble.show();
-}
-
-/// 把 window 定位到宠物正上方居中处（gap = 与宠物顶边的间隙，物理像素）。
-/// alert（提醒弹窗）与 bubble（对话气泡）共用同一几何规则——都是"从宠物头上长出来"。
-/// 几何全取物理像素：宠物位置/尺寸 + 目标窗 outer_size。
-fn position_above_pet(pet: &tauri::WebviewWindow, win: &tauri::WebviewWindow, gap: i32) {
-    if let (Ok(pet_pos), Ok(pet_size), Ok(win_size)) =
-        (pet.outer_position(), pet.outer_size(), win.outer_size())
-    {
-        let x = pet_pos.x + (pet_size.width as i32 - win_size.width as i32) / 2;
-        let y = pet_pos.y - win_size.height as i32 - gap;
-        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+/// 兼容旧无 id 事件，但它们不能隐藏新队列里属于另一个服务的提醒。
+fn hide_legacy_alert(app: &tauri::AppHandle) {
+    if matches!(get_app_alert(app.clone()), Ok(None)) {
+        if let Some(alert) = app.get_webview_window("alert") { let _ = alert.hide(); }
     }
+}
+
+/// 工作区含显示器原点与任务栏边界；不能只按主屏尺寸计算，否则负坐标屏/贴边会丢弹窗。
+fn position_and_show_alert(app: &tauri::AppHandle) -> Result<(), String> {
+    let alert = app.get_webview_window("alert").ok_or("提醒窗口不存在")?;
+    let pet = app.get_webview_window("pet").ok_or("宠物窗口不存在")?;
+    let monitor = match pet.current_monitor().map_err(|e| e.to_string())? {
+        Some(monitor) => monitor,
+        None => pet.primary_monitor().map_err(|e| e.to_string())?.ok_or("显示器不可用")?,
+    };
+    let area = monitor.work_area();
+    let pet_pos = pet.outer_position().map_err(|e| e.to_string())?;
+    let pet_size = pet.outer_size().map_err(|e| e.to_string())?;
+    let alert_size = alert.outer_size().map_err(|e| e.to_string())?;
+    let (x, y) = alert_position(
+        (pet_pos.x, pet_pos.y), (pet_size.width, pet_size.height),
+        (alert_size.width, alert_size.height),
+        (area.position.x, area.position.y, area.size.width, area.size.height),
+    );
+    alert.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+    // 不 set_focus：到点提示不能抢走用户正在输入的焦点。
+    alert.show().map_err(|e| e.to_string())
+}
+
+/// 纯几何函数让跨屏、顶边和任务栏边界可独立测试，计算统一使用物理像素。
+fn alert_position(pet: (i32, i32), pet_size: (u32, u32), size: (u32, u32), area: (i32, i32, u32, u32)) -> (i32, i32) {
+    let left = area.0 as i64;
+    let top = area.1 as i64;
+    let right = left + area.2 as i64;
+    let bottom = top + area.3 as i64;
+    let x = pet.0 as i64 + (pet_size.0 as i64 - size.0 as i64) / 2;
+    let above = pet.1 as i64 - size.1 as i64 - 12;
+    let y = if above < top { pet.1 as i64 + pet_size.1 as i64 + 12 } else { above };
+    (x.clamp(left, (right - size.0 as i64).max(left)) as i32,
+     y.clamp(top, (bottom - size.1 as i64).max(top)) as i32)
+}
+
+/// 先发布内容再显示窗口。失败保留 needs_present，由下一个原生 tick 重试。
+fn present_alert(app: &tauri::AppHandle, queue: &mut AlertQueue) -> Result<(), String> {
+    queue.needs_present = true;
+    app.emit_to("alert", EVT_ALERT_CHANGED, queue.items.front().cloned()).map_err(|e| e.to_string())?;
+    if queue.items.is_empty() {
+        app.get_webview_window("alert").ok_or("提醒窗口不存在")?.hide().map_err(|e| e.to_string())?;
+    } else {
+        position_and_show_alert(app)?;
+    }
+    queue.needs_present = false;
+    Ok(())
+}
+
+/// 接受队列才返回成功；首条显示失败则回滚，让 TS 调度器保留可重试记录。
+#[tauri::command]
+fn show_app_alert(app: tauri::AppHandle, alert: AppAlert) -> Result<(), String> {
+    if alert.id.trim().is_empty() || alert.title.trim().is_empty() || alert.body.trim().is_empty() {
+        return Err("提醒内容不能为空".into());
+    }
+    let state = app.state::<Mutex<AlertQueue>>();
+    let mut queue = state.lock().map_err(|_| "提醒队列不可用")?;
+    let was_empty = queue.items.is_empty();
+    if !queue.enqueue(alert) { return Ok(()); }
+    if was_empty {
+        if let Err(error) = present_alert(&app, &mut queue) {
+            queue.items.pop_front();
+            let _ = present_alert(&app, &mut queue);
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+/// Alert WebView 可能尚未监听 ready；提供快照，避免丢失首次显示内容。
+#[tauri::command]
+fn get_app_alert(app: tauri::AppHandle) -> Result<Option<AppAlert>, String> {
+    let state = app.state::<Mutex<AlertQueue>>();
+    let queue = state.lock().map_err(|_| "提醒队列不可用")?;
+    Ok(queue.items.front().cloned())
+}
+
+/// 只确认当前 id。旧 DOM 的连续点击不能把刚排上来的下一条也关闭。
+#[tauri::command]
+fn ack_app_alert(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AlertQueue>>();
+    let mut queue = state.lock().map_err(|_| "提醒队列不可用")?;
+    let Some(current) = queue.items.front() else { return Ok(()); };
+    if current.id != id { return Ok(()); }
+    let ack = AlertAck { id: current.id.clone(), kind: current.kind.clone() };
+    app.emit(EVT_ALERT_ACKED, ack).map_err(|e| e.to_string())?;
+    queue.acknowledge(&id);
+    // 当前确认已完成；下一条的临时显示故障由 heartbeat 重试，不撤销本次确认。
+    let _ = present_alert(&app, &mut queue);
+    Ok(())
+}
+
+/// 自动收尾/取消仅移除所属 id，不发送“用户确认”，避免误重置站立计时。
+#[tauri::command]
+fn dismiss_app_alert(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AlertQueue>>();
+    let mut queue = state.lock().map_err(|_| "提醒队列不可用")?;
+    let was_current = queue.dismiss(&id);
+    if was_current { present_alert(&app, &mut queue)?; }
+    Ok(())
+}
+
+/// 原生脉冲不依赖后台 WebView 的 setInterval；业务仍按 epoch 截止时间幂等判断。
+fn start_native_tick(app: tauri::AppHandle) {
+    let _ = std::thread::Builder::new().name("mochi-clock".into()).spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(1));
+        let handle = app.clone();
+        // 窗口副作用统一调回 UI 线程，避免后台持锁等待窗口线程时与同步命令形成死锁。
+        let _ = app.run_on_main_thread(move || {
+            let _ = handle.emit_to("pet", EVT_NATIVE_TICK, ());
+            let state = handle.state::<Mutex<AlertQueue>>();
+            if let Ok(mut queue) = state.lock() {
+                if queue.needs_present { let _ = present_alert(&handle, &mut queue); }
+            };
+        });
+    });
 }
 
 /// 从素材文件名提取状态名（与前端 `pet-assets.ts#parseAssetName` 同一套约定，见 docs/pet-assets.md §2）。
@@ -460,13 +625,43 @@ fn list_user_pet_assets(app: tauri::AppHandle) -> BTreeMap<String, Vec<String>> 
 
 /// 距上次用户输入的秒数（learning/08 §3.1）。
 /// 隐私红线：这是聚合数字，不含任何输入内容；失败返回 0（按"用户在场"处理，宁误安全向）。
-/// user-idle 内部：Windows = GetLastInputInfo，macOS = CGEventSource 查询（均无需特殊权限）。
+/// Windows 走 user-idle 的 GetLastInputInfo；macOS 直连 CoreGraphics 聚合查询。
 #[tauri::command]
 fn get_idle_seconds() -> u64 {
+    platform_idle_seconds()
+}
+
+#[cfg(target_os = "windows")]
+fn platform_idle_seconds() -> u64 {
     user_idle::UserIdle::get_time()
         .map(|idle| idle.as_seconds())
         .unwrap_or(0)
 }
+
+// Rust 2024 要求 FFI 声明块显式 unsafe；此符号由 macOS 自带的 CoreGraphics 提供。
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGEventSourceSecondsSinceLastEventType(state_id: i32, event_type: u32) -> f64;
+}
+
+#[cfg(target_os = "macos")]
+fn platform_idle_seconds() -> u64 {
+    // SAFETY: Apple API 的两个参数均为按值传入的枚举/整数，无指针或资源生命周期。
+    // 0 = kCGEventSourceStateCombinedSessionState；u32::MAX = kCGAnyInputEventType。
+    // 仅查询距上次任意输入的聚合秒数，不建立 event tap、不监听或读取输入内容。
+    let seconds = unsafe { CGEventSourceSecondsSinceLastEventType(0, u32::MAX) };
+    normalize_idle_seconds(seconds)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn normalize_idle_seconds(seconds: f64) -> u64 {
+    if seconds.is_finite() && seconds >= 0.0 { seconds as u64 } else { 0 }
+}
+
+// 本项目只支持 Windows/macOS；其他目标保守按“在场”处理，不错误推迟提醒。
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn platform_idle_seconds() -> u64 { 0 }
 
 /// 显示并聚焦聊天窗。show() 不夺焦，聊天窗要接住用户输入必须显式 set_focus。
 fn show_chat(app: &tauri::AppHandle) {
@@ -559,62 +754,86 @@ fn apply_pet_scale(app: &tauri::AppHandle, scale: f64) {
 ///
 /// 坐标体系注意：monitor.size() / outer_size() 都是**物理像素**，
 /// 而 margin 我们按逻辑像素设计，所以要乘 scale_factor 再取整。
-/// v0.9.0 P0-04：Windows 优先用工作区（扣除任务栏后的可见区域，SPI_GETWORKAREA）
-/// 计算——旧版用整屏高度，宠物会悬浮在任务栏之上；拿不到工作区时退回整屏算法
-/// （macOS 保持整屏算法：菜单栏/Dock 需 NSScreen.visibleFrame，留待后续版本）。
+/// v0.9.0 合并说明：改用 Tauri 2.12 `Monitor::work_area()`（扣除任务栏/Dock/
+/// 菜单栏后的可见区域）——取代旧版 Windows 专属的 SPI_GETWORKAREA 手写查询
+/// （省掉 windows crate 依赖），且 macOS 上它基于 NSScreen.visibleFrame 实现，
+/// 旧版"宠物压住 Dock"的已知限制随之解决。
 fn position_pet_bottom_right(app: &tauri::AppHandle) {
     let Some(pet) = app.get_webview_window("pet") else {
+        return;
+    };
+    let Ok(Some(monitor)) = pet.primary_monitor() else {
         return;
     };
     let Ok(win_size) = pet.outer_size() else {
         return;
     };
 
-    #[cfg(target_os = "windows")]
-    if let Some(area) = primary_work_area() {
-        let margin = (24.0 * pet.primary_monitor().ok().flatten().map_or(1.0, |m| m.scale_factor()).round()) as i32;
-        let x = area.0 + area.2 - win_size.width as i32 - margin;
-        let y = area.1 + area.3 - win_size.height as i32 - margin;
-        let _ = pet.set_position(tauri::PhysicalPosition::new(x, y));
-        return;
-    }
-
-    // 工作区不可用（或 macOS）：退回整屏算法
-    let Ok(Some(monitor)) = pet.primary_monitor() else {
-        return;
-    };
     let scale = monitor.scale_factor();
     let margin = (24.0 * scale).round() as i32;
-    let x = monitor.size().width as i32 - win_size.width as i32 - margin;
-    let y = monitor.size().height as i32 - win_size.height as i32 - margin;
+    let area = monitor.work_area();
+    let x = area.position.x + (area.size.width as i32 - win_size.width as i32 - margin).max(0);
+    let y = area.position.y + (area.size.height as i32 - win_size.height as i32 - margin).max(0);
+
     let _ = pet.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
-/// 主屏工作区（x, y, w, h，物理像素）——Windows 用 SPI_GETWORKAREA 查询。
-/// 返回 None 表示查询失败（调用方回退整屏算法）。
-/// DPI 注意：Tauri 清单声明 PerMonitorV2，进程对主屏坐标系是物理像素视角，
-/// 与 monitor.size() 同一体系，无需再乘 scale。
-#[cfg(target_os = "windows")]
-fn primary_work_area() -> Option<(i32, i32, i32, i32)> {
-    use windows::Win32::Foundation::RECT;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-    };
+#[cfg(test)]
+mod alert_tests {
+    use super::*;
 
-    let mut rect = RECT::default();
-    let ok = unsafe {
-        // SPI_GETWORKAREA：主屏工作区（扣除任务栏）；pvParam 传 RECT 指针；
-        // fWinIni 传 0 = 不广播 WM_SETTINGCHANGE（只读查询）
-        SystemParametersInfoW(
-            SPI_GETWORKAREA,
-            0,
-            Some((&mut rect as *mut RECT).cast()),
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-        )
-    };
-    if ok.is_ok() && rect.right > rect.left && rect.bottom > rect.top {
-        Some((rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top))
-    } else {
-        None
+    fn item(id: &str) -> AppAlert {
+        AppAlert { id: id.into(), kind: AlertKind::Reminder, title: "到点提醒".into(), body: "喝水".into() }
+    }
+
+    #[test]
+    fn idle_query_rejects_invalid_values_and_uses_whole_seconds() {
+        assert_eq!(normalize_idle_seconds(f64::NAN), 0);
+        assert_eq!(normalize_idle_seconds(f64::INFINITY), 0);
+        assert_eq!(normalize_idle_seconds(-1.0), 0);
+        assert_eq!(normalize_idle_seconds(300.9), 300);
+    }
+
+    #[test]
+    fn queue_deduplicates_delivery_retries() {
+        let mut queue = AlertQueue::default();
+        assert!(queue.enqueue(item("one")));
+        assert!(!queue.enqueue(item("one")));
+        assert_eq!(queue.items.len(), 1);
+    }
+
+    #[test]
+    fn stale_ack_cannot_remove_current_or_next() {
+        let mut queue = AlertQueue::default();
+        queue.enqueue(item("one"));
+        queue.enqueue(item("two"));
+        assert!(queue.acknowledge("wrong").is_none());
+        assert_eq!(queue.items.len(), 2);
+        assert_eq!(queue.acknowledge("one").unwrap().id, "one");
+        assert!(queue.acknowledge("one").is_none());
+        assert_eq!(queue.items.front().unwrap().id, "two");
+    }
+
+    #[test]
+    fn dismiss_pending_does_not_touch_current() {
+        let mut queue = AlertQueue::default();
+        queue.enqueue(item("one"));
+        queue.enqueue(item("two"));
+        assert!(!queue.dismiss("two"));
+        assert_eq!(queue.items.front().unwrap().id, "one");
+        assert!(queue.dismiss("one"));
+        assert!(queue.items.is_empty());
+    }
+
+    #[test]
+    fn alert_is_clamped_inside_negative_monitor_work_area() {
+        assert_eq!(alert_position((-1920, -100), (220, 260), (320, 200), (-1920, 0, 1920, 1040)), (-1920, 172));
+        assert_eq!(alert_position((-50, 1030), (220, 260), (320, 200), (-1920, 0, 1920, 1040)), (-320, 818));
+    }
+
+    #[test]
+    fn top_edge_uses_below_and_tiny_work_area_never_panics() {
+        assert_eq!(alert_position((100, 0), (220, 260), (320, 200), (0, 0, 1920, 1040)), (50, 272));
+        assert_eq!(alert_position((100, 0), (220, 260), (320, 200), (0, 0, 200, 100)), (0, 0));
     }
 }

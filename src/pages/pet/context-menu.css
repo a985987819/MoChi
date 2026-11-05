@@ -6,6 +6,9 @@
   display: flex;
   flex-direction: column;
   width: 150px;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  overflow-y: auto; /* 展开演示或系统字体放大时仍能滚动到“退出” */
   padding: 4px;
   box-sizing: border-box;
   background: #fffdfa;

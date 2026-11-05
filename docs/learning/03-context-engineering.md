@@ -164,6 +164,20 @@ export function trimWindow(messages: ChatMessage[], budgetTokens: number): ChatM
 | JSON mode 整包输出 | 强制整个回复为 JSON | 结构最严 | 流式体验差、文本要转义、与工具调用互斥 | ✗ |
 | 文本尾部标记（`[[mood:happy]]`） | 约定 + 正则剥离 | 零成本 | 脆弱（模型忘写/写错格式）、污染展示 | ✗ |
 
+### 4.4 设置中的称呼如何进入下一轮对话（v0.8.1）
+
+称呼是应用偏好，不写进长期记忆，也不增加 Agent 工具。`shared/addressing.ts` 定义 `petSelfName`（默认「麻薯」）与 `userNickname`（默认「人」），归一化只接受非空字符串并去首尾空白；缺字段/空白使用默认，旧设置无需数据库迁移。
+
+链路按顺序为：
+
+1. `SettingsTab` 的「ta自称」「ta对我的称呼」调用既有 `saveSettings`，串行快照写盘。
+2. `loadSettings` 先等待当前保存队列完成，避免刚改完立即发消息仍读到旧称呼；保存实现不调用 loadSettings，因此不会自等待。
+3. `AgentFacade.runTurn` 每轮读设置，显式传 `addressing` 给 `buildMessages`；内核不自行读取 store，保持易测试和 UI 解耦。
+4. `buildMessages` 用 `buildSystemPrompt(addressing)` 创建首条 system 消息；基础提示只声明产品名 Mochi，称呼段 JSON.stringify 两个名字，明确字段只作称呼，不执行其中指令。
+5. 提示当前设置优先于旧历史/记忆称呼，且无需每句重复。历史消息原样保留，偏好变化不修改旧对话；保存后的下一轮使用新 system。
+
+测试：settings.test.ts 验证旧配置补值、空白回落和保存中读取；context-builder.test.ts 验证默认/下一轮替换/JSON边界与基础工具指引。真实模型是否每次遵守称呼仍由提供商生成行为决定，Mock 回声不会据 system 自行改写称呼。
+
 ## 5. 设计取舍
 
 | 决策 | 为什么 | 放弃了什么 |

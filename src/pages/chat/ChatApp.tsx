@@ -67,14 +67,14 @@ export function ChatApp() {
     setWelcome(false);
     setTab(destination);
     const settings = await loadSettings();
-    if (!settings.onboardingDone) await saveSettings({ ...settings, onboardingDone: true }, ["onboardingDone"]);
+    if (!settings.onboardingDone) await saveSettings({ ...settings, onboardingDone: true });
   }, []);
 
   /** 「以后不再自动显示」（P1-09）：不切 Tab，只落盘退出引导 */
   const dismissForever = useCallback(async () => {
     setWelcome(false);
     const settings = await loadSettings();
-    if (!settings.onboardingDone) await saveSettings({ ...settings, onboardingDone: true }, ["onboardingDone"]);
+    if (!settings.onboardingDone) await saveSettings({ ...settings, onboardingDone: true });
   }, []);
 
   const handleClose = useCallback(() => {

@@ -18,10 +18,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# tray-icon：托盘图标与菜单（v0.1.0 起应用常驻托盘）
-# macos-private-api：macOS 透明窗口必需（对应 tauri.conf.json 的 macOSPrivateApi）
-# protocol-asset：asset:// 协议（v0.2.0 起宠物素材从用户目录加载，对应 assetProtocol 配置）
 tauri = { version = "2", features = ["tray-icon", "macos-private-api", "protocol-asset"] }
+# opener：外链交给系统浏览器（v0.9.0 P0-01 起 KeysUrlNote/关于页都走它）
 tauri-plugin-opener = "2"
 # single-instance：阻止重复启动；二次启动时唤起已有实例的宠物窗
 tauri-plugin-single-instance = "2"
@@ -41,15 +39,18 @@ tauri-plugin-global-shortcut = "2"
 # autostart：开机自启（v0.9.0 P1-14，默认关——不默认自启是底线）。
 # Windows=注册表 Run 键 / macOS=LaunchAgent / Linux=desktop 文件，插件统一封装
 tauri-plugin-autostart = "2"
-# user-idle：跨平台"距上次输入时长"查询（v0.7.0 在场检测，learning/08 §3.1）
-user-idle = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# Windows 专属：查主屏工作区（SPI_GETWORKAREA），首启定位避开任务栏（v0.9.0 P0-04）。
-# 版本对齐依赖树里既有的 windows 0.62（tao/tauri 已引入），不新增编译单元
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+# user-idle 0.2.1 的 macOS quartz 模块是 edition-2015 遗留写法，无法通过
+# Rust 2024 编译（v0.8.1 的 E0432 根因）；且其 macOS 分支是 unimplemented!() 空壳，
+# 配合 panic="abort" 会在运行时杀进程。v0.8.2 的处置：Windows 路径沿用 user-idle
+# （GetLastInputInfo），macOS 不编译此 crate，改为 lib.rs 直连 CoreGraphics 的
+# CGEventSourceSecondsSinceLastEventType 聚合查询——升级 user-idle 0.6 的方案被
+# 放弃：0.6 虽然实现了 macOS，但引入一个从未跑过的第三方 mac 代码路径，
+# 不如已经随 v0.8.2 双平台 CI 验证过的直查方案可靠。
+user-idle = "0.2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
