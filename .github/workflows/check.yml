@@ -33,6 +33,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm test
+      # 安装包收集器使用 Node 真实文件系统测试；Windows 额外覆盖安装器被占用后的回滚。
+      - run: pnpm test:packaging
       - run: pnpm build
       # Windows runner 自动配置 MSVC；本机开发仍必须走 scripts/vsenv.cmd。
       - run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked

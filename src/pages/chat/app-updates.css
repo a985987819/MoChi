@@ -1,0 +1,153 @@
+/* 延续麻薯的暖粉纸条风格；版本入口放在设置首屏，窄窗口内按钮允许换行。 */
+.settings-update {
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #eedde1;
+  border-radius: 14px;
+  background: #fffaf8;
+}
+
+.settings-update__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-update__header h2 {
+  margin: 0 0 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #65524d;
+}
+
+.settings-update__version {
+  margin: 0;
+  color: #8a7f7a;
+  font-size: 12px;
+}
+
+.settings-update__version span {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  color: #ad6174;
+}
+
+.settings-update__header .settings-ghost-btn {
+  align-self: center;
+}
+
+.settings-update button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.settings-update button:focus-visible,
+.settings-update summary:focus-visible {
+  outline: 2px solid #ad6174;
+  outline-offset: 3px;
+}
+
+.settings-update__notes:focus-visible,
+.settings-update__fallback input:focus-visible {
+  outline: 2px solid #ad6174;
+  outline-offset: 2px;
+}
+
+.settings-update__status {
+  margin: 12px 0;
+  line-height: 1.65;
+  color: #786862;
+  font-size: 12px;
+}
+
+.settings-update__status--error {
+  color: #b3455a;
+}
+
+.settings-update__available {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.settings-update__download {
+  justify-self: start;
+  padding: 9px 12px;
+  border: 1px solid #d47e95;
+  border-radius: 9px;
+  background: #a94e68;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.settings-update__download:hover {
+  background: #963e57;
+}
+
+.settings-update__feedback {
+  margin: 0;
+  color: #54785b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.settings-update__details {
+  border-top: 1px dashed #eedde1;
+  padding-top: 10px;
+  margin-top: 10px;
+  color: #786862;
+  font-size: 12px;
+}
+
+.settings-update__details summary {
+  cursor: pointer;
+  line-height: 1.6;
+}
+
+.settings-update__notes {
+  max-height: 180px;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f7efec;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  user-select: text;
+}
+
+.settings-update__steps {
+  margin: 8px 0;
+  padding-left: 20px;
+  line-height: 1.8;
+}
+
+.settings-update__release-link {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.settings-update__fallback {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #b3455a;
+}
+
+.settings-update__fallback input {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #eedde1;
+  border-radius: 6px;
+  font: inherit;
+  user-select: text;
+}

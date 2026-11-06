@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
 import { appDataDir } from "@tauri-apps/api/path";
+import { AppUpdatesSection } from "./AppUpdatesSection";
 import { createProvider, PRESETS, getPreset } from "@/agent/providers";
 import type { ProviderError } from "@/agent/providers";
 import { memoryService, type MemoryItem } from "@/agent/memory/long-term";
@@ -137,6 +138,8 @@ export function SettingsTab() {
   return (
     <div className="settings-panel">
       {saveError && <p role="alert">{saveError} <button onClick={() => persist(settings)}>重试保存</button></p>}
+
+      <AppUpdatesSection />
 
       <label className="settings-field">
         <span>ta自称</span>

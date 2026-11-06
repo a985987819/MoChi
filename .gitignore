@@ -29,3 +29,12 @@ dist-ssr
 # 本地浏览器走查的会话、快照和日志（回归脚本本身放 scripts/）
 .playwright-cli/
 .zcode/
+
+# 本机工具链路径配置；仅忽略这一份，不忽略可复用脚本。
+/scripts/vsenv.local.cmd
+
+# run_here 保留说明；安装器及校验清单由对应平台构建生成，不把二进制写入 Git。
+/run_here/windows/*
+!/run_here/windows/README.md
+/run_here/mac/*
+!/run_here/mac/README.md

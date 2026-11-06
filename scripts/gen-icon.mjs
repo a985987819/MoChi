@@ -5,7 +5,7 @@
  * 画面 = 项目内置宠物形象的同款设计（粉白团子 + 高光眼 + 腮红 + 微笑），
  * 保证"安装包图标 ↔ 桌宠形象"视觉一致。
  *
- * 产物：app-icon.png（项目根目录）→ 交给 `pnpm tauri icon` 生成全尺寸 icns/ico/png。
+ * 产物：src-tauri/icons/app-icon.png → 交给 `pnpm tauri icon` 生成全尺寸 icns/ico/png。
  * 为什么手写 PNG：图标一次性产物，不值得为它引入 canvas/sharp 依赖。
  */
 
@@ -123,5 +123,6 @@ ellipse(668, 478, 14, 14, [255, 255, 255]);
 // 微笑：二次贝塞尔（svg M370 585 Q 512 636 654 585 同款弧度）
 bezierStroke([370, 585], [512, 640], [654, 585], 22, INK);
 
-writeFileSync("app-icon.png", encodePNG(px, SIZE, SIZE));
-console.log(`app-icon.png 生成完成（${SIZE}×${SIZE}）`);
+// 使用脚本自身位置定位，避免从其他目录执行时把图标落到错误位置。
+writeFileSync(new URL("../src-tauri/icons/app-icon.png", import.meta.url), encodePNG(px, SIZE, SIZE));
+console.log(`src-tauri/icons/app-icon.png 生成完成（${SIZE}×${SIZE}）`);
