@@ -37,6 +37,8 @@ NSIS/MSI 并创建 draft Release）；macOS job **失败**——`构建并发布
 
 **版本规划影响**：纳入当前未收口的 v0.9.0；macOS 产物仍需 Mac/CI 构建和真机验证，公开更新入口依赖所有者确认发布正式 Release。原生自动下载安装与重启保留为后续候选。
 
+**验证**：259 项应用测试、10 项收集器测试（含 Windows 实际文件锁）及 6 项 Rust 测试通过，check/前端 build/原生 check/完整 `pnpm package` 通过。Windows v0.9.0 EXE 2,704,588 字节、MSI 4,710,400 字节已归档并核对内部版本、原件与清单 SHA-256；macOS 构建和真机覆盖安装仍待完成。
+
 > 任务源：`docs/iterations/2026-11-03-通宵迭代施工单.md`；执行事实见 `docs/versions/v0.9.0-体验打磨.md`。
 > 纪律：按施工单 §0.5，本版推送/打 tag 前不动 remote，全部提交只落本地 main。
 
