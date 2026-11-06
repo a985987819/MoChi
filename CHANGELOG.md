@@ -39,6 +39,8 @@ NSIS/MSI 并创建 draft Release）；macOS job **失败**——`构建并发布
 
 **验证**：259 项应用测试、10 项收集器测试（含 Windows 实际文件锁）及 6 项 Rust 测试通过，check/前端 build/原生 check/完整 `pnpm package` 通过。Windows v0.9.0 EXE 2,704,588 字节、MSI 4,710,400 字节已归档并核对内部版本、原件与清单 SHA-256；macOS 构建和真机覆盖安装仍待完成。
 
+**授权草稿构建补充**：2026-11-06 用户授权推送 main 并构建草稿；check run 42171914459、release run 42171955956 均双平台 success。`run_here` 最终改为同一 `cf0ea03` CI 的 Windows EXE/MSI 与 macOS universal DMG，页面哈希和清单一致。DMG 内部版本 0.9.0、x86_64+arm64 双架构及磁盘映像完整性核验通过；草稿更新说明已补齐，仍未公开，真机覆盖安装继续保留验收。
+
 > 任务源：`docs/iterations/2026-11-03-通宵迭代施工单.md`；执行事实见 `docs/versions/v0.9.0-体验打磨.md`。
 > 纪律：按施工单 §0.5，本版推送/打 tag 前不动 remote，全部提交只落本地 main。
 
