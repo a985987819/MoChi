@@ -12,6 +12,8 @@
 import { BM25Retriever } from "./bm25";
 import { expandQuery } from "./synonyms";
 import guidelines from "./data/health/guidelines.json";
+import rehab from "./data/health/rehab.json";
+import nutrition from "./data/health/nutrition.json";
 import type { RetrievedDoc } from "./retriever";
 
 /** 一条健康建议语料（来源字段是引用合同的兑现：模型必须能说出出处） */
@@ -29,8 +31,14 @@ export interface HealthItem {
   keywords: string[];
 }
 
-/** 语料集（v0.9.0 健康扩展）；扩充语料 = 新 JSON 文件 + 此处并一行 import */
-export const ALL_HEALTH_ITEMS: HealthItem[] = [...(guidelines as HealthItem[])];
+/** 语料集；扩充语料 = 新 JSON 文件 + 此处并一行 import。
+ *  v0.9.0 健康问答扩展：guidelines（膳食/运动/久坐/健身）+ rehab（康复医学）+
+ *  nutrition（临床营养）——后两者支撑无大模型的本地知识库问答（local-qa.ts）。 */
+export const ALL_HEALTH_ITEMS: HealthItem[] = [
+  ...(guidelines as HealthItem[]),
+  ...(rehab as HealthItem[]),
+  ...(nutrition as HealthItem[]),
+];
 
 /** 文档化：BM25 检索字面 = 分类 + 标题 + 召回词 + 正文（正文含用户口语词汇，如"膝盖内扣"） */
 export function healthToDoc(item: HealthItem): { id: string; text: string; meta: Record<string, unknown> } {

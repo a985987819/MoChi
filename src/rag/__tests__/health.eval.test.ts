@@ -45,7 +45,7 @@ describe("健康 RAG 精度评测（Hit@3 ≥ 13/15）", () => {
   it("每条语料都带来源字段（引用合同的机械检查：漏 source 的条目直接红）", () => {
     for (const hit of svc.search("膳食 运动 久坐 健身 减肥 睡眠", 40)) {
       expect(hit.item.source).toBeTruthy();
-      expect(hit.item.source).toMatch(/指南|行动|共识|组织|委员会|卫生部/);
+      expect(hit.item.source).toMatch(/指南|行动|共识|组织|委员会|卫生部|学会|规范/);
     }
   });
 

@@ -7,6 +7,17 @@ import { historyStore } from "@/agent/memory/history-store";
 import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { truncateForBubble } from "@/shared/bubble-text";
 import { SkeletonLines } from "@/shared/components/Loading";
+import { answerLocally, isLocalAnswer, localKnowledgeSize } from "@/rag/local-qa";
+
+/**
+ * 未连接大模型时，本地知识库范围之外问题的引导话术（v0.9.0 健康问答扩展）。
+ * 给出可执行的连接路径而非空泛提示；知识库规模用实际数字增强"本地能答什么"的预期。
+ */
+const OFFLINE_GUIDANCE =
+  `这个问题超出了我的本地知识库（目前有 ${localKnowledgeSize()}，覆盖膳食、运动、久坐保健、` +
+  `康复医学、临床营养与食物热量）。\n\n想让我回答任意问题，需要连接大模型：\n` +
+  `1. 打开**设置** Tab\n2. 选择提供商（推荐 DeepSeek）\n3. 填入 API Key 并测试连通\n\n` +
+  `连接后这类问题我就能调用模型来回答了～`;
 import type { ProviderError } from "@/agent/providers";
 import { isProviderReady, loadSettings, type AppSettings } from "@/services/settings";
 import { toFriendlyError } from "@/agent/error-text";
@@ -104,7 +115,27 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
       if (!text || busy || !settings) return;
       const ready = isProviderReady(settings);
       if (!ready.ok) {
-        setError({ kind: "bad-request", message: ready.reason ?? "提供商未就绪" });
+        // 未连接大模型：健康/康复/营养/热量域的问题走**本地知识库**直接回答
+        // （离线、零成本、毫秒级）；范围之外如实告知需要连接大模型并给出路径，
+        // 不再是冷冰冰的红色报错——这是能力边界教育，不是故障。
+        const local = answerLocally(text);
+        setInput("");
+        if (isLocalAnswer(local)) {
+          // 查证型对话不进情景记忆（持久化是 Facade 的单一所有者，learning/04），
+          // 重载后不保留——本地回答的价值在"当场可查"。
+          setEntries(prev => [
+            ...(prev ?? []),
+            { id: nextId++, role: "user", content: text },
+            { id: nextId++, role: "note", content: `📚 本地知识库 · ${local.count} 条依据` },
+            { id: nextId++, role: "assistant", content: local.text },
+          ]);
+          return;
+        }
+        setEntries(prev => [
+          ...(prev ?? []),
+          { id: nextId++, role: "user", content: text },
+          { id: nextId++, role: "assistant", content: OFFLINE_GUIDANCE },
+        ]);
         return;
       }
       lastInputRef.current = text; // 失败重试（P1-07/08）重发最近一次输入
