@@ -109,6 +109,7 @@ export function PetApp() {
   const state = usePetState();
   const [bouncing, setBouncing] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [gripping, setGripping] = useState(false);
   const [bubble, setBubble] = useState<BubbleDisplay<PetBubbleLine> | null>(null);
   const shellRef = useRef<HTMLElement>(null);
   const chatter = useMemo(() => new PetChatter(), []);
@@ -118,6 +119,20 @@ export function PetApp() {
     bubbleDisplay.activate();
     return () => bubbleDisplay.dispose();
   }, [bubbleDisplay]);
+
+  // 拖拽握持反馈（Rust 边界广播：开始/结束各一次）：
+  // 握持 = 暂停漂浮 + 微放大（"被拿在手里"），放下 = 回落（scale 过渡回落即动画）。
+  // 拖拽期间窗口移动由 OS 合成器完成，暂停动画让形象不与手"打架"——这是拖拽
+  // 不掉帧观感的另一半（前一半是 start_dragging 本身走 OS 原生拖动循环）。
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    void listen<{ dragging?: unknown }>(STATE_EVENTS.petDragChanged, e => {
+      setGripping(e.payload?.dragging === true);
+    }).then(unlisten => {
+      off = unlisten;
+    });
+    return () => off?.();
+  }, []);
 
   // 窗口唤回（托盘切换/退出隐藏）时的轻过渡：淡入+上浮 160ms。
   // 硬切闪现会显得"系统卡了一下"；合成器动画不产生任何布局成本。
@@ -200,7 +215,7 @@ export function PetApp() {
   return (
     <main
       ref={shellRef}
-      className={`pet-stage${bouncing ? " pet-stage--bounce" : ""}`}
+      className={`pet-stage${bouncing ? " pet-stage--bounce" : ""}${gripping ? " pet-stage--gripping" : ""}`}
       onPointerDown={e => {
         if (menu) { setMenu(null); gestures.cancel(); bubbleDisplay.cancel(); return; }
         gestures.pointerDown(e.pointerId, e.clientX, e.clientY, e.button);

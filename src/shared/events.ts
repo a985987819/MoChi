@@ -111,6 +111,12 @@ export const STATE_EVENTS = {
    * 屏内 clamp）；宠物窗写 CSS 变量 --pet-scale 缩放形象。
    */
   petScaleChanged: "state://pet-scale-changed",
+  /**
+   * 拖拽状态边界广播（v0.9.0 手感优化，Rust → 宠物窗）。载荷：{ dragging: boolean }。
+   * 开始/结束各广播一次（结束由原生节拍的静默窗口判定，≤1s）——前端据此切
+   * 「握持」（暂停漂浮+微放大）与「放下」（回落动画），宠物像被真实拿在手里。
+   */
+  petDragChanged: "state://pet-drag-changed",
 } as const;
 
 /**

@@ -105,8 +105,21 @@ body {
   justify-content: center;
   line-height: 0;                 /* 消除 SVG/img 底部基线空隙 */
   will-change: transform;
+  scale: 1;                       /* 独立属性（与 transform 动画叠加）：握持微放大走这里 */
+  transition: scale 160ms cubic-bezier(0.22, 1, 0.36, 1);
   animation: mochi-float 3.2s ease-in-out infinite; /* 待机漂浮 */
   transform-origin: 50% 100%;     /* 弹跳从底部发力 */
+}
+
+/* 握持态（Rust 拖拽边界广播驱动）：漂浮暂停 + 微放大——"被拿在手里"的物理感。
+   放下时类名移除，scale 过渡回落 160ms 就是"落地"动画，无需额外 keyframes。 */
+.pet-stage--gripping .pet-stage__pet {
+  animation-play-state: paused;
+  scale: 1.04;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-stage__pet { transition: none; }
 }
 
 /* 素材图片：完整显示不裁剪（docs/pet-assets.md §4），拖动区属性不影响 img */

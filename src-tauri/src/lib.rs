@@ -66,6 +66,8 @@ const SHORTCUT_CHAT: &str = "CmdOrCtrl+Shift+M";
 const EVT_AUTOSTART_CHANGED: &str = "state://autostart-changed";
 /// 宠物大小档位（v0.9.0 P1-15）：前端 → Rust（改窗口尺寸）+ 宠物窗（CSS 变量）
 const EVT_PET_SCALE_CHANGED: &str = "state://pet-scale-changed";
+/// 拖拽状态边界广播（v0.9.0 手感优化）：开始/结束各一次，前端切握持/放下动画
+const EVT_PET_DRAG_CHANGED: &str = "state://pet-drag-changed";
 /// 宠物窗设计基准尺寸（tauri.conf.json 声明值；缩放按逻辑像素乘档位）
 const PET_BASE_WIDTH: f64 = 220.0;
 const PET_BASE_HEIGHT: f64 = 260.0;
@@ -115,12 +117,37 @@ impl AlertQueue {
 #[derive(Clone, serde::Serialize)]
 struct AlertAck { id: String, kind: AlertKind }
 
+/// 拖拽运动追踪：Moved 事件只在**边界**广播（开始一次/结束一次），
+/// 每次移动都发事件会把 1Hz 的 IPC 变成 60Hz，前端反而被自己拖慢。
+/// 结束判定靠"静默窗口"：原生拖动中 Moved 连续到达，停止移动 400ms 后视为放手。
+#[derive(Default)]
+struct DragMotion {
+    dragging: bool,
+    last_move_at: Option<std::time::Instant>,
+}
+
+/// 拖拽状态机（纯函数，可单测）：由「当前状态 + 距上次移动的毫秒数」决定广播。
+/// 返回 Some(新的 dragging 值) = 需要广播；None = 无事发生。
+fn drag_transition(dragging: bool, move_age_ms: Option<u64>) -> Option<bool> {
+    if !dragging {
+        return move_age_ms.is_some().then_some(true); // 首次 Moved → 开始拖拽
+    }
+    // 拖拽中：静默超过静默窗口才判定放手（400ms > 拖动中相邻 Moved 的间隔，
+    // 即使帧率掉到 ~2.5fps 也不会误判；又远小于 1s 的原生节拍，放手反馈不迟钝）
+    const DRAG_SETTLE_MS: u64 = 400;
+    match move_age_ms {
+        Some(age) if age >= DRAG_SETTLE_MS => Some(false),
+        _ => None,
+    }
+}
+
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // single-instance 必须最先注册：第二次启动进程时，回调在「已有实例」里执行
     let builder = tauri::Builder::default()
         .manage(Mutex::new(AlertQueue::default()))
+        .manage(Mutex::new(DragMotion::default()))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 用户再次双击图标：不启动新进程，而是把已有宠物的窗口唤回前台
             if let Some(pet) = app.get_webview_window("pet") {
@@ -178,19 +205,37 @@ pub fn run() {
         // 拦截所有窗口的关闭请求 → 隐藏。Tauri 中窗口关闭默认会销毁窗口对象，
         // 隐藏则保留对象，之后 show() 零成本恢复（状态都在）。
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                if window.label() == "alert" {
-                    // Alt+F4 也确认当前提醒；单纯 hide 会留下一个永不再显示的队头。
-                    let app = window.app_handle().clone();
-                    if let Ok(Some(current)) = get_app_alert(app.clone()) {
-                        let _ = ack_app_alert(app, current.id);
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    if window.label() == "alert" {
+                        // Alt+F4 也确认当前提醒；单纯 hide 会留下一个永不再显示的队头。
+                        let app = window.app_handle().clone();
+                        if let Ok(Some(current)) = get_app_alert(app.clone()) {
+                            let _ = ack_app_alert(app, current.id);
+                        } else {
+                            let _ = window.hide();
+                        }
                     } else {
                         let _ = window.hide();
                     }
-                } else {
-                    let _ = window.hide();
                 }
+                // 宠物窗被拖动（原生 start_dragging 中 Moved 连续到达）：只在边界广播
+                // 「开始拖拽」，结束由 native tick 的静默窗口判定（见 DragMotion 注释）。
+                WindowEvent::Moved(_) if window.label() == "pet" => {
+                    let app = window.app_handle().clone();
+                    let state = app.state::<Mutex<DragMotion>>();
+                    let mut motion = match state.lock() {
+                        Ok(m) => m,
+                        Err(_) => return, // 锁中毒：拖拽反馈是锦上添花，静默跳过
+                    };
+                    motion.last_move_at = Some(std::time::Instant::now());
+                    if let Some(next) = drag_transition(motion.dragging, Some(0)) {
+                        motion.dragging = next;
+                        let _ = app.emit_to("pet", EVT_PET_DRAG_CHANGED, serde_json::json!({ "dragging": next }));
+                    }
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
@@ -559,6 +604,7 @@ fn dismiss_app_alert(app: tauri::AppHandle, id: String) -> Result<(), String> {
 }
 
 /// 原生脉冲不依赖后台 WebView 的 setInterval；业务仍按 epoch 截止时间幂等判断。
+/// 顺带承担拖拽结束判定（DragMotion 静默窗口）：不加线程，零额外成本。
 fn start_native_tick(app: tauri::AppHandle) {
     let _ = std::thread::Builder::new().name("mochi-clock".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_secs(1));
@@ -570,6 +616,18 @@ fn start_native_tick(app: tauri::AppHandle) {
             if let Ok(mut queue) = state.lock() {
                 if queue.needs_present { let _ = present_alert(&handle, &mut queue); }
             };
+            // 拖拽收尾：上次 Moved 静默超窗 → 广播「放下」。锁失败静默（反馈非关键路径）
+            let drag_state = handle.state::<Mutex<DragMotion>>();
+            if let Ok(mut motion) = drag_state.lock() {
+                let age = motion.last_move_at.map(|t| t.elapsed().as_millis() as u64);
+                if let Some(next) = drag_transition(motion.dragging, age) {
+                    motion.dragging = next;
+                    if !next {
+                        motion.last_move_at = None;
+                        let _ = handle.emit_to("pet", EVT_PET_DRAG_CHANGED, serde_json::json!({ "dragging": false }));
+                    }
+                }
+            }
         });
     });
 }
@@ -835,5 +893,20 @@ mod alert_tests {
     fn top_edge_uses_below_and_tiny_work_area_never_panics() {
         assert_eq!(alert_position((100, 0), (220, 260), (320, 200), (0, 0, 1920, 1040)), (50, 272));
         assert_eq!(alert_position((100, 0), (220, 260), (320, 200), (0, 0, 200, 100)), (0, 0));
+    }
+
+    #[test]
+    fn drag_starts_on_first_move_and_broadcasts_once() {
+        assert_eq!(drag_transition(false, None), None); // 未动不发事件
+        assert_eq!(drag_transition(false, Some(0)), Some(true)); // 首次 Moved → 开始
+        assert_eq!(drag_transition(true, Some(0)), None); // 拖拽中：不重复广播
+    }
+
+    #[test]
+    fn drag_ends_only_after_quiet_window() {
+        assert_eq!(drag_transition(true, Some(399)), None); // 静默未满窗：继续拖
+        assert_eq!(drag_transition(true, Some(400)), Some(false)); // 恰到窗口 → 放手
+        assert_eq!(drag_transition(true, Some(10_000)), Some(false)); // 睡眠唤醒补判
+        assert_eq!(drag_transition(false, Some(999)), Some(true)); // 放手后又移动 → 新一轮
     }
 }
