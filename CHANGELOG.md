@@ -27,6 +27,20 @@ NSIS/MSI 并创建 draft Release）；macOS job **失败**——`构建并发布
 
 ## [Unreleased] — v0.9.0 体验打磨（施工中，未发布）
 
+### 安装路径与友好更新（2026-11-06）
+
+**变更**：新增根目录 `run_here/windows`、`run_here/mac` 安装入口、`pnpm package` / `package:collect` 与 SHA-256 清单；Windows 构建自动发现 MSVC；图标源归入 `src-tauri/icons/`。设置首屏新增「版本与更新」，支持手动检查公开正式版、说明、分平台安装包下载、失败重试及覆盖安装保留数据指引。目录职责见 `docs/project-structure.md`。
+
+**动机与取舍**：把安装入口从深层构建缓存中提出来，同时保留 Tauri 标准输出路径。按用户选择采用浏览器下载、手动覆盖安装，复用现有 app/opener 能力，不引入更新私钥或后台安装逻辑。
+
+**学习要点**：版本比较必须遵守 SemVer；无公开 Release 不等于已经最新；打开浏览器不等于下载完成。产物收集先校验再替换，旧包清理受上次清单约束。完整走读见 `docs/learning/10-delivery-and-updates.md`。
+
+**版本规划影响**：纳入当前未收口的 v0.9.0；macOS 产物仍需 Mac/CI 构建和真机验证，公开更新入口依赖所有者确认发布正式 Release。原生自动下载安装与重启保留为后续候选。
+
+**验证**：259 项应用测试、10 项收集器测试（含 Windows 实际文件锁）及 6 项 Rust 测试通过，check/前端 build/原生 check/完整 `pnpm package` 通过。Windows v0.9.0 EXE 2,704,588 字节、MSI 4,710,400 字节已归档并核对内部版本、原件与清单 SHA-256；macOS 构建和真机覆盖安装仍待完成。
+
+**授权草稿构建补充**：2026-11-06 用户授权推送 main 并构建草稿；check run 42171914459、release run 42171955956 均双平台 success。`run_here` 最终改为同一 `cf0ea03` CI 的 Windows EXE/MSI 与 macOS universal DMG，页面哈希和清单一致。DMG 内部版本 0.9.0、x86_64+arm64 双架构及磁盘映像完整性核验通过；草稿更新说明已补齐，仍未公开，真机覆盖安装继续保留验收。
+
 > 任务源：`docs/iterations/2026-11-03-通宵迭代施工单.md`；执行事实见 `docs/versions/v0.9.0-体验打磨.md`。
 > 纪律：按施工单 §0.5，本版推送/打 tag 前不动 remote，全部提交只落本地 main。
 

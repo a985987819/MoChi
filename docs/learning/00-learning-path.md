@@ -22,6 +22,7 @@
 | 6 | RAG：BM25 检索、中文分词、带引用回答 | [05-rag-bm25](05-rag-bm25.md) | v0.6.0 |
 | 7 | **Agent 与桌面应用的边界**：意图/执行/存储三层归属、双入口模式、工具风险分级 | [07-agent-vs-app-boundary](07-agent-vs-app-boundary.md) | 全部（架构裁决） |
 | 8 | 宠物状态机、在场检测（idle）、计时服务与自然语言提醒 | [08-timers-reminders-presence](08-timers-reminders-presence.md) | v0.2.0 / v0.7.0 |
+| 9 | 安装包目录、SemVer、公开正式版本检查与手动覆盖安装 | [10-delivery-and-updates](10-delivery-and-updates.md) | v0.9.0 |
 
 **建议阅读顺序**：02（传输层）→ 01（编排层）→ 03（上下文）→ 04（记忆）→ 05（检索）；07 是横切裁决文档，新功能/新工具设计前必查；08 是 v0.7.0 的实现规范。
 01 和 02 互为依赖：02 定义 `LLMProvider` 与消息类型，01 消费它们。
