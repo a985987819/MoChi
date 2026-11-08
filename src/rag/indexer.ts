@@ -22,15 +22,20 @@ export interface FoodItem {
   note?: string;
 }
 
-/** 数据集文件（三品牌分组；新增品牌 = 新 JSON 文件 + 此处一行 import） */
+/** 数据集文件（品牌分组 + 常见中餐；新增来源 = 新 JSON 文件 + 此处一行 import） */
 import mcd from "./data/food/mcd.json";
 import kfc from "./data/food/kfc.json";
 import others from "./data/food/others.json";
+import chineseCommon from "./data/food/chinese-common.json";
 
 export const ALL_FOOD_ITEMS: FoodItem[] = [
   ...(mcd as FoodItem[]),
   ...(kfc as FoodItem[]),
   ...(others as FoodItem[]),
+  // v0.9.0 健康扩展：常见中餐/主食/水果/饮品（brand="常见"/"家常"），
+  // 值为《中国食物成分表》通行每 100g 数值 × 常见份量；组合菜取公开营养
+  // 数据库中位值，波动大的条目在 note 里标注区间——模型引用时会转述
+  ...(chineseCommon as FoodItem[]),
 ];
 
 /** 文档化：决定 BM25 索引的字面。meta 挂原始条目，检索结果直接引用 */

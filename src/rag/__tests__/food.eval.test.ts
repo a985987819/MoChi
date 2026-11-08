@@ -23,15 +23,24 @@ const EVAL_SET: Array<{ q: string; expectId: string }> = [
   { q: "老北京鸡肉卷多少千卡", expectId: "kfc-beijing-wrap" },
   { q: "肯德基香辣鸡腿堡热量高吗", expectId: "kfc-spicy-burger" },
   { q: "麦乐鸡五块的热量", expectId: "mcd-nuggets-5" },
+  // v0.9.0 健康扩展：常见中餐/水果/饮品（口语化问法）
+  { q: "一碗米饭多少热量", expectId: "cn-rice" },
+  { q: "香蕉的热量", expectId: "cn-banana" },
+  { q: "奶茶一杯多少大卡", expectId: "cn-milk-tea" },
+  { q: "水煮蛋一个多少千卡", expectId: "cn-egg" },
+  { q: "番茄炒蛋一盘多少热量", expectId: "cn-tomato-egg" },
+  { q: "可乐一罐多少大卡", expectId: "cn-coke" },
+  { q: "红烧肉吃多了会怎样热量呢", expectId: "cn-hongshaorou" },
+  { q: "拿铁的热量", expectId: "cn-latte" },
 ];
 
-const HIT_THRESHOLD = 9; // 10 题至少命中 9（learning/05 §5.6 合入门槛）
+const HIT_THRESHOLD = 14; // 18 题至少命中 14（learning/05 §5.6 合入门槛）
 
-describe("RAG 精度评测（Hit@3 ≥ 9/10）", () => {
+describe("RAG 精度评测（Hit@3 ≥ 14/18）", () => {
   const svc = new FoodIndexService();
 
-  it("数据集规模达标（≥ 90 条，覆盖 ≥ 3 品牌）", () => {
-    expect(svc.size).toBeGreaterThanOrEqual(90);
+  it("数据集规模达标（≥ 150 条，覆盖快餐品牌与常见中餐）", () => {
+    expect(svc.size).toBeGreaterThanOrEqual(150);
     const brands = new Set(
       EVAL_SET.map(e => svc.search(e.q, 5)[0]?.item.brand).filter(Boolean),
     );
