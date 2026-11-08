@@ -14,6 +14,7 @@ import type { PetState } from "@/services/pet-state";
 import type { TodoService } from "@/services/todos";
 import type { MemoryService } from "@/agent/memory/long-term";
 import type { FoodIndexService } from "@/rag/food";
+import type { HealthIndexService } from "@/rag/health";
 import type { ReminderStore } from "@/services/reminders";
 import { validateSchema } from "./validate-schema";
 import type { PomodoroControl } from "@/services/pomodoro-control";
@@ -23,6 +24,8 @@ export interface AppServices {
   todos: TodoService;
   memory: MemoryService;
   food: FoodIndexService;
+  /** 健康/运动权威建议检索（v0.9.0 健康扩展，learning/05 管线复用） */
+  health: HealthIndexService;
   /** 提醒 CRUD（聊天窗 store；触发调度在宠物窗 Scheduler，learning/08 §5.4） */
   reminders: ReminderStore;
   /** 番茄钟遥控（跨窗口事件到宠物窗 PomodoroService） */

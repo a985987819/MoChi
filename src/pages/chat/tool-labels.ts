@@ -21,6 +21,7 @@ export const TOOL_LABELS: Record<string, string> = {
   complete_todo: "已勾掉一条待办",
   delete_todo: "已删除一条待办",
   search_food: "查了热量表",
+  search_health_advice: "翻了翻权威健康指南",
   create_reminder: "设好了提醒",
   cancel_reminder: "取消了提醒",
   list_reminders: "看了你的提醒",

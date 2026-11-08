@@ -18,6 +18,7 @@ import { addTodoTool, completeTodoTool, deleteTodoTool, listTodosTool } from "@/
 import { setPetStateTool } from "@/agent/tools/pet-state";
 import { rememberTool } from "@/agent/tools/remember";
 import { foodSearchTool } from "@/agent/tools/food-search";
+import { healthSearchTool } from "@/agent/tools/health-search";
 import {
   pomodoroStatusTool,
   startPomodoroTool,
@@ -28,6 +29,7 @@ import { cancelReminderTool, createReminderTool, listRemindersTool } from "@/age
 import { historyStore } from "@/agent/memory/history-store";
 import { memoryService } from "@/agent/memory/long-term";
 import { foodIndex } from "@/rag/food";
+import { healthIndex } from "@/rag/health";
 import { todoService } from "@/services/todos";
 import { reminderStore } from "@/services/reminders";
 import { loadSettings } from "@/services/settings";
@@ -50,6 +52,7 @@ export class AgentFacade {
       todos: todoService,
       memory: memoryService,
       food: foodIndex,
+      health: healthIndex,
       reminders: reminderStore,
       pomodoro: pomodoroControl,
       pet: {
@@ -60,7 +63,7 @@ export class AgentFacade {
     };
 
     // 工具清单：v0.4.0（todo/pet-state）+ v0.5.0（remember）+ v0.6.0（food-search）
-    // + v0.7.0（pomodoro×3 / reminder×3）
+    // + v0.7.0（pomodoro×3 / reminder×3）+ v0.9.0（health-search）
     this.registry.register(addTodoTool());
     this.registry.register(listTodosTool());
     this.registry.register(completeTodoTool());
@@ -68,6 +71,7 @@ export class AgentFacade {
     this.registry.register(setPetStateTool());
     this.registry.register(rememberTool());
     this.registry.register(foodSearchTool());
+    this.registry.register(healthSearchTool());
     this.registry.register(startPomodoroTool(this.services.pomodoro));
     this.registry.register(stopPomodoroTool(this.services.pomodoro));
     this.registry.register(pomodoroStatusTool(this.services.pomodoro));
