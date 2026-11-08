@@ -6,6 +6,7 @@ import { agentFacade } from "@/agent/facade";
 import { historyStore } from "@/agent/memory/history-store";
 import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { truncateForBubble } from "@/shared/bubble-text";
+import { SkeletonLines } from "@/shared/components/Loading";
 import type { ProviderError } from "@/agent/providers";
 import { isProviderReady, loadSettings, type AppSettings } from "@/services/settings";
 import { toFriendlyError } from "@/agent/error-text";
@@ -65,7 +66,8 @@ async function loadEntries(): Promise<ChatEntry[]> {
 
 export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [entries, setEntries] = useState<ChatEntry[]>([]);
+  const [entries, setEntries] = useState<ChatEntry[] | null>(null); // null=历史加载中
+  const [historyError, setHistoryError] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ProviderError | null>(null);
@@ -74,17 +76,23 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastInputRef = useRef("");
 
+  // 历史读取失败给可见的重试入口（SQLite 被锁/磁盘抖动不该变成"永远空历史"）。
+  const reloadHistory = useCallback(() => {
+    setHistoryError(false);
+    void loadEntries().then(setEntries).catch(() => setHistoryError(true));
+  }, []);
+
   useEffect(() => {
     void loadSettings().then(setSettings);
-    void loadEntries().then(setEntries);
+    reloadHistory();
     // 设置页清空历史 → 本窗重载（空）
     const unlisten = listen(STATE_EVENTS.historyCleared, () => {
-      void loadEntries().then(setEntries);
+      reloadHistory();
     });
     return () => {
       void unlisten.then(off => off());
     };
-  }, []);
+  }, [reloadHistory]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -107,13 +115,13 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
 
     const userEntry: ChatEntry = { id: nextId++, role: "user", content: text };
     const assistantEntry: ChatEntry = { id: nextId++, role: "assistant", content: "", streaming: true };
-    setEntries(prev => [...prev, userEntry, assistantEntry]);
+    setEntries(prev => [...(prev ?? []), userEntry, assistantEntry]);
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     const patchAssistant = (patch: Partial<ChatEntry>) =>
-      setEntries(prev => prev.map(e => (e.id === assistantEntry.id ? { ...e, ...patch } : e)));
+      setEntries(prev => (prev ?? []).map(e => (e.id === assistantEntry.id ? { ...e, ...patch } : e)));
 
     // 流式节流（P1-05）：delta 高频到达，直接 setState 会让 MarkdownView 每秒
     // 重解析几十次——攒进缓冲，80ms 冲刷一次（~12fps，肉眼即"逐字"）
@@ -126,7 +134,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
       const chunk = streamBuffer;
       streamBuffer = "";
       lastFlush = now;
-      setEntries(prev => prev.map(e => (e.id === assistantEntry.id ? { ...e, content: e.content + chunk } : e)));
+      setEntries(prev => (prev ?? []).map(e => (e.id === assistantEntry.id ? { ...e, content: e.content + chunk } : e)));
     };
 
     try {
@@ -140,7 +148,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
         } else if (ev.type === "step-end") {
           // 工具轨迹人话化（P1-06）：内部动作（set_pet_state）不产生 note
           const trace = formatToolTrace(ev.toolSummaries);
-          if (trace) setEntries(prev => [...prev, { id: nextId++, role: "note", content: `🔧 ${trace}` }]);
+          if (trace) setEntries(prev => [...(prev ?? []), { id: nextId++, role: "note", content: `🔧 ${trace}` }]);
         } else if (ev.type === "done") {
           // done.text 恒为终答全文（含 hitMaxSteps 兜底），权威覆盖，清掉缓冲
           finalText = ev.text;
@@ -205,7 +213,19 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
   return (
     <section className="chat-tab-panel">
       <div ref={listRef} className="chat-msg-list">
-        {entries.length === 0 && (
+        {entries === null && !historyError && (
+          // 历史加载中：两行骨架 + 输入区照常可用（读历史不阻塞发言）
+          <div className="chat-history-loading">
+            <SkeletonLines widths={[0.55, 0.75]} rows={2} />
+          </div>
+        )}
+        {historyError && (
+          <div className="chat-history-error" role="alert">
+            <p>聊天记录读取失败（数据库暂不可用）。</p>
+            <button className="chat-chip" onClick={reloadHistory}>重试</button>
+          </div>
+        )}
+        {entries !== null && entries.length === 0 && (
           <div className="chat-empty">
             <p>跟麻薯说句话吧～</p>
             <div className="chat-empty__chips">
@@ -224,7 +244,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
             </div>
           </div>
         )}
-        {entries.map(e =>
+        {entries?.map(e =>
           e.role === "note" ? (
             <div key={e.id} className="chat-note">
               {e.content}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { todoService, type Todo } from "@/services/todos";
+import { Loading } from "@/shared/components/Loading";
 
 /**
  * 待办 Tab —— v0.4.0：待办的 UI 通道（learning/07 §3 双入口模式的 UI 侧）。
@@ -7,20 +8,23 @@ import { todoService, type Todo } from "@/services/todos";
  * TodoService——两边看到的状态永远一致（订阅 snapshot 刷新）。
  */
 export function TodosTab() {
-  const [todos, setTodos] = useState<Todo[]>([]);
+  const [todos, setTodos] = useState<Todo[] | null>(null); // null=加载中（区别于"空"）
+  const [loadError, setLoadError] = useState(false);
   const [draft, setDraft] = useState("");
 
   useEffect(() => {
     let off: (() => void) | undefined;
-    void todoService.ready.then(() => {
-      setTodos(todoService.snapshot());
-      off = todoService.subscribe(() => setTodos(todoService.snapshot()));
-    });
+    void todoService.ready
+      .then(() => {
+        setTodos(todoService.snapshot());
+        off = todoService.subscribe(() => setTodos(todoService.snapshot()));
+      })
+      .catch(() => setLoadError(true)); // SQLite 被锁/损坏：给出可见失败，监督器稍后重试 ready
     return () => off?.();
   }, []);
 
-  const pending = todos.filter(t => !t.done);
-  const done = todos.filter(t => t.done);
+  const pending = (todos ?? []).filter(t => !t.done);
+  const done = (todos ?? []).filter(t => t.done);
 
   const add = useCallback(() => {
     const title = draft.trim();
@@ -45,7 +49,9 @@ export function TodosTab() {
         </button>
       </div>
 
-      {pending.length === 0 && done.length === 0 && (
+      {todos === null && !loadError && <Loading label="正在读取待办…" />}
+      {loadError && <p className="todos-empty" role="alert">待办读取失败（数据库暂不可用），稍后自动重试。</p>}
+      {(todos ?? []).length === 0 && todos !== null && !loadError && (
         <p className="todos-empty">
           还没有待办。
           <br />

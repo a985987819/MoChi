@@ -93,6 +93,31 @@ body {
 }
 
 /* ── 消息流 ── */
+
+/* keep-alive Tab 页容器（v0.9.0）：四个页常驻、hidden 切换。
+   [hidden] 由 UA 样式 display:none 实现，显示时下面的入场动画自动重播——
+   切换的"进入感"零 JS 成本；动画只动 opacity/translate（合成器线程）。 */
+.chat-tab-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  animation: chat-tab-in 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chat-tab-page[hidden] {
+  display: none; /* UA hidden 默认 display:none，这里显式化防止面板样式覆盖 */
+}
+
+@keyframes chat-tab-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-tab-page { animation: none; }
+}
+
 .chat-tab-panel {
   display: flex;
   flex-direction: column;
@@ -101,8 +126,7 @@ body {
 }
 
 .chat-msg-list {
-  flex: 1;
-  overflow-y: auto;
+  flex: 1;  overflow-y: auto;
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -115,6 +139,27 @@ body {
   color: #a39690;
   font-size: 13px;
   line-height: 2;
+}
+
+/* 历史加载/失败（v0.9.0 体验扩展）：占位于消息流顶部，不挡输入区 */
+.chat-history-loading {
+  padding: 6px 14px 0;
+  opacity: 0.8;
+}
+
+.chat-history-error {
+  margin: 12px 14px;
+  padding: 10px 12px;
+  border: 1px solid #f0dfe6;
+  border-radius: 10px;
+  background: #fff5f7;
+  color: #b3455a;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.chat-history-error p {
+  margin: 0 0 6px;
 }
 
 /* 空态指令 chips（v0.9.0 P1-12）：点一下填输入框，不自动发送 */

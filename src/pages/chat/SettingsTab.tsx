@@ -10,6 +10,7 @@ import { historyStore } from "@/agent/memory/history-store";
 import { sendStateEvent, STATE_EVENTS } from "@/shared/events";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { listen } from "@tauri-apps/api/event";
+import { Loading, SkeletonLines } from "@/shared/components/Loading";
 import {
   loadSettings,
   saveSettings,
@@ -40,12 +41,19 @@ type TestState =
 
 export function SettingsTab() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [test, setTest] = useState<TestState>({ phase: "idle" });
   const [saveError, setSaveError] = useState("");
 
-  useEffect(() => {
-    void loadSettings().then(setSettings);
+  // 加载失败不再"永远转圈"：给出重试入口（store 暂时不可读不该让设置页变砖）。
+  const reload = useCallback(() => {
+    setLoadError(false);
+    void loadSettings().then(setSettings).catch(() => setLoadError(true));
   }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   // 设置面板卸载（切 Tab / 关窗）时冲刷防抖：最后一次输入不丢（P0-02）
   useEffect(() => () => flushSettingsSave(), []);
@@ -129,7 +137,23 @@ export function SettingsTab() {
     }
   }, [settings]);
 
-  if (!settings) return <div className="settings-panel">加载中…</div>;
+  if (loadError) {
+    return (
+      <div className="settings-panel">
+        <p role="alert">设置读取失败，可能是磁盘或应用数据目录暂时不可用。</p>
+        <p className="settings-note"><button className="settings-link" onClick={reload}>重试加载</button></p>
+      </div>
+    );
+  }
+  if (!settings) {
+    // 已知形状的面板用骨架行占位：比单点 spinner 少一次高度跳变
+    return (
+      <div className="settings-panel">
+        <SkeletonLines widths={[0.4, 0.9, 0.9, 0.35, 0.6]} rows={5} />
+        <SkeletonLines widths={[0.45, 0.9]} rows={2} />
+      </div>
+    );
+  }
 
   const preset = getPreset(settings.providerId);
   const apiKey = settings.apiKeys[settings.providerId] ?? "";
@@ -477,10 +501,14 @@ function PetSizeSection({
  * "记住我…"写入的事实在这里全部可见、可单条删除。
  */
 function MemoriesSection() {
-  const [items, setItems] = useState<MemoryItem[]>([]);
+  const [items, setItems] = useState<MemoryItem[] | null>(null); // null=加载中（区别于"空"）
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    void memoryService.ready.then(() => void memoryService.list().then(setItems));
+    void memoryService.ready
+      .then(() => memoryService.list())
+      .then(setItems)
+      .catch(() => setLoadError(true));
   }, []);
 
   const remove = useCallback((id: number) => {
@@ -489,9 +517,11 @@ function MemoriesSection() {
 
   return (
     <div className="settings-memories">
-      <span className="settings-field-label">长期记忆（{items.length}）</span>
-      {items.length === 0 && <p className="settings-note">还没有。对话里说"记住我喜欢低糖饮食"试试。</p>}
-      {items.map(m => (
+      <span className="settings-field-label">长期记忆（{items?.length ?? "…"}）</span>
+      {items === null && !loadError && <Loading label="正在读取记忆…" />}
+      {loadError && <p className="settings-note" role="alert">记忆读取失败（数据库暂不可用），功能重试稍后自动恢复。</p>}
+      {items !== null && !loadError && items.length === 0 && <p className="settings-note">还没有。对话里说"记住我喜欢低糖饮食"试试。</p>}
+      {items?.map(m => (
         <div key={m.id} className="settings-memory">
           <span className="settings-memory__fact">{m.fact}</span>
           <span className="settings-memory__src">{m.source === "agent" ? "自动" : "手动"}</span>

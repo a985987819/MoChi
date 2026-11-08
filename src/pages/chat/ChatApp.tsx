@@ -120,10 +120,22 @@ export function ChatApp() {
         <WelcomeGuide onFinish={finishWelcome} onDismissForever={() => void dismissForever()} />
       ) : (
         <>
-          {tab === "chat" && <ChatTab onOpenSettings={() => setTab("settings")} />}
-          {tab === "todos" && <TodosTab />}
-          {tab === "pomodoro" && <PomodoroTab />}
-          {tab === "settings" && <SettingsTab />}
+          {/* keep-alive：四个 Tab 常驻不卸载，切换只切 visible——旧条件渲染会在
+              每次切换时重挂组件（聊天历史重查 SQLite、设置重读 store、监听反复
+              装卸），既闪又费。CSS 入场动画在 display:none→显示时自动重播，
+              切换的"进入感"零 JS 成本。 */}
+          <div className="chat-tab-page" hidden={tab !== "chat"}>
+            <ChatTab onOpenSettings={() => setTab("settings")} />
+          </div>
+          <div className="chat-tab-page" hidden={tab !== "todos"}>
+            <TodosTab />
+          </div>
+          <div className="chat-tab-page" hidden={tab !== "pomodoro"}>
+            <PomodoroTab />
+          </div>
+          <div className="chat-tab-page" hidden={tab !== "settings"}>
+            <SettingsTab />
+          </div>
         </>
       )}
     </main>
