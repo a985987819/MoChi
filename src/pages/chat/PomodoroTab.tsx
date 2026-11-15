@@ -89,7 +89,11 @@ export function PomodoroTab() {
         {reminders.map(r => (
           <div key={r.id} className="pomo-reminder">
             <span className="pomo-reminder__text">{r.text}</span>
-            <span className="pomo-reminder__time">{new Date(r.fireAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+            {/* 数据防御：DB 里的 fireAt 理论上是数字，脏数据（NULL/NaN）不能渲染成
+                "Invalid Date" 占一整行——降级为不显示时间 */}
+            <span className="pomo-reminder__time">
+              {Number.isFinite(r.fireAt) ? new Date(r.fireAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
+            </span>
             <button onClick={() => cancelReminder(r.id)} aria-label="取消提醒">
               ×
             </button>

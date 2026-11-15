@@ -117,6 +117,46 @@ impl AlertQueue {
 #[derive(Clone, serde::Serialize)]
 struct AlertAck { id: String, kind: AlertKind }
 
+/// 透明区域点击穿透的状态（v0.9.0 桌宠体检）：宠物窗 220×260 的矩形里，
+/// 形象只占底部一块——透明区域会挡住底下窗口的点击（右下角贴着托盘/开始菜单，
+/// 这是日常使用的高频痛点）。方案：JS 命中检测 → 穿透时 `set_ignore_cursor_events(true)`；
+/// ignore 后 WebView 收不到指针事件，由 Rust 侧低频轮询全局光标**唤回**。
+#[derive(Default)]
+struct PetHitTest {
+    ignore: bool,
+    /// 形象矩形（窗口内容区逻辑 px：x, y, w, h）——由 JS 上报
+    sprite: Option<(f64, f64, f64, f64)>,
+}
+
+/// 纯函数（可单测）：全局光标是否落在宠物形象矩形内。
+/// 逻辑矩形按窗口 DPI 缩放换算成物理坐标再比较；margin 给一点手感余量。
+fn cursor_hits_sprite(
+    cursor: (f64, f64),
+    window_pos: (f64, f64),
+    scale: f64,
+    sprite: (f64, f64, f64, f64),
+    margin_logical: f64,
+) -> bool {
+    if scale <= 0.0 || sprite.2 <= 0.0 || sprite.3 <= 0.0 {
+        return false;
+    }
+    let m = margin_logical * scale;
+    let x0 = window_pos.0 + sprite.0 * scale - m;
+    let y0 = window_pos.1 + sprite.1 * scale - m;
+    let x1 = x0 + sprite.2 * scale + 2.0 * m;
+    let y1 = y0 + sprite.3 * scale + 2.0 * m;
+    cursor.0 >= x0 && cursor.0 <= x1 && cursor.1 >= y0 && cursor.1 <= y1
+}
+
+/// 极简本地时间戳（panic 日志用）：不想为几行日志引入 chrono。
+fn chrono_like_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("unix:{secs}")
+}
+
 /// 拖拽运动追踪：Moved 事件只在**边界**广播（开始一次/结束一次），
 /// 每次移动都发事件会把 1Hz 的 IPC 变成 60Hz，前端反而被自己拖慢。
 /// 结束判定靠"静默窗口"：原生拖动中 Moved 连续到达，停止移动 400ms 后视为放手。
@@ -144,14 +184,41 @@ fn drag_transition(dragging: bool, move_age_ms: Option<u64>) -> Option<bool> {
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // panic=abort 意味着任何 Rust panic 都会让进程**无声消失**（托盘也没了）。
+    // 先挂 panic 钩子把消息写进临时目录日志：用户反馈"宠物突然没了"时才有迹可循。
+    // 时机在 builder 之前——setup 前后的 panic 都能覆盖；临时目录恒可写，不依赖 appData。
+    std::panic::set_hook(Box::new(|info| {
+        let payload = info.to_string();
+        let location = info.location().map_or("<unknown>".into(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+        let log = format!(
+            "[{}] PANIC {location}\n{payload}\n",
+            chrono_like_now(),
+        );
+        eprintln!("[mochi] {log}");
+        let path = std::env::temp_dir().join("mochi-panic.log");
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            use std::io::Write as _;
+            let _ = file.write_all(log.as_bytes());
+        }
+    }));
+
     // single-instance 必须最先注册：第二次启动进程时，回调在「已有实例」里执行
     let builder = tauri::Builder::default()
         .manage(Mutex::new(AlertQueue::default()))
         .manage(Mutex::new(DragMotion::default()))
+        .manage(Mutex::new(PetHitTest::default()))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // 用户再次双击图标：不启动新进程，而是把已有宠物的窗口唤回前台
-            if let Some(pet) = app.get_webview_window("pet") {
-                let _ = pet.show();
+            // 用户再次双击图标：把已有宠物的窗口唤回前台。窗口可能在创建中
+            // （初始化早期再次双击）——短重试兜底，避免"点了图标却什么都没发生"。
+            for attempt in 0..3 {
+                match app.get_webview_window("pet") {
+                    Some(pet) => {
+                        let _ = pet.show();
+                        return;
+                    }
+                    None if attempt < 2 => std::thread::sleep(Duration::from_millis(600)),
+                    None => eprintln!("[single-instance] 宠物窗口尚未就绪，唤起失败"),
+                }
             }
         }))
         .plugin(tauri_plugin_opener::init())
@@ -184,7 +251,8 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![
             list_user_pet_assets, get_idle_seconds,
-            show_app_alert, get_app_alert, ack_app_alert, dismiss_app_alert
+            show_app_alert, get_app_alert, ack_app_alert, dismiss_app_alert,
+            set_pet_hit_test
         ]);
 
     builder
@@ -200,6 +268,8 @@ pub fn run() {
             ensure_pet_position(app);
             // v0.8.2：原生节拍——隐藏窗口时 WebView 的 setInterval 会被节流
             start_native_tick(app.handle().clone());
+            // v0.9.0 桌宠体检：透明区域点击穿透的唤回轮询（穿透时 WebView 失明，靠它召回）
+            start_pet_hit_test_poll(app.handle().clone());
             Ok(())
         })
         // 拦截所有窗口的关闭请求 → 隐藏。Tauri 中窗口关闭默认会销毁窗口对象，
@@ -267,10 +337,19 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     // 每秒写一次 NOTIFYICONDATA——不是不能做，是没必要）
     app.manage(std::sync::Mutex::new("Mochi 麻薯".to_string()));
 
-    TrayIconBuilder::with_id("mochi-tray")
-        .icon(app.default_window_icon().expect("缺少应用图标").clone())
+    // 图标兜底（桌宠体检）：default_window_icon 来自打包配置，缺失不该 panic——
+    // panic=abort 下会整个进程消失。托盘没图标退回系统默认，功能不受损。
+    let tray_builder = TrayIconBuilder::with_id("mochi-tray")
         .tooltip("Mochi 麻薯")
-        .menu(&menu)
+        .menu(&menu);
+    let tray_builder = match app.default_window_icon().cloned() {
+        Some(icon) => tray_builder.icon(icon),
+        None => {
+            eprintln!("[tray] 缺少应用图标，托盘使用系统默认图标");
+            tray_builder
+        }
+    };
+    tray_builder
         // Windows 默认左键弹出菜单；关掉它，把左键留给「切换宠物」，
         // 菜单走右键（桌面助手类软件的通行交互）
         .show_menu_on_left_click(false)
@@ -320,7 +399,12 @@ fn set_tray_tooltip(app: &tauri::AppHandle, text: &str) {
     let Some(cache) = app.try_state::<std::sync::Mutex<String>>() else {
         return;
     };
-    let mut last = cache.lock().expect("托盘 tooltip 缓存锁中毒");
+    // 锁中毒不致命：Mutex<String> 的内容在 panic 后依然有效，恢复所有权继续用，
+    // 绝不让托盘更新变成第二个 panic（panic=abort 下会连锁杀掉整个进程）。
+    let mut last = match cache.lock() {
+        Ok(l) => l,
+        Err(poisoned) => poisoned.into_inner(),
+    };
     if *last == text {
         return;
     }
@@ -632,6 +716,60 @@ fn start_native_tick(app: tauri::AppHandle) {
     });
 }
 
+/// 点击穿透命令（v0.9.0 桌宠体检）：JS 命中检测到指针在透明区域时调用。
+/// 幂等去重（重复同值调用直接返回），JS 上报的形象矩形存进状态供唤回轮询使用。
+#[tauri::command]
+fn set_pet_hit_test(
+    app: tauri::AppHandle,
+    ignore: bool,
+    x: f64, y: f64, width: f64, height: f64,
+) -> Result<(), String> {
+    let state = app.state::<Mutex<PetHitTest>>();
+    let mut hit = state.lock().map_err(|_| "命中检测状态不可用")?;
+    hit.sprite = Some((x, y, width, height));
+    if hit.ignore == ignore {
+        return Ok(()); // 去重：每次 pointermove 都会调用，不重复切穿透态
+    }
+    hit.ignore = ignore;
+    if let Some(pet) = app.get_webview_window("pet") {
+        pet.set_ignore_cursor_events(ignore).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 穿透态唤回轮询：ignore=true 时 WebView 收不到指针事件，JS 无法自行恢复——
+/// 由这条 150ms 线程轮询全局光标，重新进入形象矩形就恢复事件接收。
+/// 仅在穿透态工作（常态直接 continue），几乎零成本。
+fn start_pet_hit_test_poll(app: tauri::AppHandle) {
+    let _ = std::thread::Builder::new().name("mochi-hitpoll".into()).spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(150));
+        let state = app.state::<Mutex<PetHitTest>>();
+        let (ignore, sprite) = match state.lock() {
+            Ok(h) => (h.ignore, h.sprite),
+            Err(_) => continue,
+        };
+        if !ignore {
+            continue;
+        }
+        let Some(sprite) = sprite else { continue };
+        let Some(pet) = app.get_webview_window("pet") else { continue };
+        let Ok(window_pos) = pet.outer_position().map(|p| (p.x as f64, p.y as f64)) else { continue };
+        // 主屏 DPI（拿不到按 1.0 算——偏差最多让唤回晚一个轮询周期）
+        let scale = pet.primary_monitor().ok().flatten().map_or(1.0, |m| m.scale_factor());
+        let cursor = match app.cursor_position() {
+            Ok(c) => (c.x, c.y),
+            Err(_) => continue,
+        };
+        if cursor_hits_sprite(cursor, window_pos, scale, sprite, 8.0) {
+            // 光标回到形象上：恢复事件接收。锁失败静默——下一次轮询重试。
+            if let Ok(mut hit) = state.lock() {
+                hit.ignore = false;
+            }
+            let _ = pet.set_ignore_cursor_events(false);
+        }
+    });
+}
+
 /// 从素材文件名提取状态名（与前端 `pet-assets.ts#parseAssetName` 同一套约定，见 docs/pet-assets.md §2）。
 /// `{state}.{ext}` / `{state}_N.{ext}`；jpeg 归一 jpg；不支持的扩展名返回 None。
 /// 后缀剥离只认"纯数字后缀"：`my_state.png` 的状态是 `my_state`，`my_state_2.png` 也是 `my_state`。
@@ -908,5 +1046,25 @@ mod alert_tests {
         assert_eq!(drag_transition(true, Some(400)), Some(false)); // 恰到窗口 → 放手
         assert_eq!(drag_transition(true, Some(10_000)), Some(false)); // 睡眠唤醒补判
         assert_eq!(drag_transition(false, Some(999)), Some(true)); // 放手后又移动 → 新一轮
+    }
+
+    #[test]
+    fn cursor_hit_test_matches_sprite_with_margin_and_dpi() {
+        // 窗口在 (1000, 800) 物理 px，DPI 1.5，形象逻辑矩形 (10, 20, 200, 240)
+        let sprite = (10.0, 20.0, 200.0, 240.0);
+        let win = (1000.0, 800.0);
+        let scale = 1.5;
+        // 换算：物理矩形 = (1015, 830) 到 (1315, 1190)；8 逻辑 px 余量 → (1003, 818)~(1327, 1202)
+        let inside = (1165.0, 1010.0);
+        assert!(cursor_hits_sprite(inside, win, scale, sprite, 8.0));
+        // 窗口内但形象上沿之上（物理 y=810 < 余量下沿 818）→ 不命中（透明区穿透）
+        assert!(!cursor_hits_sprite((1165.0, 810.0), win, scale, sprite, 8.0));
+        // 上沿上方 1 物理 px（在余量带内）→ 命中（手感余量）
+        assert!(cursor_hits_sprite((1165.0, 829.0), win, scale, sprite, 8.0));
+        // 窗口外远处
+        assert!(!cursor_hits_sprite((0.0, 0.0), win, scale, sprite, 8.0));
+        // 防御：非法 scale / 零尺寸一律不命中
+        assert!(!cursor_hits_sprite(inside, win, 0.0, sprite, 8.0));
+        assert!(!cursor_hits_sprite(inside, win, scale, (10.0, 20.0, 0.0, 240.0), 8.0));
     }
 }

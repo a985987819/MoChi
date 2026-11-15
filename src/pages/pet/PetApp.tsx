@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { petState, type PetState } from "@/services/pet-state";
 import { listVariants, pickRandom, type PetVariant } from "@/services/pet-assets";
@@ -112,6 +113,9 @@ export function PetApp() {
   const [gripping, setGripping] = useState(false);
   const [bubble, setBubble] = useState<BubbleDisplay<PetBubbleLine> | null>(null);
   const shellRef = useRef<HTMLElement>(null);
+  const spriteRef = useRef<HTMLDivElement>(null);
+  /** 当前是否已置穿透（与 Rust 状态同步；JS 在 ignore=true 后失明，靠 Rust 轮询唤回） */
+  const passThroughRef = useRef(false);
   const chatter = useMemo(() => new PetChatter(), []);
   const bubbleDisplay = useMemo(() => new TimedBubble<PetBubbleLine>(setBubble), []);
 
@@ -212,6 +216,42 @@ export function PetApp() {
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
+  // 透明区域点击穿透（v0.9.0 桌宠体检）：宠物窗矩形大部分是透明的，却挡住
+  // 底下窗口的点击（右下角正是托盘/开始菜单高频区）。方案：指针移动时做
+  // 形象命中检测——形象外 → Rust set_ignore_cursor_events(true)（事件穿透到
+  // 下一层窗口）；此后 WebView"失明"，Rust 150ms 轮询光标在重新进入形象矩形时唤回。
+  // 菜单展开期间强制不穿透（菜单可能伸到形象矩形之外）。
+  const updateHitTest = useCallback((x: number, y: number) => {
+    if (menu) {
+      if (passThroughRef.current) {
+        passThroughRef.current = false;
+        void invoke("set_pet_hit_test", { ignore: false, x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
+      }
+      return;
+    }
+    const rect = spriteRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const inside = x >= rect.left - 8 && x <= rect.right + 8 && y >= rect.top - 8 && y <= rect.bottom + 8;
+    if (inside && passThroughRef.current) {
+      passThroughRef.current = false;
+      void invoke("set_pet_hit_test", { ignore: false, x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
+    } else if (!inside && !passThroughRef.current) {
+      passThroughRef.current = true;
+      void invoke("set_pet_hit_test", {
+        ignore: true,
+        x: rect.left, y: rect.top, width: rect.width, height: rect.height,
+      }).catch(() => undefined);
+    }
+  }, [menu]);
+
+  // 菜单开合本身也要立即纠正穿透态（开菜单那一刻指针可能在形象外）
+  useEffect(() => {
+    if (menu) {
+      passThroughRef.current = false;
+      void invoke("set_pet_hit_test", { ignore: false, x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
+    }
+  }, [menu]);
+
   return (
     <main
       ref={shellRef}
@@ -222,6 +262,7 @@ export function PetApp() {
         if (e.button === 0) e.currentTarget.setPointerCapture(e.pointerId);
       }}
       onPointerMove={e => {
+        updateHitTest(e.clientX, e.clientY);
         if (gestures.pointerMove(e.pointerId, e.clientX, e.clientY) && e.currentTarget.hasPointerCapture(e.pointerId)) {
           e.currentTarget.releasePointerCapture(e.pointerId);
         }
@@ -236,7 +277,7 @@ export function PetApp() {
         if (event.animationName === "mochi-bounce") setBouncing(false);
       }}
     >
-      <div className="pet-stage__pet">
+      <div className="pet-stage__pet" ref={spriteRef}>
         <PetSprite key={state} state={state} />
       </div>
       {bubble && <PetBubble key={bubble.sequence} text={bubble.line.text} leaving={bubble.leaving} />}
