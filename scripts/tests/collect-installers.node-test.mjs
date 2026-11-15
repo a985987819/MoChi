@@ -126,7 +126,10 @@ test("Windows 重复收集可覆盖同名安装包和 manifest，也支持从目
 });
 
 test("Windows 第二个安装包被占用时回滚第一个安装包，旧清单与文件仍匹配", {
-  skip: process.platform !== "win32", timeout: 15000,
+  skip: process.platform !== "win32",
+  // 30s：内层 PowerShell 就绪等待 15s + 收集/回滚。CI runner 负载高时
+  // powershell 冷启动（AV 扫描）可能超过 5s——v0.9.0 CI 曾因此偶发红。
+  timeout: 30_000,
 }, async () => {
   const options = await fixture();
   const msiName = "Mochi_0.9.0_x64_en-US.msi";
@@ -152,7 +155,9 @@ test("Windows 第二个安装包被占用时回滚第一个安装包，旧清单
     await new Promise((resolveReady, rejectReady) => {
       let output = "";
       let errors = "";
-      const timeout = setTimeout(() => { worker.kill(); rejectReady(new Error("等待 Windows 文件锁超时")); }, 5000);
+      // 15s：PowerShell 冷启动在负载高的 CI runner 上可能很慢（AV 扫描），
+      // 5s 在 CI 上偶发超时（本地恒 <1s）——这是 v0.9.0 CI 偶发红的根因。
+      const timeout = setTimeout(() => { worker.kill(); rejectReady(new Error("等待 Windows 文件锁超时")); }, 15_000);
       worker.stdout.on("data", chunk => {
         output += chunk.toString();
         if (output.includes("LOCKED")) { clearTimeout(timeout); resolveReady(); }
