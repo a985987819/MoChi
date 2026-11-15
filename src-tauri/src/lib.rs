@@ -67,7 +67,10 @@ const EVT_AUTOSTART_CHANGED: &str = "state://autostart-changed";
 /// 宠物大小档位（v0.9.0 P1-15）：前端 → Rust（改窗口尺寸）+ 宠物窗（CSS 变量）
 const EVT_PET_SCALE_CHANGED: &str = "state://pet-scale-changed";
 /// 拖拽状态边界广播（v0.9.0 手感优化）：开始/结束各一次，前端切握持/放下动画
+/// 拖拽状态边界广播（v0.9.0 手感优化）：开始/结束各一次，前端切握持/放下动画
 const EVT_PET_DRAG_CHANGED: &str = "state://pet-drag-changed";
+/// 游戏模式开关（v0.9.0 自迭代）：设置 → Rust，启停前台全屏检测
+const EVT_GAME_MODE_CHANGED: &str = "state://game-mode-changed";
 /// 宠物窗设计基准尺寸（tauri.conf.json 声明值；缩放按逻辑像素乘档位）
 const PET_BASE_WIDTH: f64 = 220.0;
 const PET_BASE_HEIGHT: f64 = 260.0;
@@ -157,6 +160,26 @@ fn chrono_like_now() -> String {
     format!("unix:{secs}")
 }
 
+/// 游戏模式状态（v0.9.0 自迭代）：设置开关（默认关）+ "被本功能隐藏"标记——
+/// 后者避免与用户手动 toggle_pet 打架：手动显示后游戏模式只在**新的**全屏事件
+/// 里才再次隐藏，退出全屏也只恢复自己隐藏的那次。
+#[derive(Default)]
+struct GameMode {
+    enabled: bool,
+    hidden_by_gm: bool,
+}
+
+/// 纯函数（可单测）：前台窗口矩形是否"全屏覆盖"其显示器。
+/// 阈值 0.97 容忍边界 1~2px 的测量噪声；宽高独立判断（竖屏视频/带边框独占）。
+fn is_fullscreen_cover(win: (i32, i32, i32, i32), monitor: (i32, i32, i32, i32)) -> bool {
+    let (mw, mh) = (monitor.2 as i64, monitor.3 as i64);
+    if mw <= 0 || mh <= 0 {
+        return false; // 显示器矩形异常（0/负）：宁可不动宠物也不误隐藏
+    }
+    let (ww, wh) = ((win.2 as i64).max(0), (win.3 as i64).max(0));
+    ww * 100 >= mw * 97 && wh * 100 >= mh * 97
+}
+
 /// 拖拽运动追踪：Moved 事件只在**边界**广播（开始一次/结束一次），
 /// 每次移动都发事件会把 1Hz 的 IPC 变成 60Hz，前端反而被自己拖慢。
 /// 结束判定靠"静默窗口"：原生拖动中 Moved 连续到达，停止移动 400ms 后视为放手。
@@ -207,6 +230,7 @@ pub fn run() {
         .manage(Mutex::new(AlertQueue::default()))
         .manage(Mutex::new(DragMotion::default()))
         .manage(Mutex::new(PetHitTest::default()))
+        .manage(Mutex::new(GameMode::default()))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 用户再次双击图标：把已有宠物的窗口唤回前台。窗口可能在创建中
             // （初始化早期再次双击）——短重试兜底，避免"点了图标却什么都没发生"。
@@ -515,6 +539,26 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
         }
     });
 
+    // 游戏模式开关（v0.9.0 自迭代）：只置标志位，检测在 native tick 里做（1s 节奏，
+    // 不加线程）；切换开关时若宠物因旧会话被隐藏，先恢复，避免状态悬挂。
+    let handle = app.clone();
+    app.listen_any(EVT_GAME_MODE_CHANGED, move |event| {
+        let enabled = serde_json::from_str::<serde_json::Value>(event.payload())
+            .ok()
+            .and_then(|v| v.get("enabled").and_then(|b| b.as_bool()))
+            .unwrap_or(false);
+        let state = handle.state::<Mutex<GameMode>>();
+        if let Ok(mut mode) = state.lock() {
+            mode.enabled = enabled;
+            if !enabled && mode.hidden_by_gm {
+                mode.hidden_by_gm = false;
+                if let Some(pet) = handle.get_webview_window("pet") {
+                    let _ = pet.show();
+                }
+            }
+        }
+    });
+
     // 旧入口兼容：v0.7.0 的无 id 弹窗显示事件。托盘 tooltip 切到「该站起来了」
     // （P1-03）；正文提醒的真实通道是 show_app_alert 命令 + 队列。
     let handle = app.clone();
@@ -712,6 +756,41 @@ fn start_native_tick(app: tauri::AppHandle) {
                     }
                 }
             }
+            // 游戏模式（v0.9.0 自迭代）：默认关；开启时 1s 节奏检测前台全屏。
+            // 只在"遮挡宠物所在屏"时隐藏，退出全屏恢复——不碰用户手动 toggle 的状态
+            // （hidden_by_gm 只标记本功能自己的隐藏）。
+            let gm_state = handle.state::<Mutex<GameMode>>();
+            if let Ok(mut mode) = gm_state.lock() {
+                if !mode.enabled {
+                    return;
+                }
+                #[cfg(windows)]
+                {
+                    match foreground_fullscreen_monitor() {
+                        Some(monitor) => {
+                            let occluded = pet_on_monitor(&handle, &monitor);
+                            if occluded && !mode.hidden_by_gm {
+                                mode.hidden_by_gm = true;
+                                if let Some(pet) = handle.get_webview_window("pet") {
+                                    let _ = pet.hide();
+                                }
+                            } else if !occluded && mode.hidden_by_gm {
+                                mode.hidden_by_gm = false;
+                                if let Some(pet) = handle.get_webview_window("pet") {
+                                    let _ = pet.show();
+                                }
+                            }
+                        }
+                        None if mode.hidden_by_gm => {
+                            mode.hidden_by_gm = false;
+                            if let Some(pet) = handle.get_webview_window("pet") {
+                                let _ = pet.show();
+                            }
+                        }
+                        None => {}
+                    }
+                }
+            }
         });
     });
 }
@@ -858,6 +937,69 @@ fn normalize_idle_seconds(seconds: f64) -> u64 {
 // 本项目只支持 Windows/macOS；其他目标保守按“在场”处理，不错误推迟提醒。
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn platform_idle_seconds() -> u64 { 0 }
+
+// ── 游戏模式：前台全屏检测（v0.9.0 自迭代，仅 Windows） ──────────────────
+// 隐私边界：只读前台窗口与显示器的**矩形几何**，不读应用名/标题/进程/内容——
+// 与 learning/08 §3 红线一致（"能推断用户在忙什么"的前台嗅探不做）。
+
+/// 前台窗口是否全屏覆盖其显示器（矩形几何，windows 实现）。
+#[cfg(windows)]
+fn foreground_fullscreen_monitor() -> Option<(i32, i32, i32, i32)> {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect};
+
+    // SAFETY: 四个 Win32 调用均为查询型（无分配/无回调），句柄与指针参数按
+    // 文档约定传入；GetMonitorInfoW 的 cbSize 先行设置。
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_invalid() {
+            return None;
+        }
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            return None;
+        }
+        let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if hmon.is_invalid() {
+            return None;
+        }
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if GetMonitorInfoW(hmon, &mut info).as_bool() {
+            Some((
+                info.rcMonitor.left,
+                info.rcMonitor.top,
+                info.rcMonitor.right - info.rcMonitor.left,
+                info.rcMonitor.bottom - info.rcMonitor.top,
+            ))
+        } else {
+            None
+        }
+    }
+}
+
+// 非 Windows 目标：游戏模式可用但检测恒返回 None（设置页在 macOS 上禁用开关）。
+#[cfg(not(windows))]
+fn foreground_fullscreen_monitor() -> Option<(i32, i32, i32, i32)> {
+    None
+}
+
+/// 宠物窗当前是否位于指定显示器上（矩形相等近似：同一显示器的 position/size
+/// 稳定一致）。只在"全屏屏 == 宠物屏"时隐藏——别的屏全屏不该波及宠物。
+#[cfg(windows)]
+fn pet_on_monitor(app: &tauri::AppHandle, monitor: &(i32, i32, i32, i32)) -> bool {
+    let Some(pet) = app.get_webview_window("pet") else { return false };
+    let Ok(current) = pet.current_monitor() else { return false };
+    let Some(m) = current else { return false };
+    let pos = m.position();
+    let size = m.size();
+    (pos.x, pos.y, size.width as i32, size.height as i32) == *monitor
+}
 
 /// 显示并聚焦聊天窗。show() 不夺焦，聊天窗要接住用户输入必须显式 set_focus。
 fn show_chat(app: &tauri::AppHandle) {
@@ -1066,5 +1208,17 @@ mod alert_tests {
         // 防御：非法 scale / 零尺寸一律不命中
         assert!(!cursor_hits_sprite(inside, win, 0.0, sprite, 8.0));
         assert!(!cursor_hits_sprite(inside, win, scale, (10.0, 20.0, 0.0, 240.0), 8.0));
+    }
+
+    #[test]
+    fn fullscreen_cover_tolerates_edge_noise_but_not_windows() {
+        // 1920×1080 显示器：精确全屏 / 带任务栏遮蔽 2px 都算全屏
+        assert!(is_fullscreen_cover((0, 0, 1920, 1080), (0, 0, 1920, 1080)));
+        assert!(is_fullscreen_cover((-2, -1, 1922, 1080), (0, 0, 1920, 1080)));
+        // 普通窗口化（宽或高不足 97%）不算
+        assert!(!is_fullscreen_cover((0, 0, 1600, 900), (0, 0, 1920, 1080)));
+        assert!(!is_fullscreen_cover((0, 0, 1920, 900), (0, 0, 1920, 1080)));
+        // 防御：零尺寸显示器恒 false（除零保护）
+        assert!(!is_fullscreen_cover((0, 0, 1920, 1080), (0, 0, 0, 0)));
     }
 }

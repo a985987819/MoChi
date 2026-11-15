@@ -47,6 +47,7 @@ if (import.meta.hot) import.meta.hot.dispose(() => {
 void loadSettings().then(settings => {
   void sendStateEvent(STATE_EVENTS.shortcutChanged, { enabled: settings.shortcutEnabled }).catch(() => undefined);
   void sendStateEvent(STATE_EVENTS.autostartChanged, { enabled: settings.autostartEnabled }).catch(() => undefined);
+  void sendStateEvent(STATE_EVENTS.gameModeChanged, { enabled: settings.gameModeEnabled }).catch(() => undefined);
   void sendStateEvent(STATE_EVENTS.petScaleChanged, { scale: settings.petScale }).catch(() => undefined);
   if (!settings.onboardingDone) {
     window.setTimeout(() => void sendUIEvent(UI_EVENTS.openChat).catch(() => undefined), 1200);

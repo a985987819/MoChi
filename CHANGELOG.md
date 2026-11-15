@@ -222,6 +222,34 @@ outcome.ok 判定。
 **版本规划影响**：agent loop 核心决策全部有机械保证（03/04/08 三篇 learning
 的测试面补齐）；真机走查清单新增两项（提醒历史/离开统计）。**验证**：312/312
 tests、check/build/cargo test 8/8 全绿。
+
+### 桌宠体检：崩溃点清零与点击穿透（2026-11-15）
+
+**变更**：P0 崩溃点清零——全局 panic 钩子（%TEMP%/mochi-panic.log）、托盘图标
+expect 兜底、tooltip 锁中毒恢复（panic=abort 下任何 panic 都会进程无声消失）；
+透明区域点击穿透（JS 形象命中检测 + set_ignore_cursor_events + 150ms 唤回轮询，
+菜单展开期禁用）；单实例二次启动竞态重试；PomodoroTab Invalid Date 防御。
+P2 记录：会话 DOM 虚拟化/WebView 崩溃自愈/全屏自动隐藏（本轮兑现）。
+
+### 自迭代：提供商生态与游戏模式（2026-11-15）
+
+**变更**：提供商预设 5→7 家（GLM/智谱 + 通义千问百炼，纯数据零代码）；游戏模式
+（默认关）：前台窗口全屏覆盖其显示器时自动隐藏麻薯、退出恢复——只读矩形几何
+不读应用名（learning/08 §3 红线兑现形态），is_fullscreen_cover 纯函数 + 单测，
+native tick 复用（零新线程），hidden_by_gm 与手动切换互不干扰，macOS 开关禁用
+注明已知限制；windows crate 三 feature 回归（本轮唯一新增依赖，Windows 专属）。
+
+**动机与取舍**：两项均出自 roadmap backlog 的价值/风险比最优解；Ollama 一键检测
+暂缓（CSP connect-src 放行 localhost 需单独安全评估）；全屏判定用几何而非
+应用嗅探，守住 privacy 红线的同时兑现桌宠刚需。
+
+**学习要点**："默认关 + 明示开关 + 只做几何"三件套让隐私敏感功能可以安全落地；
+纯函数（is_fullscreen_cover/cursor_hits_sprite/drag_transition）把 Win32 相关
+逻辑钉进单测——FFI 只做取数，决策全部可测。
+
+**版本规划影响**：P2 挂起仅剩会话 DOM 虚拟化与 WebView 崩溃自愈（等 Tauri 回调）；
+Ollama 检测待 CSP 评估。**验证**：312/312 tests、cargo test 10/10、check/build
+全绿。
 ---
 
 ## [v0.8.2] - 2026-11-04 — 稳定性与陪伴体验发布

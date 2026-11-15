@@ -106,6 +106,12 @@ export const STATE_EVENTS = {
    */
   autostartChanged: "state://autostart-changed",
   /**
+   * 游戏模式开关（v0.9.0 自迭代，前端 → Rust）。载荷：{ enabled: boolean }。
+   * Rust 收到后启停"前台全屏检测"（只读窗口矩形几何，不读应用名——learning/08
+   * §3 红线的兑现形态：默认关 + 明示开关 + 只做几何判断）。
+   */
+  gameModeChanged: "state://game-mode-changed",
+  /**
    * 宠物大小档位（v0.9.0 P1-15，前端 → Rust + 宠物窗）。
    * 载荷：{ scale: number }（0.8 | 1 | 1.2）。Rust 改窗口尺寸（右下角锚点 +
    * 屏内 clamp）；宠物窗写 CSS 变量 --pet-scale 缩放形象。

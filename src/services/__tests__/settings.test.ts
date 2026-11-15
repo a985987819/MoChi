@@ -43,6 +43,7 @@ describe("settings normalize（纯函数）", () => {
     expect(s.onboardingDone).toBe(false);
     expect(s.shortcutEnabled).toBe(true);
     expect(s.autostartEnabled).toBe(false);
+    expect(s.gameModeEnabled).toBe(false); // 游戏模式默认关（learning/08 §3 红线）
     expect(s.petScale).toBe(1);
     expect(s.petSelfName).toBe("麻薯");
     expect(s.userNickname).toBe("人");

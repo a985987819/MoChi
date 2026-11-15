@@ -261,6 +261,8 @@ export function SettingsTab() {
 
       <AutostartSection settings={settings} update={update} />
 
+      <GameModeSection settings={settings} update={update} />
+
       <MemoriesSection />
 
       <OnboardingSection update={update} />
@@ -458,6 +460,51 @@ function AutostartSection({
         <span>开机后自动运行（在托盘待命，不弹窗）</span>
       </label>
       <p className="settings-note">关闭这个开关就会恢复；也可以随时在任务管理器的「启动应用」里管理。</p>
+    </div>
+  );
+}
+
+/**
+ * 游戏模式（v0.9.0 自迭代）：前台应用全屏覆盖显示器时自动隐藏麻薯，退出恢复。
+ * 隐私边界（learning/08 §3 红线的兑现形态）：只读前台窗口的**矩形几何**判断
+ * 是否全屏——不读应用名/标题/进程，不构成"推断用户在忙什么"；默认关。
+ * 平台：Windows 全支持；macOS 暂无对应实现（无本机验证手段），开关禁用并说明。
+ */
+function GameModeSection({
+  settings,
+  update,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+}) {
+  const isMac = /Mac/i.test(navigator.platform);
+  const toggle = useCallback(
+    (enabled: boolean) => {
+      update({ gameModeEnabled: enabled });
+      void sendStateEvent(STATE_EVENTS.gameModeChanged, { enabled });
+    },
+    [update],
+  );
+
+  return (
+    <div className="settings-gamemode">
+      <span className="settings-field-label">游戏模式</span>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={settings.gameModeEnabled && !isMac}
+          disabled={isMac}
+          onChange={e => toggle(e.target.checked)}
+        />
+        <span>全屏应用（游戏/视频）时自动隐藏麻薯</span>
+      </label>
+      {isMac && <p className="settings-note">macOS 暂不支持此功能（已知限制），开关保持关闭。</p>}
+      {!isMac && settings.gameModeEnabled && (
+        <p className="settings-note">
+          只检测前台窗口是否全屏（不看应用名和内容）；麻薯所在屏幕被全屏覆盖时隐藏，退出全屏恢复。
+        </p>
+      )}
+      <p className="settings-note">默认关闭——任何形式的"看前台"都需要你明示开启。</p>
     </div>
   );
 }

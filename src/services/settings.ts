@@ -58,6 +58,13 @@ export interface AppSettings extends AddressingPreferences {
    */
   autostartEnabled: boolean;
   /**
+   * 游戏模式（v0.9.0 自迭代，**默认关**——learning/08 §3 前台嗅探红线的兑现形态）：
+   * 开启后 Rust 每秒检查前台窗口是否**全屏覆盖其显示器**（只读窗口矩形几何，
+   * 不读应用名/标题/进程——不构成"推断用户在忙什么"），全屏遮挡宠物所在屏时
+   * 自动隐藏宠物，退出全屏恢复。默认关是底线：任何形式的"看前台"都需要用户明示。
+   */
+  gameModeEnabled: boolean;
+  /**
    * 宠物大小档位（v0.9.0 P1-15）：0.8 | 1 | 1.2，默认 1。
    * Rust 收 state://pet-scale-changed 后改窗口尺寸（保持右下角锚点 + 屏内
    * clamp）；宠物窗把同值写进 CSS 变量 --pet-scale 缩放形象。
@@ -81,6 +88,7 @@ export function defaultSettings(): AppSettings {
     onboardingDone: false,
     shortcutEnabled: true,
     autostartEnabled: false,
+    gameModeEnabled: false,
     petScale: 1,
   };
 }
@@ -116,6 +124,7 @@ export function normalize(raw: unknown): AppSettings {
     onboardingDone: typeof r.onboardingDone === "boolean" ? r.onboardingDone : d.onboardingDone,
     shortcutEnabled: typeof r.shortcutEnabled === "boolean" ? r.shortcutEnabled : d.shortcutEnabled,
     autostartEnabled: typeof r.autostartEnabled === "boolean" ? r.autostartEnabled : d.autostartEnabled,
+    gameModeEnabled: typeof r.gameModeEnabled === "boolean" ? r.gameModeEnabled : d.gameModeEnabled,
     // 浮点档位比较：容差 1e-6（0.8+0.1 之类的浮点误差不至于把合法值打成非法）
     petScale: PET_SCALES.find(s => Math.abs((typeof r.petScale === "number" ? r.petScale : 1) - s) < 1e-6) ?? d.petScale,
   };

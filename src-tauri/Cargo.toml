@@ -51,6 +51,11 @@ serde_json = "1"
 # 放弃：0.6 虽然实现了 macOS，但引入一个从未跑过的第三方 mac 代码路径，
 # 不如已经随 v0.8.2 双平台 CI 验证过的直查方案可靠。
 user-idle = "0.2"
+# 游戏模式（v0.9.0 自迭代）：前台窗口全屏检测需要 Win32 三件套——
+# GetForegroundWindow/GetWindowRect（WindowsAndMessaging）、
+# MonitorFromWindow/GetMonitorInfoW（Graphics/Gdi）。只读窗口矩形几何，
+# 不读应用名/标题/进程（learning/08 §3 隐私红线的兑现边界）。
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

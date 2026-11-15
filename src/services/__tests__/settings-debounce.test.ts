@@ -45,6 +45,7 @@ const base: AppSettings = {
   onboardingDone: false,
   shortcutEnabled: true,
   autostartEnabled: false,
+  gameModeEnabled: false,
   petScale: 1,
 };
 
