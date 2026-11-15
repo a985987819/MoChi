@@ -7,9 +7,9 @@ import type { PomodoroControl } from "@/services/pomodoro-control";
 const ctx = {} as ToolContext;
 function control(): PomodoroControl {
   return {
-    start: vi.fn(async () => ({ ok: true as const, data: { phase: "focus" as const, remainingSec: 600, focusMin: 10 } })),
-    stop: vi.fn(async () => ({ ok: true as const, data: { phase: "idle" as const, remainingSec: 0, focusMin: 10 } })),
-    status: vi.fn(async () => ({ ok: true as const, data: { phase: "focus" as const, remainingSec: 600, focusMin: 10 } })),
+    start: vi.fn(async () => ({ ok: true as const, data: { phase: "focus" as const, remainingSec: 600, focusMin: 10, awaySec: 0 } })),
+    stop: vi.fn(async () => ({ ok: true as const, data: { phase: "idle" as const, remainingSec: 0, focusMin: 10, awaySec: 0 } })),
+    status: vi.fn(async () => ({ ok: true as const, data: { phase: "focus" as const, remainingSec: 600, focusMin: 10, awaySec: 0 } })),
   };
 }
 

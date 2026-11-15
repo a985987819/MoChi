@@ -65,18 +65,21 @@ export async function* runAgent(opts: {
 
     // ── 4. 并发执行全部工具，按序回填（allSettled：单个失败不拖垮整批）──
     const settled = await Promise.allSettled(calls.map(c => registry.execute(c.name, c.arguments, ctx)));
+    // 工具业务失败已被 registry.execute 转成 ok:false 结果（settled 恒 fulfilled）——
+    // step-end 的 ok 必须看 outcome.ok 而不是 settled.status，否则 UI 轨迹给
+    // 失败工具画 ✓（v0.9.0 端到端测试抓到的真 bug）。
+    const outcomes: ToolOutcome[] = settled.map(r =>
+      r.status === "fulfilled" ? r.value : { ok: false, error: `工具内部异常: ${String(r.reason)}` },
+    );
     calls.forEach((call, i) => {
-      const r = settled[i];
-      const outcome: ToolOutcome =
-        r.status === "fulfilled" ? r.value : { ok: false, error: `工具内部异常: ${String(r.reason)}` };
-      const toolMsg: ChatMessage = { role: "tool", toolCallId: call.id, content: JSON.stringify(outcome) };
+      const toolMsg: ChatMessage = { role: "tool", toolCallId: call.id, content: JSON.stringify(outcomes[i]) };
       messages.push(toolMsg);
       persist?.(toolMsg);
     });
     yield {
       type: "step-end",
       step,
-      toolSummaries: calls.map((c, i) => ({ name: c.name, ok: settled[i].status === "fulfilled" })),
+      toolSummaries: calls.map((c, i) => ({ name: c.name, ok: outcomes[i].ok === true })),
     };
   }
 

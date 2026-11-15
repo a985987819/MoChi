@@ -173,8 +173,8 @@ export class StandupService {
 }
 
 export type PomodoroPhase = "idle" | "focus" | "break";
-/** 广播包含配置时长，空闲 UI 也能显示真实设置。 */
-export interface PomodoroStatus { phase: PomodoroPhase; remainingSec: number; focusMin: number; }
+/** 广播包含配置时长与离开时长，空闲 UI 也能显示真实设置（learning/08 §3 离开统计兑现） */
+export interface PomodoroStatus { phase: PomodoroPhase; remainingSec: number; focusMin: number; awaySec: number; }
 
 /** 宠物窗是唯一权威；阶段切换同步完成，可见提醒以稳定 id 异步投递并重试。 */
 export class PomodoroService {
@@ -187,6 +187,11 @@ export class PomodoroService {
   private scope: ServiceScope | null = null;
   private pendingAlerts = new Map<string, AppAlert>();
   private delivering = new Set<string>();
+  // 离开时长统计（learning/08 §3 设计兑现）：本次专注中用户 away 的累计秒数。
+  // 过渡式累积（away 开始记起点、恢复/结束结算），比每秒 tick 累加少 60 次/分的
+  // 状态读取，且 granularity 与 presence 变化天然对齐。
+  private awaySec = 0;
+  private awayStartedAt: number | null = null;
 
   /** 失败可重试，重复初始化不会注册多套跨窗监听与心跳。 */
   start(): Promise<void> {
@@ -207,6 +212,14 @@ export class PomodoroService {
     this.config = config;
     await scope.add(listen(STATE_EVENTS.settingsChanged, () => {
       void loadSettings().then(c => { if (scope.active) { this.config = c; this.broadcast(); } }).catch(() => undefined);
+    }));
+    // 离开时长：在场过渡时结算/起记。休息阶段不累计（离开不偷走休息时间）。
+    await scope.add(listen<{ presence: string }>(STATE_EVENTS.presenceChanged, e => {
+      if (!scope.active) return;
+      const away = e.payload?.presence === "away";
+      if (away && this.phase === "focus" && this.awayStartedAt == null) this.awayStartedAt = Date.now();
+      if (!away) this.settleAway();
+      if (this.phase !== "idle") this.broadcast();
     }));
     await scope.add(listen<{ minutes?: unknown; requestId?: string }>(STATE_EVENTS.pomodoroStart, e => {
       const min = e.payload?.minutes;
@@ -241,6 +254,8 @@ export class PomodoroService {
     this.phase = "focus";
     this.deadline = Date.now() + min * 60_000;
     this.activeBreakMin = this.config.pomodoroBreakMin;
+    this.awaySec = 0; // 统计口径：一轮专注一个统计周期
+    this.awayStartedAt = this.presenceAwayNow() ? Date.now() : null; // 专注期间已经开始离开
     petState.setSystem("focus", undefined, "pomodoro");
     this.broadcast();
     return { ok: true, data: this.status() };
@@ -249,6 +264,7 @@ export class PomodoroService {
   /** 停止只释放番茄钟自己的状态，已经到点的提醒仍保留供用户查看。 */
   stop(): void {
     if (this.phase === "idle") return;
+    this.settleAway(); // 手动停止也要把未结算的离开段计入
     this.phase = "idle";
     petState.clearSystem("pomodoro");
     this.broadcast();
@@ -256,7 +272,27 @@ export class PomodoroService {
 
   /** UI 与工具共用快照，剩余时间根据 deadline 计算，不做秒数累减。 */
   status(): PomodoroStatus {
-    return { phase: this.phase, remainingSec: this.phase === "idle" ? 0 : Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000)), focusMin: this.config.pomodoroFocusMin };
+    const liveAway = this.awayStartedAt != null && this.phase === "focus"
+      ? Math.floor((Date.now() - this.awayStartedAt) / 1000) : 0;
+    return {
+      phase: this.phase,
+      remainingSec: this.phase === "idle" ? 0 : Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000)),
+      focusMin: this.config.pomodoroFocusMin,
+      awaySec: this.awaySec + liveAway,
+    };
+  }
+
+  /** 把在途的离开段结算进累计值。until 可钳制统计窗（专注完成时钳到 deadline，
+   *  避免"睡过点"把休息期的离开算进专注离开——learning/08 统计口径）。 */
+  private settleAway(until: number = Date.now()): void {
+    if (this.awayStartedAt == null) return;
+    this.awaySec += Math.max(0, Math.floor((until - this.awayStartedAt) / 1000));
+    this.awayStartedAt = null;
+  }
+
+  /** presenceService.current 的读取点（测试里 presence 是被 mock 的对象） */
+  private presenceAwayNow(): boolean {
+    return presenceService.current === "away";
   }
 
   private tick(): void {
@@ -266,11 +302,13 @@ export class PomodoroService {
       return;
     }
     if (this.phase === "focus") {
+      this.settleAway(this.deadline); // 钳到专注窗口结束：离开只统计"专注期间"
       this.phase = "break";
       // 睡过专注结束时刻：从恢复时开始一次完整休息，不连发多个阶段通知。
       this.deadline = Date.now() + this.activeBreakMin * 60_000;
       petState.setSystem("break", undefined, "pomodoro");
-      this.queueAlert("focus", "专注完成 🍅", `休息 ${this.activeBreakMin} 分钟，麻薯等你回来`);
+      const awayNote = this.awaySec >= 60 ? `（期间离开约 ${Math.round(this.awaySec / 60)} 分钟）` : "";
+      this.queueAlert("focus", "专注完成 🍅", `专注 ${this.config.pomodoroFocusMin} 分钟${awayNote}，休息 ${this.activeBreakMin} 分钟，麻薯等你回来`);
     } else {
       this.phase = "idle";
       petState.clearSystem("pomodoro");

@@ -16,7 +16,7 @@ import type { PomodoroStatus } from "@/services/timers";
 const PHASE_LABEL = { idle: "空闲", focus: "专注中", break: "休息中" } as const;
 
 export function PomodoroTab() {
-  const [pomodoro, setPomodoro] = useState<PomodoroStatus>({ phase: "idle", remainingSec: 0, focusMin: 25 });
+  const [pomodoro, setPomodoro] = useState<PomodoroStatus>({ phase: "idle", remainingSec: 0, focusMin: 25, awaySec: 0 });
   const [pending, setPending] = useState(true);
   const [error, setError] = useState("");
   const [reminders, setReminders] = useState<Reminder[]>([]);
@@ -75,6 +75,11 @@ export function PomodoroTab() {
           </button>
         )}
         <p className="pomo-hint">也可以对麻薯说「来个番茄钟」</p>
+        {/* 离开时长（learning/08 §3 设计兑现）：专注中或结束时如实展示，
+            数值为 0 时不渲染——不给"一次都没离开"的专注添加噪音 */}
+        {pomodoro.awaySec >= 60 && (
+          <p className="pomo-hint">本次专注期间离开约 {Math.round(pomodoro.awaySec / 60)} 分钟</p>
+        )}
         {error && <p role="alert">{error}</p>}
       </section>
 

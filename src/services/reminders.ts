@@ -13,6 +13,7 @@
 
 import { emit, listen } from "@tauri-apps/api/event";
 import { getDb } from "@/services/db";
+import { historyStore } from "@/agent/memory/history-store";
 import { petState } from "@/services/pet-state";
 import { presenceService } from "@/services/presence";
 import { notify } from "@/services/notifications";
@@ -285,6 +286,10 @@ export class ReminderScheduler {
       petState.setSystem("alert", 8, "reminder"); // 临时提示到期后恢复站立/专注状态
       if (this.notificationsEnabled) void notify("⏰ 到点提醒", row.text).catch(() => undefined);
       await emit(STATE_EVENTS.remindersChanged).catch(() => undefined);
+      // 触发事件写入聊天历史（learning/08 §5.4 设计兑现）：用户打开聊天窗能看到
+      // "刚才提醒过什么"，模型下轮对话也能自然衔接（"我刚提醒过你喝水"）。
+      // assistant 角色进模型上下文是信息而非污染；落库失败不影响提醒本身（append 内部吞错）。
+      void historyStore.append([{ role: "assistant", content: `⏰ 到点提醒：${row.text}` }]);
     }
   }
 }

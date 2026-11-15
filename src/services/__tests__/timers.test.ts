@@ -229,3 +229,44 @@ it("重复初始化不会重复注册番茄钟状态迁移与通知", async () =
   await vi.advanceTimersByTimeAsync(300_000);
   expect(deps.notify).toHaveBeenCalledTimes(1);
 });
+
+describe("番茄钟离开时长统计（learning/08 §3 设计兑现）", () => {
+  it("专注中离开→恢复：离开时长被累计并在状态中可见", async () => {
+    const pomo = new PomodoroService();
+    await pomo.start();
+    pomo.startFocus();
+    expect(pomo.status().awaySec).toBe(0);
+    deps.presence.current = "away";
+    await emit(STATE_EVENTS.presenceChanged, { presence: "away" });
+    vi.setSystemTime(Date.now() + 120_000);
+    deps.presence.current = "active";
+    await emit(STATE_EVENTS.presenceChanged, { presence: "active" });
+    expect(pomo.status().awaySec).toBe(120);
+    // 未开始离开时段不再虚增（过渡已结算，状态读取幂等）
+    expect(pomo.status().awaySec).toBe(120);
+  });
+
+  it("专注完成钳到专注窗口：睡过点的离开不把休息期算进专注离开", async () => {
+    const pomo = new PomodoroService();
+    await pomo.start();
+    pomo.startFocus(); // 5 分钟专注
+    deps.presence.current = "away";
+    await emit(STATE_EVENTS.presenceChanged, { presence: "away" });
+    vi.setSystemTime(Date.now() + 600_000); // 睡过专注 5 分钟 + 休息 5 分钟
+    await emit(STATE_EVENTS.nativeTick);
+    expect(pomo.status().phase).toBe("break");
+    expect(pomo.status().awaySec).toBe(300); // 只统计专注窗口内的 5 分钟
+    const focusDone = deps.showAlert.mock.calls
+      .map(c => c[0] as { kind: string; body: string })
+      .find(a => a.kind === "pomodoro");
+    expect(focusDone?.body).toContain("离开约 5 分钟");
+    // 休息阶段的离开不累计（口径：只统计专注期间）
+    await emit(STATE_EVENTS.presenceChanged, { presence: "active" });
+    const before = pomo.status().awaySec;
+    deps.presence.current = "away";
+    await emit(STATE_EVENTS.presenceChanged, { presence: "away" });
+    vi.setSystemTime(Date.now() + 60_000);
+    await emit(STATE_EVENTS.nativeTick);
+    expect(pomo.status().awaySec).toBe(before);
+  });
+});
