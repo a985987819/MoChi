@@ -11,6 +11,8 @@ export function TodosTab() {
   const [todos, setTodos] = useState<Todo[] | null>(null); // null=加载中（区别于"空"）
   const [loadError, setLoadError] = useState(false);
   const [draft, setDraft] = useState("");
+  /** 可选到期时间（datetime-local 的值，如 "2026-11-18T09:00"） */
+  const [dueAt, setDueAt] = useState("");
 
   useEffect(() => {
     let off: (() => void) | undefined;
@@ -29,9 +31,13 @@ export function TodosTab() {
   const add = useCallback(() => {
     const title = draft.trim();
     if (!title) return;
-    todoService.add(title); // UI 通道：不带 due（时间语义让 Agent 的工具去承接）
+    // v0.13.0：可选的"到点提醒"。datetime-local 无时区信息，按本地时间解释（与用户直觉一致）；
+    // 空值 = 只记清单，不挂提醒。
+    const dueAtMs = dueAt ? new Date(dueAt).getTime() : undefined;
+    todoService.add(title, undefined, Number.isFinite(dueAtMs) ? dueAtMs : undefined);
     setDraft("");
-  }, [draft]);
+    setDueAt("");
+  }, [draft, dueAt]);
 
   return (
     <div className="todos-panel">
@@ -48,6 +54,14 @@ export function TodosTab() {
           添加
         </button>
       </div>
+      <label className="todos-due">
+        <span>到点提醒（可选）</span>
+        <input
+          type="datetime-local"
+          value={dueAt}
+          onChange={e => setDueAt(e.target.value)}
+        />
+      </label>
 
       {todos === null && !loadError && <Loading label="正在读取待办…" />}
       {loadError && <p className="todos-empty" role="alert">待办读取失败（数据库暂不可用），稍后自动重试。</p>}
@@ -72,6 +86,23 @@ export function TodosTab() {
   );
 }
 
+/**
+ * 到期时间展示（v0.13.0）：今天/明天用相对词（一眼能判断紧迫度），更远的显示月日时分。
+ * 不在渲染层做"还剩几分钟"——那需要每秒重渲染，收益很小。
+ */
+function formatDueAt(ms: number): string {
+  const date = new Date(ms);
+  const now = new Date();
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const time = date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  if (sameDay(date, now)) return `今天 ${time}`;
+  if (sameDay(date, tomorrow)) return `明天 ${time}`;
+  return date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 function TodoRow({ todo }: { todo: Todo }) {
   const toggle = useCallback(() => {
     if (!todo.done) void todoService.complete(todo.id);
@@ -80,6 +111,8 @@ function TodoRow({ todo }: { todo: Todo }) {
   const remove = useCallback(() => {
     void todoService.remove(todo.id);
   }, [todo]);
+
+  const overdue = todo.dueAt != null && !todo.done && todo.dueAt < Date.now();
 
   return (
     <div className={`todo-row${todo.done ? " todo-row--done" : ""}`}>
@@ -94,6 +127,11 @@ function TodoRow({ todo }: { todo: Todo }) {
       <div className="todo-row__body">
         <span className="todo-row__title">{todo.title}</span>
         {todo.due && <span className="todo-row__due">{todo.due}</span>}
+        {todo.dueAt != null && (
+          <span className={`todo-row__due${overdue ? " todo-row__due--overdue" : ""}`}>
+            ⏰ {formatDueAt(todo.dueAt)}
+          </span>
+        )}
       </div>
       <button className="todo-row__del" onClick={remove} aria-label="删除">
         ×

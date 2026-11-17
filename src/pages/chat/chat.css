@@ -711,6 +711,36 @@ body {
   font-size: 11px;
 }
 
+/* 逾期（v0.13.0）：用主色提示"已经过点了"，不改整行颜色——待办本身还有别的主次 */
+.todo-row__due--overdue {
+  color: #c05a72;
+}
+
+/* 到期时间输入（v0.13.0）：可选，视觉上弱于添加行 */
+.todos-due {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: #a39690;
+}
+
+.todos-due input {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #f0e4e8;
+  border-radius: 8px;
+  background: #fff;
+  color: #3d3733;
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.todos-due input:focus {
+  border-color: #ffc4d0;
+}
+
 .todo-row__del {
   flex: 0 0 auto;
   width: 22px;
@@ -976,6 +1006,15 @@ body {
   color: #a39690;
   font-size: 11px;
   flex: 0 0 auto;
+}
+
+/* 周期标记（v0.13.0）：「每天 / 工作日 / 每周」，一眼区分一次性与周期 */
+.pomo-reminder__repeat {
+  margin-right: 4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #fdf3f5;
+  color: #c0556d;
 }
 
 .pomo-reminder button {

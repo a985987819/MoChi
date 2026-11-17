@@ -15,6 +15,9 @@ import type { PomodoroStatus } from "@/services/timers";
 
 const PHASE_LABEL = { idle: "空闲", focus: "专注中", break: "休息中" } as const;
 
+/** 周期提醒的中文标签（v0.13.0）：规则本体在 services/recurrence.ts，UI 只负责说人话 */
+const REPEAT_LABEL = { daily: "每天", weekdays: "工作日", weekly: "每周" } as const;
+
 export function PomodoroTab() {
   const [pomodoro, setPomodoro] = useState<PomodoroStatus>({ phase: "idle", remainingSec: 0, focusMin: 25, awaySec: 0 });
   const [pending, setPending] = useState(true);
@@ -92,6 +95,9 @@ export function PomodoroTab() {
             {/* 数据防御：DB 里的 fireAt 理论上是数字，脏数据（NULL/NaN）不能渲染成
                 "Invalid Date" 占一整行——降级为不显示时间 */}
             <span className="pomo-reminder__time">
+              {r.repeat !== "none" && (
+                <span className="pomo-reminder__repeat">{REPEAT_LABEL[r.repeat]}</span>
+              )}
               {Number.isFinite(r.fireAt) ? new Date(r.fireAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
             </span>
             <button onClick={() => cancelReminder(r.id)} aria-label="取消提醒">

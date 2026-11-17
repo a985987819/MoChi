@@ -22,6 +22,7 @@ import { STATE_EVENTS } from "@/shared/events";
 import { subscribeHeartbeat } from "@/services/heartbeat";
 import { showAppAlert } from "@/services/alerts";
 import { formatBatchBody } from "@/services/system-events";
+import { parseRepeat, nextOccurrence, type Repeat } from "@/services/recurrence";
 
 export interface Reminder {
   id: number;
@@ -31,6 +32,10 @@ export interface Reminder {
   status: "active" | "fired" | "cancelled";
   createdAt: number;
   firedAt?: number;
+  /** 重复规则（v0.13.0）：none 一次性；daily/weekdays/weekly 触发后自动排下一次 */
+  repeat: Repeat;
+  /** 同一串周期提醒的分组 id（v0.13.0，仅 repeat != none 时有值） */
+  seriesId?: string;
 }
 
 interface ReminderRow {
@@ -40,6 +45,8 @@ interface ReminderRow {
   status: "active" | "fired" | "cancelled";
   created_at: number;
   fired_at: number | null;
+  repeat: string | null;
+  series_id: string | null;
 }
 
 const rowToReminder = (r: ReminderRow): Reminder => ({
@@ -48,7 +55,9 @@ const rowToReminder = (r: ReminderRow): Reminder => ({
   fireAt: r.fire_at,
   status: r.status,
   createdAt: r.created_at,
+  repeat: parseRepeat(r.repeat),
   ...(r.fired_at != null ? { firedAt: r.fired_at } : {}),
+  ...(r.series_id ? { seriesId: r.series_id } : {}),
 });
 
 // ── Store（聊天窗：工具的写入口）──────────────────────────────────────
@@ -74,15 +83,16 @@ export class ReminderStore {
   }
 
   /** 工具负责时间语义；服务守住能持久化/展示的底线，避免创建无法交付的记录。 */
-  async create(text: string, fireAtMs: number): Promise<Reminder> {
+  async create(text: string, fireAtMs: number, repeat: Repeat = "none"): Promise<Reminder> {
     const body = text.trim();
     if (!body) throw new Error("提醒内容不能为空");
     if (!Number.isFinite(fireAtMs)) throw new Error("提醒时间无效");
     const db = await getDb();
     const now = Date.now();
+    const seriesId = repeat === "none" ? null : crypto.randomUUID();
     const result = await db.execute(
-      "INSERT INTO reminders (text, fire_at, status, created_at, acknowledged_at) VALUES ($1,$2,'active',$3,NULL)",
-      [body, fireAtMs, now],
+      "INSERT INTO reminders (text, fire_at, status, created_at, acknowledged_at, repeat, series_id) VALUES ($1,$2,'active',$3,NULL,$4,$5)",
+      [body, fireAtMs, now, repeat, seriesId],
     );
     await this.broadcast();
     return {
@@ -91,6 +101,8 @@ export class ReminderStore {
       fireAt: fireAtMs,
       status: "active",
       createdAt: now,
+      repeat,
+      ...(seriesId ? { seriesId } : {}),
     };
   }
 
@@ -308,6 +320,65 @@ export class ReminderScheduler {
       // "刚才提醒过什么"，模型下轮对话也能自然衔接（"我刚提醒过你喝水"）。
       // assistant 角色进模型上下文是信息而非污染；落库失败不影响提醒本身（append 内部吞错）。
       void historyStore.append([{ role: "assistant", content: `⏰ 到点提醒：${row.text}` }]);
+      // 周期提醒（v0.13.0）：交付成功后立刻排下一次，失败则什么都不做（原行已被回滚成 active）
+      await this.scheduleNext(row, Date.now());
+    }
+    // 待办到期（v0.13.0）：同一拍里顺手扫一次，与提醒共用投递链路
+    await this.scanTodoDue(now, generation);
+  }
+
+  /**
+   * 周期提醒排下一次（v0.13.0）：**插入新行**而不是改原行。
+   *
+   * 保留原行 = 触发历史可追溯（"我确实提醒过你三次"）；新行 = 下一次待触发。
+   * 下一次一律从 `now` 之后算：关机三天再开机也只补一次，然后落到下一个未来时刻。
+   */
+  private async scheduleNext(row: ReminderRow, now: number): Promise<void> {
+    const repeat = parseRepeat(row.repeat);
+    if (repeat === "none") return;
+    const next = nextOccurrence(row.fire_at, repeat, now);
+    if (next === null) return;
+    const db = await getDb();
+    await db.execute(
+      "INSERT INTO reminders (text, fire_at, status, created_at, acknowledged_at, repeat, series_id) VALUES ($1,$2,'active',$3,NULL,$4,$5)",
+      [row.text, next, now, repeat, row.series_id ?? crypto.randomUUID()],
+    );
+  }
+
+  /**
+   * 待办到期扫描（v0.13.0）：与提醒共用同一条投递链路（同一个原生队列 + 通知 + 历史）。
+   *
+   * 状态字段选 `todos.due_notified_at` 而不是复用 `reminders` 表：待办是用户清单，
+   * 到期只是它的一个时间属性；塞进提醒表会让"清单"和"提醒"两份数据互相打架。
+   * 认领用条件更新（`WHERE due_notified_at IS NULL`），多窗口/重试都只会弹一次。
+   */
+  private async scanTodoDue(now: number, generation: number): Promise<void> {
+    const db = await getDb();
+    if (!this.isCurrent(generation)) return;
+    const rows = await db.select<Array<{ id: number; title: string }>>(
+      "SELECT id, title FROM todos WHERE done = 0 AND due_at IS NOT NULL AND due_at <= $1 AND due_notified_at IS NULL ORDER BY due_at ASC",
+      [now],
+    );
+    for (const row of rows) {
+      if (!this.isCurrent(generation) || this.isAway()) return;
+      const claim = await db.execute(
+        "UPDATE todos SET due_notified_at = $1 WHERE id = $2 AND due_notified_at IS NULL",
+        [now, row.id],
+      );
+      if ((claim.rowsAffected ?? 0) !== 1) continue;
+      try {
+        await showAppAlert({ id: `todo:${row.id}`, kind: "reminder", title: "待办到期", body: row.title });
+      } catch {
+        // 显示失败要能重试：把标记清掉（比对时间戳，避免清掉别人的认领）
+        await db
+          .execute("UPDATE todos SET due_notified_at = NULL WHERE id = $1 AND due_notified_at = $2", [row.id, now])
+          .catch(() => undefined);
+        continue;
+      }
+      if (!this.isCurrent(generation)) return;
+      petState.setSystem("alert", 8, "todo");
+      if (this.notificationsEnabled) void notify("📌 待办到期", row.title).catch(() => undefined);
+      void historyStore.append([{ role: "assistant", content: `📌 待办到期：${row.title}` }]);
     }
   }
 
@@ -330,24 +401,29 @@ export class ReminderScheduler {
       [now],
     );
     if (rows.length < 2) return;
-    const claimed: string[] = [];
+    const claimed: ReminderRow[] = [];
     for (const row of rows) {
       const claim = await db.execute(
         "UPDATE reminders SET status = 'fired', fired_at = $1, acknowledged_at = $1 WHERE id = $2 AND status = 'active'",
         [now, row.id],
       );
-      if ((claim.rowsAffected ?? 0) === 1) claimed.push(row.text);
+      if ((claim.rowsAffected ?? 0) === 1) claimed.push(row);
     }
     if (claimed.length === 0) return;
+    // 周期提醒即使被合并交付，也必须继续排下一次——否则一条"每天 9 点"的提醒
+    // 会因为"睡了一夜被合并"而彻底消失。
+    for (const row of claimed) await this.scheduleNext(row, now);
     try {
       await showAppAlert({
         id: `reminder:batch:${now}`,
         kind: "reminder",
         title: `${claimed.length} 条提醒到点了`,
-        body: formatBatchBody(claimed),
+        body: formatBatchBody(claimed.map(row => row.text)),
       });
       // 提醒历史同样留一条汇总，聊天窗里能看到"那晚错过什么"
-      void historyStore.append([{ role: "assistant", content: `⏰ 恢复后合并提醒：${formatBatchBody(claimed)}` }]);
+      void historyStore.append([
+        { role: "assistant", content: `⏰ 恢复后合并提醒：${formatBatchBody(claimed.map(row => row.text))}` },
+      ]);
     } catch {
       // 汇总弹窗失败就不再退回逐条补发（那正是要避免的轰炸），只留控制台痕迹。
       console.error("[reminders] 合并提醒显示失败，已按已交付处理", claimed.length);

@@ -9,8 +9,9 @@
 
 import type { ToolDefinition } from "./registry";
 import type { ReminderStore } from "@/services/reminders";
+import { parseRepeat, REPEAT_VALUES } from "@/services/recurrence";
 
-/** 距今上限：30 天（learning/08 §5.2；周期提醒 v1 不支持，模型引导降级） */
+/** 距今上限：30 天（learning/08 §5.2；周期提醒只需首次落在窗口内，续期由调度器负责） */
 const MAX_HORIZON_MS = 30 * 24 * 60 * 60 * 1000;
 /** 允许的"过去"容忍度：60 秒（模型算当前时间可能有秒级偏差） */
 const PAST_TOLERANCE_MS = 60_000;
@@ -33,20 +34,31 @@ export function parseFireAt(input: string, now = new Date()): { ms: number } | {
   return { ms };
 }
 
-export function createReminderTool(store: ReminderStore): ToolDefinition<{ text: string; fire_at: string }> {
+export function createReminderTool(store: ReminderStore): ToolDefinition<{
+  text: string;
+  fire_at: string;
+  repeat?: string;
+}> {
   return {
     name: "create_reminder",
     description:
-      "创建一次性定时提醒，到点弹系统通知。用户说'X 点提醒我…'/'半小时后提醒我…'时使用。" +
+      "创建定时提醒，到点弹系统通知。用户说'X 点提醒我…'/'半小时后提醒我…'时使用。" +
       "fire_at 是**绝对时间**：先看对话中的『当前时间』锚点，把用户的相对表述解析为" +
       "ISO 8601（无时区则按本地时区）。'半小时后'请自行换算为绝对时刻。" +
-      "如果用户要的是周期提醒（每天/每周），v1 暂不支持——如实说明并建议先建今天的。" +
+      "**周期提醒**（v0.13.0 起支持）：用户说'每天/工作日/每周'时传 repeat=" +
+      "daily / weekdays / weekly，fire_at 传**第一次**触发的时刻（例如用户说'每天九点'，" +
+      "当前已过九点就传明天九点）。取消周期提醒用 cancel_reminder 取消当前这一条即可。" +
       "区别：'加个待办'用 add_todo（清单），'到点提醒我'才用本工具。",
     parameters: {
       type: "object",
       properties: {
         text: { type: "string", description: "提醒内容，简洁（如：交周报）" },
-        fire_at: { type: "string", description: "绝对时间 ISO 8601，如 2026-11-04T09:00:00+08:00" },
+        fire_at: { type: "string", description: "首次触发的绝对时间 ISO 8601，如 2026-11-04T09:00:00+08:00" },
+        repeat: {
+          type: "string",
+          enum: [...REPEAT_VALUES],
+          description: "重复规则：none（默认，一次性）/ daily 每天 / weekdays 工作日 / weekly 每周同一天",
+        },
       },
       required: ["text", "fire_at"],
     },
@@ -54,14 +66,16 @@ export function createReminderTool(store: ReminderStore): ToolDefinition<{ text:
     async execute(args) {
       const parsed = parseFireAt(args.fire_at);
       if ("error" in parsed) return { ok: false as const, error: parsed.error };
-      const reminder = await store.create(args.text.trim(), parsed.ms);
+      const repeat = parseRepeat(args.repeat);
+      const reminder = await store.create(args.text.trim(), parsed.ms, repeat);
       return {
         ok: true as const,
         data: {
           id: reminder.id,
           text: reminder.text,
           fire_at_local: new Date(reminder.fireAt).toLocaleString("zh-CN"),
-          message: "提醒已设置，到点会弹系统通知",
+          repeat: reminder.repeat,
+          message: repeat === "none" ? "提醒已设置，到点会弹系统通知" : "周期提醒已设置，每次触发后自动排下一次",
         },
       };
     },

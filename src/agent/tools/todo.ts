@@ -15,9 +15,25 @@ const ok = (data: unknown) => ({ ok: true as const, data });
 interface TitleArgs {
   title: string;
   due?: string;
+  due_at?: string;
 }
 interface IdArgs {
   id: number;
+}
+
+/**
+ * 解析待办的到期时刻（v0.13.0）。
+ *
+ * 与 `create_reminder` 的 `parseFireAt` 有一处**刻意不同**：这里允许过去时间。
+ * "已经逾期但还没做"是待办要如实呈现的状态（清单上一眼看到红色"昨天到期"），
+ * 拒绝它只会让模型把逾期任务硬塞成未来时间，信息反而失真。
+ */
+export function parseDueAt(input: string): { ms: number } | { error: string } {
+  const ms = Date.parse(input);
+  if (Number.isNaN(ms)) {
+    return { error: `无法解析时间"${input}"，请改用 ISO 8601（如 2026-11-04T09:00:00+08:00）` };
+  }
+  return { ms };
 }
 
 export function addTodoTool(): ToolDefinition<TitleArgs> {
@@ -26,19 +42,37 @@ export function addTodoTool(): ToolDefinition<TitleArgs> {
     description:
       "添加一条待办。用于用户明确要记录的任务（'帮我加个待办'/'记一下…'）。" +
       "如果用户意图是'到某个时间点提醒我'，请改用 create_reminder（到点弹通知）。" +
-      "due 传用户原话（如'明天九点'），不要自行换算成具体日期时间。",
+      "due 传用户原话（如'明天九点'），**不解析**，只用于展示；" +
+      "due_at（v0.13.0）传 ISO 8601 绝对时间时，该待办到期会**自动弹一次提醒**——" +
+      "用户既想要'记在清单里'又想要'到点叫我'时用它。",
     parameters: {
       type: "object",
       properties: {
         title: { type: "string", description: "待办标题，简洁完整，如：开周会" },
         due: { type: "string", description: "截止时间，可选。传用户原话，不做解析" },
+        due_at: {
+          type: "string",
+          description: "结构化到期时间 ISO 8601（可选）。给它就等于给这条待办挂了一个到点提醒",
+        },
       },
       required: ["title"],
     },
     risk: "write",
     async execute(args: TitleArgs, ctx: ToolContext) {
-      const todo = await ctx.services.todos.add(args.title, args.due);
-      return ok({ id: todo.id, title: todo.title, due: todo.due, message: "已添加" });
+      let dueAtMs: number | undefined;
+      if (typeof args.due_at === "string" && args.due_at.trim()) {
+        const parsed = parseDueAt(args.due_at);
+        if ("error" in parsed) return { ok: false as const, error: parsed.error };
+        dueAtMs = parsed.ms;
+      }
+      const todo = await ctx.services.todos.add(args.title, args.due, dueAtMs);
+      return ok({
+        id: todo.id,
+        title: todo.title,
+        due: todo.due,
+        due_at_local: todo.dueAt ? new Date(todo.dueAt).toLocaleString("zh-CN") : undefined,
+        message: dueAtMs ? "已添加，到点会提醒你" : "已添加",
+      });
     },
   };
 }

@@ -352,6 +352,27 @@
 
 ---
 
+## v0.13.0 — 提醒闭环：周期提醒与待办到期
+
+**定位**：P1-01。让"每天吃药"这类最常见诉求可用，并让待办的到期真正会响。
+细节见 `docs/versions/v0.13.0-提醒闭环.md`。
+
+**范围**：
+- 提醒 `repeat`：none / daily / weekdays / weekly，触发后自动排下一次（插新行，保留历史）。
+- 待办 `due_at`：到点弹一次「待办到期」（`due_notified_at` 条件认领，幂等）。
+- 工具层同步（`create_reminder.repeat`、`add_todo.due_at`）；待办页可设到点提醒、番茄钟页显示周期标签。
+- DB 幂等迁移（`ensureColumn`）。
+
+**验收标准**：
+- [x] `pnpm check` / `build` 通过；`pnpm test` 361/361（新增 9 例）；`cargo test` 16/16（无 Rust 改动）。
+- [x] `pnpm tauri build` 产出版本 0.13.0 的 NSIS/MSI 并归档 `run_here/windows/`。
+- [x] 旧库迁移：启动后新增四列（打包版实测）。
+- [x] 周期提醒端到端：过期 60s 的 daily 提醒触发一次并插入次日同时刻的新行。
+- [x] 待办到期端到端：过期待办 `due_notified_at` 写入（只交付一次）。
+- [ ] 真机 UI 走查（到点提醒输入框、逾期标色、周期标签）。
+
+---
+
 ## 后续候选（Backlog，不在当前承诺内）
 
 - ~~`{state}_001.png` 帧序列动画支持~~（✅ 已于 v0.10.0 实现）；鼠标点击物理反馈；~~宠物拖拽惯性~~（✅ 已于 v0.12.0 实现）

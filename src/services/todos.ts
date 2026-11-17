@@ -14,6 +14,12 @@ export interface Todo {
   title: string;
   /** 用户原话或 ISO 日期（v1 不做自然语言时间解析——learning/01 §4.5） */
   due?: string;
+  /**
+   * 结构化到期时间（v0.13.0，epoch ms）：到点会走提醒通道弹一次。
+   * 与 `due` 并存而不是替换——`due` 是"用户怎么说的"，`dueAt` 是"机器能算的"，
+   * 旧数据与模型输出里的自由文本仍然保留展示价值。
+   */
+  dueAt?: number;
   done: boolean;
   createdAt: number;
   doneAt?: number;
@@ -26,6 +32,8 @@ interface TodoRow {
   done: number;
   created_at: number;
   done_at: number | null;
+  due_at: number | null;
+  due_notified_at: number | null;
 }
 
 const LEGACY_STORE_FILE = "todos.json";
@@ -59,7 +67,9 @@ export class TodoService {
       // 无旧数据/读取失败：正常路径
     }
 
-    const rows = await db.select<TodoRow[]>("SELECT id, title, due, done, created_at, done_at FROM todos ORDER BY id");
+    const rows = await db.select<TodoRow[]>(
+      "SELECT id, title, due, done, created_at, done_at, due_at, due_notified_at FROM todos ORDER BY id",
+    );
     this.todos = rows.map(rowToTodo);
   }
 
@@ -76,19 +86,24 @@ export class TodoService {
     for (const fn of this.listeners) fn();
   }
 
-  /** add_todo 工具与 UI 新增共用入口 */
-  async add(title: string, due?: string): Promise<Todo> {
+  /**
+   * add_todo 工具与 UI 新增共用入口。
+   * `dueAt`（v0.13.0）：结构化到期时间，到点由提醒调度器弹一次；
+   * 不传则只做清单（保持"自由文本 due 不进调度"的旧行为）。
+   */
+  async add(title: string, due?: string, dueAt?: number): Promise<Todo> {
     const db = await getDb();
     const createdAt = Date.now();
-    const result = await db.execute("INSERT INTO todos (title, due, done, created_at) VALUES ($1,$2,0,$3)", [
-      title.trim(),
-      due?.trim() || null,
-      createdAt,
-    ]);
+    const dueAtMs = typeof dueAt === "number" && Number.isFinite(dueAt) ? Math.round(dueAt) : null;
+    const result = await db.execute(
+      "INSERT INTO todos (title, due, done, created_at, due_at) VALUES ($1,$2,0,$3,$4)",
+      [title.trim(), due?.trim() || null, createdAt, dueAtMs],
+    );
     const todo: Todo = {
       id: result.lastInsertId as number,
       title: title.trim(),
       ...(due?.trim() ? { due: due.trim() } : {}),
+      ...(dueAtMs != null ? { dueAt: dueAtMs } : {}),
       done: false,
       createdAt,
     };
@@ -133,6 +148,7 @@ function rowToTodo(r: TodoRow): Todo {
     id: r.id,
     title: r.title,
     ...(r.due ? { due: r.due } : {}),
+    ...(r.due_at != null ? { dueAt: r.due_at } : {}),
     done: r.done === 1,
     createdAt: r.created_at,
     ...(r.done_at != null ? { doneAt: r.done_at } : {}),

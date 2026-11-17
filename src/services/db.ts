@@ -20,6 +20,7 @@ export function getDb(): Promise<Db> {
     const db = await Database.load("sqlite:mochi.db"); // 落 appDataDir
     for (const ddl of SCHEMA) await db.execute(ddl);
     await migrateReminderAcknowledgements(db);
+    await migrateRepeatAndDue(db);
     return db;
   })().catch(error => {
     // 磁盘忙/插件尚未就绪属于可恢复失败，不能把 rejected Promise 永久当作连接缓存。
@@ -81,7 +82,9 @@ const SCHEMA: string[] = [
      due        TEXT,
      done       INTEGER NOT NULL DEFAULT 0,
      created_at INTEGER NOT NULL,
-     done_at    INTEGER
+     done_at    INTEGER,
+     due_at     INTEGER,
+     due_notified_at INTEGER
    )`,
   `CREATE TABLE IF NOT EXISTS memories (
      id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,6 +100,38 @@ const SCHEMA: string[] = [
      status     TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','fired','cancelled')),
      created_at INTEGER NOT NULL,
      fired_at   INTEGER,
-     acknowledged_at INTEGER
+     acknowledged_at INTEGER,
+     repeat     TEXT NOT NULL DEFAULT 'none',
+     series_id  TEXT
    )`,
 ];
+
+/**
+ * 幂等补列（v0.13.0）：SQLite 没有 `ADD COLUMN IF NOT EXISTS`，只能先 PRAGMA 再看。
+ *
+ * 为什么不用版本号表：这个项目的迁移一直是"先看列在不在，不在就加"（见
+ * `migrateReminderAcknowledgements`），零额外状态、两个窗口同时开库也安全。版本表要维护
+ * "已执行到第几号"，在单人 + 多窗口的场景里反而是新的不一致源。
+ *
+ * 并发注意：另一个窗口可能刚完成 ALTER，所以 ALTER 失败后再查一次列是否存在——
+ * 存在即视为成功，只有真失败（列仍缺）才抛出。
+ */
+async function ensureColumn(db: Db, table: string, column: string, ddl: string): Promise<void> {
+  const info = async () => db.select<Array<{ name: string }>>(`PRAGMA table_info(${table})`);
+  const columns = await info();
+  if (columns.some(entry => entry.name === column)) return;
+  try {
+    await db.execute(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  } catch (error) {
+    const current = await info();
+    if (!current.some(entry => entry.name === column)) throw error;
+  }
+}
+
+/** v0.13.0：周期提醒（repeat / series_id）+ 待办到期（due_at / due_notified_at） */
+async function migrateRepeatAndDue(db: Db): Promise<void> {
+  await ensureColumn(db, "reminders", "repeat", "repeat TEXT NOT NULL DEFAULT 'none'");
+  await ensureColumn(db, "reminders", "series_id", "series_id TEXT");
+  await ensureColumn(db, "todos", "due_at", "due_at INTEGER");
+  await ensureColumn(db, "todos", "due_notified_at", "due_notified_at INTEGER");
+}
