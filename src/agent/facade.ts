@@ -25,7 +25,7 @@ import {
   stopPomodoroTool,
 } from "@/agent/tools/pomodoro";
 import { pomodoroControl } from "@/services/pomodoro-control";
-import { cancelReminderTool, createReminderTool, listRemindersTool } from "@/agent/tools/reminder";
+import { cancelReminderTool, createReminderTool, listRemindersTool, skipReminderTool } from "@/agent/tools/reminder";
 import { historyStore } from "@/agent/memory/history-store";
 import { memoryService } from "@/agent/memory/long-term";
 import { foodIndex } from "@/rag/food";
@@ -77,6 +77,7 @@ export class AgentFacade {
     this.registry.register(pomodoroStatusTool(this.services.pomodoro));
     this.registry.register(createReminderTool(reminderStore));
     this.registry.register(cancelReminderTool(reminderStore));
+    this.registry.register(skipReminderTool(reminderStore));
     this.registry.register(listRemindersTool(reminderStore));
   }
 

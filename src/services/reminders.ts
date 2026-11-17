@@ -49,6 +49,12 @@ export interface Reminder {
    * 毫秒被认领不算合并（判定只认 id，见 reminder-history.ts 顶部说明）。
    */
   batchId?: string;
+  /**
+   * 跳过标记（v0.20.0）：用户要求"下一次别响"。行保持 active + skip=1，调度器
+   * 触发时静默交付（写 acknowledged 不弹窗不进聊天），并照常排下一次——
+   * 这正是"跳过某一次"与"取消"的语义分界：取消断串，跳过保串。
+   */
+  skip?: boolean;
 }
 
 interface ReminderRow {
@@ -62,6 +68,7 @@ interface ReminderRow {
   repeat: string | null;
   series_id: string | null;
   batch_id: string | null;
+  skip: number;
 }
 
 const rowToReminder = (r: ReminderRow): Reminder => ({
@@ -75,6 +82,7 @@ const rowToReminder = (r: ReminderRow): Reminder => ({
   ...(r.acknowledged_at != null ? { acknowledgedAt: r.acknowledged_at } : {}),
   ...(r.series_id ? { seriesId: r.series_id } : {}),
   ...(r.batch_id ? { batchId: r.batch_id } : {}),
+  ...(r.skip === 1 ? { skip: true } : {}),
 });
 
 // ── Store（聊天窗：工具的写入口）──────────────────────────────────────
@@ -136,6 +144,55 @@ export class ReminderStore {
     if (result.rowsAffected !== 1) return null;
     await this.broadcast();
     return rowToReminder(rows[0]);
+  }
+
+  /**
+   * 跳过即将到来的这一次（v0.20.0，仅周期提醒）：行保持 active 并置 skip=1。
+   *
+   * 条件更新与 cancel 同款（防查询与写入之间被调度器认领、防重复点击重复置位）。
+   * 一次性提醒（repeat=none）"跳过"语义等同取消，直接引导用户用 cancel，
+   * 本方法对它返回 null。
+   */
+  async skipNext(id: number): Promise<Reminder | null> {
+    const db = await getDb();
+    const rows = await db.select<ReminderRow[]>(
+      "SELECT * FROM reminders WHERE id = $1 AND status = 'active' AND repeat != 'none' AND skip = 0",
+      [id],
+    );
+    if (rows.length === 0) return null;
+    const result = await db.execute(
+      "UPDATE reminders SET skip = 1 WHERE id = $1 AND status = 'active' AND repeat != 'none' AND skip = 0",
+      [id],
+    );
+    if (result.rowsAffected !== 1) return null;
+    await this.broadcast();
+    // 返回值反映**更新后**的状态（UI/tool 据此显示"下次将跳过"），而不是更新前的行
+    return { ...rowToReminder(rows[0]), skip: true };
+  }
+
+  /**
+   * 取消整串（v0.20.0）：按 series_id 批量取消全部 active 行，返回被取消条目。
+   *
+   * 逐行条件更新（同 cancel 的幂等语义）——批量操作不引入第二条 UPDATE 路径，
+   * 只是把同一谓词跑 N 次。partial 情形（部分行恰好被调度器认领）如实返回
+   * 已取消子集，调用方按返回数量说话。
+   */
+  async cancelSeries(seriesId: string): Promise<Reminder[]> {
+    const db = await getDb();
+    const rows = await db.select<ReminderRow[]>(
+      "SELECT * FROM reminders WHERE series_id = $1 AND status = 'active'",
+      [seriesId],
+    );
+    const cancelled: Reminder[] = [];
+    for (const row of rows) {
+      const result = await db.execute(
+        "UPDATE reminders SET status = 'cancelled' WHERE id = $1 AND status = 'active'",
+        [row.id],
+      );
+      if (result.rowsAffected === 1) cancelled.push(rowToReminder(row));
+    }
+    if (cancelled.length > 0) await this.broadcast();
+    return cancelled;
   }
 
   async listActive(): Promise<Reminder[]> {
@@ -357,6 +414,21 @@ export class ReminderScheduler {
         [claimedAt, row.id],
       );
       if ((claim.rowsAffected ?? 0) !== 1) continue;
+
+      // 跳过一次（v0.20.0）：用户标记过 skip 的行**静默交付**——写 acknowledged_at
+      // （它就是"已跳过"的凭证，防止重启恢复逻辑把它当未确认重新弹出来），照常
+      // scheduleNext 保持周期不断串。不弹窗、不进聊天历史、不放音效不变宠物状态。
+      if (row.skip === 1) {
+        await db.execute(
+          "UPDATE reminders SET acknowledged_at = $1 WHERE id = $2 AND acknowledged_at IS NULL",
+          [claimedAt, row.id],
+        );
+        if (!this.isCurrent(generation)) return;
+        this.delivered.add(row.id);
+        await this.scheduleNext(row, Date.now());
+        await emit(STATE_EVENTS.remindersChanged).catch(() => undefined);
+        continue;
+      }
 
       try {
         if (!this.isCurrent(generation) || this.isAway()) {

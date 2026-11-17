@@ -47,7 +47,8 @@ export function createReminderTool(store: ReminderStore): ToolDefinition<{
       "ISO 8601（无时区则按本地时区）。'半小时后'请自行换算为绝对时刻。" +
       "**周期提醒**（v0.13.0 起支持）：用户说'每天/工作日/每周'时传 repeat=" +
       "daily / weekdays / weekly，fire_at 传**第一次**触发的时刻（例如用户说'每天九点'，" +
-      "当前已过九点就传明天九点）。取消周期提醒用 cancel_reminder 取消当前这一条即可。" +
+      "当前已过九点就传明天九点）。周期提醒的后续治理（v0.20.0）：用户说'下次别响/明天跳过'" +
+      "用 skip_reminder；说'别再提醒了/取消整个'用 cancel_reminder(all=true)。" +
       "区别：'加个待办'用 add_todo（清单），'到点提醒我'才用本工具。",
     parameters: {
       type: "object",
@@ -82,10 +83,64 @@ export function createReminderTool(store: ReminderStore): ToolDefinition<{
   };
 }
 
-export function cancelReminderTool(store: ReminderStore): ToolDefinition<{ id: number }> {
+export function cancelReminderTool(store: ReminderStore): ToolDefinition<{ id: number; all?: boolean }> {
   return {
     name: "cancel_reminder",
-    description: "取消一条未触发的提醒。id 来自 list_reminders；不确定时先查询。",
+    description:
+      "取消未触发的提醒。id 来自 list_reminders；不确定时先查询。" +
+      "**周期提醒的整串取消**（v0.20.0）：用户说'别再提醒了/把整个都取消'时传 all=true——" +
+      "按同一 series_id 批量取消该串的全部待触发行；只取消单次用默认（all 不传）。",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "提醒 id（来自 list_reminders）" },
+        all: { type: "boolean", description: "true = 取消整串周期提醒（同一 series 的全部待触发行）；缺省只取消这一条" },
+      },
+      required: ["id"],
+    },
+    risk: "destructive",
+    async execute(args) {
+      if (args.all === true) {
+        const active = await store.listActive();
+        const target = active.find(r => r.id === args.id);
+        if (!target) {
+          return { ok: false as const, error: `找不到待触发提醒 id=${args.id}，可先用 list_reminders 查询` };
+        }
+        if (!target.seriesId) {
+          return {
+            ok: false as const,
+            error: `提醒 id=${args.id} 是一次性提醒（没有周期串），直接调用 cancel_reminder(id) 不带 all 即可`,
+          };
+        }
+        const cancelled = await store.cancelSeries(target.seriesId);
+        return {
+          ok: true as const,
+          data: {
+            cancelled_count: cancelled.length,
+            texts: cancelled.map(r => r.text),
+            message: `已取消整串周期提醒（${cancelled.length} 条，含未来所有待触发行）`,
+          },
+        };
+      }
+      const cancelled = await store.cancel(args.id);
+      if (!cancelled) return { ok: false as const, error: `找不到待触发提醒 id=${args.id}，可先用 list_reminders 查询` };
+      return { ok: true as const, data: { cancelled: { id: cancelled.id, text: cancelled.text }, message: "已取消" } };
+    },
+  };
+}
+
+/**
+ * 跳过一次（v0.20.0）：与 cancel 的语义分界写给模型——"周末不想被吵"是跳过
+ * （周期还在），"别再提醒了"是取消整串。一次性提醒没有"下一次"可跳，错误信息
+ * 引导模型改用 cancel。
+ */
+export function skipReminderTool(store: ReminderStore): ToolDefinition<{ id: number }> {
+  return {
+    name: "skip_reminder",
+    description:
+      "跳过周期提醒的**下一次**触发（用户说'明天别响/下次跳过/周末不想被吵'时使用）。" +
+      "周期照常继续（下一次之后恢复正常）。仅对 repeat != none 的提醒有效；" +
+      "想彻底不再提醒用 cancel_reminder。",
     parameters: {
       type: "object",
       properties: {
@@ -93,11 +148,22 @@ export function cancelReminderTool(store: ReminderStore): ToolDefinition<{ id: n
       },
       required: ["id"],
     },
-    risk: "destructive",
+    risk: "write",
     async execute(args) {
-      const cancelled = await store.cancel(args.id);
-      if (!cancelled) return { ok: false as const, error: `找不到待触发提醒 id=${args.id}，可先用 list_reminders 查询` };
-      return { ok: true as const, data: { cancelled: { id: cancelled.id, text: cancelled.text }, message: "已取消" } };
+      const skipped = await store.skipNext(args.id);
+      if (!skipped) {
+        return {
+          ok: false as const,
+          error: `无法跳过 id=${args.id}：它可能是一次性提醒（跳过=取消，请用 cancel_reminder）、已被取消/触发，或已处于跳过状态`,
+        };
+      }
+      return {
+        ok: true as const,
+        data: {
+          skipped: { id: skipped.id, text: skipped.text, fire_at_local: new Date(skipped.fireAt).toLocaleString("zh-CN") },
+          message: "下一次将静默跳过，之后照常提醒",
+        },
+      };
     },
   };
 }
@@ -118,6 +184,9 @@ export function listRemindersTool(store: ReminderStore): ToolDefinition<Record<s
             id: r.id,
             text: r.text,
             fire_at_local: new Date(r.fireAt).toLocaleString("zh-CN"),
+            repeat: r.repeat,
+            series: r.seriesId != null,
+            skip_next: r.skip === true,
           })),
         },
       };

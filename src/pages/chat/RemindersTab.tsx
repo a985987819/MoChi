@@ -93,7 +93,23 @@ export function RemindersTab() {
 
   const cancel = useCallback((id: number) => {
     void reminderStore.cancel(id).catch(() => setError(t("rem.errorCancel")));
-  }, []);
+  }, [t]);
+
+  // 周期提醒治理（v0.20.0）：跳过一次（保串）/ 取消整串（断串）
+  const skipNext = useCallback(
+    (id: number) => {
+      void reminderStore.skipNext(id).catch(() => setError(t("rem.errorSkip")));
+    },
+    [t],
+  );
+
+  const cancelSeries = useCallback(
+    (r: Reminder) => {
+      if (!r.seriesId) return;
+      void reminderStore.cancelSeries(r.seriesId).catch(() => setError(t("rem.errorCancel")));
+    },
+    [t],
+  );
 
   const snooze = useCallback(async (text: string, target: number) => {
     try {
@@ -122,6 +138,7 @@ export function RemindersTab() {
               <span className="rem-item__text">{r.text}</span>
               <span className="rem-item__time">
                 {r.repeat !== "none" && <span className="rem-chip">{t(REPEAT_KEYS[r.repeat])}</span>}
+                {r.skip && <span className="rem-chip rem-chip--muted">{t("rem.skipMarked")}</span>}
                 {Number.isFinite(r.fireAt)
                   ? new Date(r.fireAt).toLocaleString("zh-CN", {
                       month: "numeric",
@@ -132,6 +149,14 @@ export function RemindersTab() {
                   : ""}
               </span>
             </div>
+            {r.repeat !== "none" && (
+              <div className="rem-item__actions">
+                <button disabled={r.skip} onClick={() => skipNext(r.id)}>
+                  {r.skip ? t("rem.skipMarked") : t("rem.skipNext")}
+                </button>
+                <button onClick={() => cancelSeries(r)}>{t("rem.cancelSeries")}</button>
+              </div>
+            )}
             <button onClick={() => cancel(r.id)} aria-label={t("rem.cancel")}>
               ×
             </button>
@@ -262,10 +287,18 @@ function HistoryBatch({
   );
 }
 
-/** 状态徽标：已取消 / 待确认（触发后没点过弹窗）/ 已触发 */
+/** 状态徽标：已取消 / 待确认（触发后没点过弹窗）/ 已跳过（skip 静默交付，v0.20.0）/ 已触发 */
 function StatusChip({ reminder: r, t }: { reminder: Reminder; t: Translate }) {
-  const label = r.status === "cancelled" ? t("rem.chipCancelled") : r.acknowledgedAt == null ? t("rem.chipPending") : t("rem.chipFired");
-  const tone = r.status === "cancelled" ? "muted" : r.acknowledgedAt == null ? "warn" : "ok";
+  const label =
+    r.status === "cancelled"
+      ? t("rem.chipCancelled")
+      : r.acknowledgedAt == null
+        ? t("rem.chipPending")
+        : r.skip
+          ? t("rem.chipSkipped")
+          : t("rem.chipFired");
+  const tone =
+    r.status === "cancelled" ? "muted" : r.acknowledgedAt == null ? "warn" : r.skip ? "muted" : "ok";
   return <span className={`rem-chip rem-chip--${tone}`}>{label}</span>;
 }
 

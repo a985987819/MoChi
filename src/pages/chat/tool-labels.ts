@@ -24,6 +24,7 @@ export const TOOL_LABELS: Record<string, string> = {
   search_health_advice: "翻了翻权威健康指南",
   create_reminder: "设好了提醒",
   cancel_reminder: "取消了提醒",
+  skip_reminder: "把下一次提醒先放一放",
   list_reminders: "看了你的提醒",
   start_pomodoro: "开始专注",
   stop_pomodoro: "停止了专注",
