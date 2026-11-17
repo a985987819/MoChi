@@ -14,9 +14,10 @@ import { emit } from "@tauri-apps/api/event";
 /** UI → Rust 事件（Rust 侧 lib.rs 监听） */
 export const UI_EVENTS = {
   /**
-   * 打开（显示并聚焦）聊天窗口。载荷：{ tab?: "chat"|"todos"|"pomodoro"|"settings" }
+   * 打开（显示并聚焦）聊天窗口。载荷：{ tab?: "chat"|"todos"|"reminders"|"pomodoro"|"assets"|"settings" }
    * （v0.9.0 P1-02：右键菜单可直达指定 Tab；无载荷 = 聊天 Tab。Rust 把载荷原样
-   * 转发给 chat 窗的 chat://open 桥事件）
+   * 转发给 chat 窗的 chat://open 桥事件。v0.14.0：系统通知点击也走本事件——
+   * 按通知标题路由 tab，见 services/notifications.ts 的 registerNotificationTapRouting）
    */
   openChat: "ui://open-chat",
   /** 隐藏聊天窗口（聊天窗的关闭按钮 = 隐藏，进程仍驻留托盘） */

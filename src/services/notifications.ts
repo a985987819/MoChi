@@ -9,7 +9,13 @@
  * notify 只查权限、发通知、报告成败（返回 boolean），失败不再静默。
  */
 
-import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import {
+  isPermissionGranted,
+  onAction,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
+import { sendUIEvent, UI_EVENTS } from "@/shared/events";
 
 /**
  * 发一条系统通知。
@@ -24,6 +30,47 @@ export async function notify(title: string, body: string): Promise<boolean> {
   } catch (e) {
     console.error("[notify] 发送失败:", e);
     return false;
+  }
+}
+
+/**
+ * 通知标题 → 聊天窗 Tab 的路由表（P1-02 / v0.14.0）。
+ *
+ * 点系统通知应该"去处理这件事"：到点提醒去提醒中心、待办到期去待办列表。
+ * 插件的 ActionPerformed 携带通知自身数据（Windows/macOS 都回报），用**标题前缀**
+ * 识别类型——标题是应用自己定的稳定常量，比给每条通知配 action type（移动端机制，
+ * 桌面端没有按钮就不触发）简单且跨平台一致。没匹配上的（番茄钟/站立）回聊天 Tab。
+ */
+const TAP_TAB_BY_TITLE: Array<{ prefix: string; tab: "reminders" | "todos" }> = [
+  { prefix: "⏰", tab: "reminders" },
+  { prefix: "📌", tab: "todos" },
+];
+
+/**
+ * 注册「点通知 → 打开聊天窗」路由（P1-02 / v0.14.0），在**宠物窗**启动时调用。
+ *
+ * 为什么必须在宠物窗常驻注册：插件的桌面实现只对「监听器存在期间发出的通知」
+ * 回报点击（见插件 desktop.rs —— "notifications shown while a listener existed"），
+ * 宠物窗是生命周期最长的窗口，通知也全部从这里发出。点击经 Rust 的 show_chat
+ * 聚焦聊天窗，再由 open-chat 的 {tab} 载荷直达对应 Tab——整条链路复用既有协议，
+ * 不引入第二个通知插件。
+ *
+ * 平台限制（写进版本文档）：Windows 只有 toast **还在屏幕上**时点击才回报，
+ * 进了操作中心的历史通知点了没反应——这是系统行为，应用内提醒中心兜底。
+ *
+ * 失败静默：路由是增强不是主通道（弹窗/提醒中心本来就是可用的）。
+ */
+export async function registerNotificationTapRouting(): Promise<void> {
+  try {
+    const listener = await onAction(event => {
+      const title = event.notification?.title ?? "";
+      const match = TAP_TAB_BY_TITLE.find(entry => title.startsWith(entry.prefix));
+      void sendUIEvent(UI_EVENTS.openChat, match ? { tab: match.tab } : undefined).catch(() => undefined);
+    });
+    // HMR：热更新时卸掉旧监听，避免一次点击触发多次 openChat。
+    if (import.meta.hot) import.meta.hot.dispose(() => void listener.unregister());
+  } catch (e) {
+    console.error("[notify] 通知点击路由注册失败（点击通知将无响应）:", e);
   }
 }
 

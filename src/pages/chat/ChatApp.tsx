@@ -3,12 +3,14 @@ import { listen } from "@tauri-apps/api/event";
 import { ChatTab } from "./ChatTab";
 import { TodosTab } from "./TodosTab";
 import { PomodoroTab } from "./PomodoroTab";
+import { RemindersTab } from "./RemindersTab";
 import { AssetsTab } from "./AssetsTab";
 import { SettingsTab } from "./SettingsTab";
 import { WelcomeGuide } from "./WelcomeGuide";
 import { sendUIEvent, BRIDGE_EVENTS, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { playShowTransition, onWindowShown } from "@/shared/show-transition";
 import { loadSettings, saveSettings } from "@/services/settings";
+import { reminderStore } from "@/services/reminders";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import "./chat.css";
 
@@ -17,21 +19,28 @@ import "./chat.css";
  *
  * v0.9.2 增加「素材」Tab：双语图片导入页（讲清每个状态代表什么、导入时自动改成英文名）。
  *
+ * v0.14.0 增加「提醒」Tab（提醒中心，P1-02）：进行中 + 历史 + 未确认角标，
+ * 从番茄钟页拆出——提醒有了历史之后是独立的心智单元。
+ *
  * v0.9.0 增加首次启动引导：`onboardingDone === false` 时用 WelcomeGuide 覆盖内容区，
  * 此时隐藏 Tab 栏（避免"引导在上、Tab 在下"两套导航抢注意力），关闭按钮保留。
  * 触发来源有两处——首次启动（pet 窗自动打开聊天窗）与设置页的「重新显示」事件。
  */
-type TabId = "chat" | "todos" | "pomodoro" | "assets" | "settings";
+type TabId = "chat" | "todos" | "reminders" | "pomodoro" | "assets" | "settings";
 
 /** open-chat 载荷的 tab 字段收窄（非法值回落 chat——收方校验，协议文档见 events.ts） */
 function asTabId(v: unknown): TabId {
-  return v === "todos" || v === "pomodoro" || v === "assets" || v === "settings" || v === "chat" ? v : "chat";
+  return v === "todos" || v === "reminders" || v === "pomodoro" || v === "assets" || v === "settings" || v === "chat"
+    ? v
+    : "chat";
 }
 
 export function ChatApp() {
   const [tab, setTab] = useState<TabId>("chat");
   const [welcome, setWelcome] = useState(false);
   const shellRef = useRef<HTMLElement>(null);
+  /** 未确认提醒数（P1-02）：提醒 Tab 上的角标，>0 才渲染 */
+  const [unacked, setUnacked] = useState(0);
 
   // 窗口唤回（托盘/快捷键打开已隐藏的聊天窗）时的轻过渡：淡入+上浮 160ms。
   // show() 本身是硬切，闪现显得像卡顿；WAAPI 合成器动画零布局成本。
@@ -65,6 +74,31 @@ export function ChatApp() {
       off = unlisten;
     });
     return () => off?.();
+  }, []);
+
+  // ④ 未确认提醒角标（P1-02 / v0.14.0）：数据源是 reminders 表（SQLite 单一事实源），
+  //    变化节奏由 remindersChanged 广播对齐——创建/触发/确认落库时调度器与 Store 都会广播。
+  //    查询失败静默为 0：角标是提示，不该在聊天窗标题栏报错。
+  useEffect(() => {
+    let disposed = false;
+    let off: (() => void) | undefined;
+    const refresh = () => {
+      void reminderStore
+        .unacknowledgedCount()
+        .then(n => {
+          if (!disposed) setUnacked(n);
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    void listen(STATE_EVENTS.remindersChanged, refresh).then(unlisten => {
+      if (disposed) unlisten();
+      else off = unlisten;
+    });
+    return () => {
+      disposed = true;
+      off?.();
+    };
   }, []);
 
   /**
@@ -106,6 +140,9 @@ export function ChatApp() {
             <TabButton active={tab === "todos"} onClick={() => setTab("todos")}>
               待办
             </TabButton>
+            <TabButton active={tab === "reminders"} onClick={() => setTab("reminders")} badge={unacked}>
+              提醒
+            </TabButton>
             <TabButton active={tab === "pomodoro"} onClick={() => setTab("pomodoro")}>
               番茄钟
             </TabButton>
@@ -126,7 +163,7 @@ export function ChatApp() {
         <WelcomeGuide onFinish={finishWelcome} onDismissForever={() => void dismissForever()} />
       ) : (
         <>
-          {/* keep-alive：五个 Tab 常驻不卸载，切换只切 visible——旧条件渲染会在
+          {/* keep-alive：六个 Tab 常驻不卸载，切换只切 visible——旧条件渲染会在
               每次切换时重挂组件（聊天历史重查 SQLite、设置重读 store、监听反复
               装卸），既闪又费。CSS 入场动画在 display:none→显示时自动重播，
               切换的"进入感"零 JS 成本。 */}
@@ -135,6 +172,9 @@ export function ChatApp() {
           </div>
           <div className="chat-tab-page" hidden={tab !== "todos"}>
             <TodosTab />
+          </div>
+          <div className="chat-tab-page" hidden={tab !== "reminders"}>
+            <RemindersTab />
           </div>
           <div className="chat-tab-page" hidden={tab !== "pomodoro"}>
             <PomodoroTab />
@@ -154,15 +194,19 @@ export function ChatApp() {
 function TabButton({
   active,
   onClick,
+  badge,
   children,
 }: {
   active: boolean;
   onClick: () => void;
+  /** 未确认提醒数（v0.14.0）：>0 才渲染角标；9 以上显示 9+（挤不下的诚实显示法） */
+  badge?: number;
   children: React.ReactNode;
 }) {
   return (
     <button className={`chat-tab${active ? " chat-tab--active" : ""}`} onClick={onClick}>
       {children}
+      {badge != null && badge > 0 && <span className="chat-tab__badge">{badge > 9 ? "9+" : badge}</span>}
     </button>
   );
 }

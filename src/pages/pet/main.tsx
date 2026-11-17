@@ -6,7 +6,7 @@ import { standupService, pomodoroService } from "@/services/timers";
 import { reminderScheduler } from "@/services/reminders";
 import { listen } from "@tauri-apps/api/event";
 import { loadSettings, type AppSettings } from "@/services/settings";
-import { warmupNotificationPermission } from "@/services/notifications";
+import { registerNotificationTapRouting, warmupNotificationPermission } from "@/services/notifications";
 import { sendStateEvent, sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { hostServices } from "@/services/host-services";
 import { startSystemEvents } from "@/services/system-events";
@@ -19,6 +19,10 @@ void petState.installRemoteListeners().catch(() => undefined);
 // 通知权限预热（P0-03）：macOS 首次会弹系统询问，集中在启动时做——
 // 到点提醒的瞬间才弹授权框会打断用户；Windows 恒已授权，预热幂等
 void warmupNotificationPermission();
+
+// 通知点击路由（P1-02 / v0.14.0）：点系统通知 → 聚焦聊天窗并直达对应 Tab。
+// 必须在通知发出**之前**注册——插件只对监听器存在期间发出的通知回报点击。
+void registerNotificationTapRouting();
 
 // 常驻服务（v0.7.0，learning/08）：宠物窗是应用生命周期最长的宿主窗口
 // （关闭=隐藏、进程常驻托盘），计时器/在场检测/提醒调度都驻留这里。

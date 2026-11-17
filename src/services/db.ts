@@ -102,7 +102,8 @@ const SCHEMA: string[] = [
      fired_at   INTEGER,
      acknowledged_at INTEGER,
      repeat     TEXT NOT NULL DEFAULT 'none',
-     series_id  TEXT
+     series_id  TEXT,
+     batch_id   TEXT
    )`,
 ];
 
@@ -128,10 +129,11 @@ async function ensureColumn(db: Db, table: string, column: string, ddl: string):
   }
 }
 
-/** v0.13.0：周期提醒（repeat / series_id）+ 待办到期（due_at / due_notified_at） */
+/** v0.13.0：周期提醒（repeat / series_id）+ 待办到期（due_at / due_notified_at）；v0.14.0：合并批次 batch_id */
 async function migrateRepeatAndDue(db: Db): Promise<void> {
   await ensureColumn(db, "reminders", "repeat", "repeat TEXT NOT NULL DEFAULT 'none'");
   await ensureColumn(db, "reminders", "series_id", "series_id TEXT");
+  await ensureColumn(db, "reminders", "batch_id", "batch_id TEXT");
   await ensureColumn(db, "todos", "due_at", "due_at INTEGER");
   await ensureColumn(db, "todos", "due_notified_at", "due_notified_at INTEGER");
 }

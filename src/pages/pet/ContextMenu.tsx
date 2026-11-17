@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { PET_STATES, type PetState, petState } from "@/services/pet-state";
 import { todoService } from "@/services/todos";
+import { reminderStore } from "@/services/reminders";
 import { pomodoroService, standupService } from "@/services/timers";
 import { sendStateEvent, sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { clampMenuPosition } from "./menu-position";
@@ -34,6 +36,7 @@ function requestUI(
 export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
   const [demoOpen, setDemoOpen] = useState(false);
   const [todoCount, setTodoCount] = useState<number | null>(null);
+  const [unackedReminders, setUnackedReminders] = useState<number | null>(null);
   const [pomo, setPomo] = useState(pomodoroService.status());
   const [standupSec, setStandupSec] = useState(standupService.remainingSec());
   const rootRef = useRef<HTMLDivElement>(null);
@@ -64,6 +67,30 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     });
     return () => {
       mounted = false;
+    };
+  }, []);
+
+  // 未确认提醒数（v0.14.0）：与聊天窗 Tab 角标同一个查询（SQLite 单一事实源），
+  // 菜单存活期间订阅 remindersChanged 保持一致（确认/新触发都即时刷新）。
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => {
+      void reminderStore
+        .unacknowledgedCount()
+        .then(n => {
+          if (mounted) setUnackedReminders(n);
+        })
+        .catch(() => undefined);
+    };
+    void reminderStore.ready.then(refresh);
+    let off: (() => void) | undefined;
+    void listen(STATE_EVENTS.remindersChanged, refresh).then(unlisten => {
+      if (!mounted) unlisten();
+      else off = unlisten;
+    });
+    return () => {
+      mounted = false;
+      off?.();
     };
   }, []);
 
@@ -123,6 +150,13 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       {item("打开聊天", () => requestUI(UI_EVENTS.openChat))}
       {item(todoCount === 0 ? "待办" : `待办（${todoCount ?? "…"}）`, () =>
         requestUI(UI_EVENTS.openChat, { tab: "todos" }),
+      )}
+      {/* 提醒中心（v0.14.0）：有未确认时显示数量——那是"该点开看看"的信号 */}
+      {item(
+        unackedReminders != null && unackedReminders > 0
+          ? `提醒中心 · ${unackedReminders} 条待确认`
+          : "提醒中心",
+        () => requestUI(UI_EVENTS.openChat, { tab: "reminders" }),
       )}
       {pomo.phase === "idle"
         ? item("开始番茄钟", () => void sendStateEvent(STATE_EVENTS.pomodoroStart, {}))

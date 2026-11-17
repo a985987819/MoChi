@@ -23,6 +23,7 @@ import { subscribeHeartbeat } from "@/services/heartbeat";
 import { showAppAlert } from "@/services/alerts";
 import { formatBatchBody } from "@/services/system-events";
 import { parseRepeat, nextOccurrence, type Repeat } from "@/services/recurrence";
+import { groupHistoryRows, type HistoryEntry } from "@/services/reminder-history";
 
 export interface Reminder {
   id: number;
@@ -32,10 +33,21 @@ export interface Reminder {
   status: "active" | "fired" | "cancelled";
   createdAt: number;
   firedAt?: number;
+  /**
+   * 确认时刻（v0.14.0 暴露给 UI）：NULL = 触发后用户还没点过弹窗——提醒中心
+   * 用它标「待确认」，角标计数与它同源。active 行恒为 NULL。
+   */
+  acknowledgedAt?: number;
   /** 重复规则（v0.13.0）：none 一次性；daily/weekdays/weekly 触发后自动排下一次 */
   repeat: Repeat;
   /** 同一串周期提醒的分组 id（v0.13.0，仅 repeat != none 时有值） */
   seriesId?: string;
+  /**
+   * 合并交付批次 id（v0.14.0）：同一次长休眠恢复被合并成一条弹窗的行共享此 id，
+   * 提醒历史据此聚合成「N 条到点了」。独立触发永远为 NULL——两条提醒恰好在同一
+   * 毫秒被认领不算合并（判定只认 id，见 reminder-history.ts 顶部说明）。
+   */
+  batchId?: string;
 }
 
 interface ReminderRow {
@@ -45,8 +57,10 @@ interface ReminderRow {
   status: "active" | "fired" | "cancelled";
   created_at: number;
   fired_at: number | null;
+  acknowledged_at: number | null;
   repeat: string | null;
   series_id: string | null;
+  batch_id: string | null;
 }
 
 const rowToReminder = (r: ReminderRow): Reminder => ({
@@ -57,7 +71,9 @@ const rowToReminder = (r: ReminderRow): Reminder => ({
   createdAt: r.created_at,
   repeat: parseRepeat(r.repeat),
   ...(r.fired_at != null ? { firedAt: r.fired_at } : {}),
+  ...(r.acknowledged_at != null ? { acknowledgedAt: r.acknowledged_at } : {}),
   ...(r.series_id ? { seriesId: r.series_id } : {}),
+  ...(r.batch_id ? { batchId: r.batch_id } : {}),
 });
 
 // ── Store（聊天窗：工具的写入口）──────────────────────────────────────
@@ -127,6 +143,42 @@ export class ReminderStore {
       "SELECT * FROM reminders WHERE status = 'active' ORDER BY fire_at ASC",
     );
     return rows.map(rowToReminder);
+  }
+
+  /**
+   * 提醒历史（P1-02 / v0.14.0）：已触发与已取消的行，按时间倒序分页。
+   *
+   * 分页是必须的：表只增不减，历史中心若一次读全，几个月后就是一次全表扫描
+   * 糊在聊天窗渲染里。offset 按行计数；同一合并批次被分页边界截断时会在两页
+   * 各显示一部分（已知限制，见版本文档——批次实际最多一屏几条，页长 20 行，
+   * 概率极低，不值得为此引入游标分页）。
+   *
+   * @param limit 页大小（行数），调用方传 20
+   * @param offset 已读过的行数（加载更多时累加）
+   * @returns 聚合后的展示条目 + 是否还有下一页（按取满 limit 行判定）
+   */
+  async listHistory(limit: number, offset: number): Promise<{ entries: HistoryEntry[]; hasMore: boolean }> {
+    const db = await getDb();
+    const rows = await db.select<ReminderRow[]>(
+      "SELECT * FROM reminders WHERE status IN ('fired','cancelled') ORDER BY COALESCE(fired_at, created_at) DESC, id DESC LIMIT $1 OFFSET $2",
+      [limit, offset],
+    );
+    return { entries: groupHistoryRows(rows.map(rowToReminder)), hasMore: rows.length === limit };
+  }
+
+  /**
+   * 未确认提醒数（P1-02 / v0.14.0）：角标的唯一数据源。
+   *
+   * 「未确认」= 已触发（fired）但用户还没点过弹窗（acknowledged_at IS NULL）。
+   * 每个窗口各自查库没有一致性问题：SQLite 是单一事实源，两侧的查询看到的是
+   * 同一行；变化节奏靠 remindersChanged 广播对齐（确认落库后调度器会补发一次）。
+   */
+  async unacknowledgedCount(): Promise<number> {
+    const db = await getDb();
+    const rows = await db.select<Array<{ n: number }>>(
+      "SELECT COUNT(*) AS n FROM reminders WHERE status = 'fired' AND acknowledged_at IS NULL",
+    );
+    return rows[0]?.n ?? 0;
   }
 }
 
@@ -245,13 +297,18 @@ export class ReminderScheduler {
       this.pendingRollbacks.delete(id);
     }
     // 确认先于恢复队列处理；写库失败保留待确认令牌，避免重放用户刚关掉的提醒。
+    // 有确认真正落库时补发一次广播（v0.14.0）：聊天窗角标与提醒中心据此把
+    // 「待确认」降下来——不广播的话两个界面要等下一次提醒事件才会刷新。
+    let acknowledgedAny = false;
     for (const [id, acknowledgedAt] of this.pendingAcknowledgements) {
-      await db.execute(
+      const result = await db.execute(
         "UPDATE reminders SET acknowledged_at = $1 WHERE id = $2 AND status = 'fired' AND acknowledged_at IS NULL",
         [acknowledgedAt, id],
       );
       this.pendingAcknowledgements.delete(id);
+      if ((result.rowsAffected ?? 0) === 1) acknowledgedAny = true;
     }
+    if (acknowledgedAny) await emit(STATE_EVENTS.remindersChanged).catch(() => undefined);
     if (!this.isCurrent(generation) || this.isAway()) return;
     // 刚从长休眠恢复：先把积压的过期提醒合并成一条，再走常规单条通道。
     // 只有 >=2 条才合并；单条仍走下面的常规路径（保留原文与原文交互）。
@@ -401,15 +458,20 @@ export class ReminderScheduler {
       [now],
     );
     if (rows.length < 2) return;
+    // 批次 id（v0.14.0）：与弹窗 id `reminder:batch:{now}` 用同一个时间戳，提醒历史
+    // 据此把这一批行聚合成一条「N 条到点了」，而不是散成 N 行看不出关系。
+    const batchId = `batch:${now}`;
     const claimed: ReminderRow[] = [];
     for (const row of rows) {
       const claim = await db.execute(
-        "UPDATE reminders SET status = 'fired', fired_at = $1, acknowledged_at = $1 WHERE id = $2 AND status = 'active'",
-        [now, row.id],
+        "UPDATE reminders SET status = 'fired', fired_at = $1, acknowledged_at = $1, batch_id = $2 WHERE id = $3 AND status = 'active'",
+        [now, batchId, row.id],
       );
       if ((claim.rowsAffected ?? 0) === 1) claimed.push(row);
     }
     if (claimed.length === 0) return;
+    // 认领即已确认，角标不变；但 active → fired 的迁移会改变历史列表，广播一次
+    await emit(STATE_EVENTS.remindersChanged).catch(() => undefined);
     // 周期提醒即使被合并交付，也必须继续排下一次——否则一条"每天 9 点"的提醒
     // 会因为"睡了一夜被合并"而彻底消失。
     for (const row of claimed) await this.scheduleNext(row, now);
