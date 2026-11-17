@@ -32,16 +32,36 @@ body {
   overflow: hidden;
   border-radius: 12px;
   background: var(--bg-window);
-  box-shadow: 0 12px 32px rgba(80, 50, 60, 0.18);
+  /* v0.19.1 点心铺精修：顶部一圈暖光 + 右下角一抹腮红 + 纸感噪点（::before），
+     窗影改双层（接触影贴边、环境影远投）——"放在桌上的点心盒"的体积感 */
+  background-image: var(--shell-wash);
+  box-shadow:
+    var(--shadow-lift);
+  position: relative;
+  isolation: isolate;
 }
 
-/* ── 自绘标题栏（decorations:false 后就是窗口的"边"）── */
+/* 纸感噪点：盖在窗口底色/氛围光之上、所有内容之下（z-index:-1 + isolation
+   隔离堆叠上下文）——标题栏等自带底色的区域自然盖住噪点，消息流"纸面"保留 */
+.chat-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: var(--grain);
+  opacity: 0.05;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ── 自绘标题栏（decorations:false 后就是窗口的"边"）──
+   v0.19.1：底色微透（让窗口氛围光隐约透上来），下缘细线保留 */
 .chat-titlebar {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
   border-bottom: 1px solid var(--border);
 }
 
@@ -51,6 +71,7 @@ body {
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0.02em;
   flex: 0 0 auto;
 }
 
@@ -71,10 +92,17 @@ body {
   color: var(--text-muted);
   font-size: 13px;
   cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
-.chat-tab--active,
-.chat-tab:hover {
+/* 激活态 = 草莓软糖：淡粉底 + 粉字（v0.19.1，原来是中性灰底） */
+.chat-tab--active {
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.chat-tab:hover:not(.chat-tab--active) {
   background: var(--bg-hover);
   color: var(--text-strong);
 }
@@ -138,12 +166,66 @@ body {
   gap: 10px;
 }
 
+/* 空态（v0.19.1 点心铺）：CSS 手绘的小麻薯团子浮在文案上方——身体是
+   双层椭圆渐变，::after 用 box-shadow 画出双眼与两团腮红；一起轻轻浮动。
+   零图片资源，深浅主题各配色一次（令牌驱动）。 */
 .chat-empty {
   margin: auto;
   text-align: center;
   color: var(--text-faint);
   font-size: 13px;
   line-height: 2;
+  position: relative;
+  padding-top: 62px;
+}
+
+.chat-empty::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 54px;
+  height: 46px;
+  margin-left: -27px;
+  border-radius: 50% 50% 46% 46% / 62% 62% 40% 40%;
+  background: linear-gradient(180deg, var(--bg-surface) 30%, var(--bg-accent-soft));
+  border: 1.5px solid var(--border-accent);
+  animation: mochi-bob 3.4s ease-in-out infinite;
+}
+
+.chat-empty::after {
+  content: "";
+  position: absolute;
+  top: 28px;
+  left: 50%;
+  width: 5px;
+  height: 6px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: var(--text-faint2);
+  box-shadow:
+    -10px 0 0 var(--text-faint2),
+    10px 0 0 var(--text-faint2),
+    -15px 5px 0 -1px var(--bg-hover-strong),
+    15px 5px 0 -1px var(--bg-hover-strong);
+  animation: mochi-bob 3.4s ease-in-out infinite;
+}
+
+@keyframes mochi-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(1deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-empty::before,
+  .chat-empty::after {
+    animation: none;
+  }
 }
 
 /* 历史加载/失败（v0.9.0 体验扩展）：占位于消息流顶部，不挡输入区 */
@@ -194,8 +276,24 @@ body {
   background: var(--bg-accent-soft);
 }
 
+/* 消息入场（v0.19.1）：新消息/切回历史时轻浮起 180ms——只动 opacity/translate，
+   合成器线程，历史整批加载也只是同批一次淡入 */
 .chat-msg {
   display: flex;
+  animation: msg-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-msg {
+    animation: none;
+  }
 }
 
 .chat-msg--user {
@@ -215,16 +313,19 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* 用户气泡 = 草莓糖霜（v0.19.1：纯色 → 135° 糖霜渐变 + 双层影） */
 .chat-msg--user .chat-msg__bubble {
-  background: var(--accent-fill);
+  background: var(--glaze);
   color: var(--text-on-accent);
   border-bottom-right-radius: 4px;
+  box-shadow: var(--shadow-ambient);
 }
 
 .chat-msg--assistant .chat-msg__bubble {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
+  box-shadow: var(--shadow-ambient);
 }
 
 .chat-msg__plain {
@@ -276,8 +377,9 @@ body {
 
 .chat-md pre {
   background: var(--bg-muted);
-  padding: 8px 10px;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  border-radius: 10px;
   overflow-x: auto;
   font-size: 12px;
 }
@@ -405,7 +507,8 @@ body {
   color: var(--accent-text);
 }
 
-/* ── 输入区 ── */
+/* ── 输入区 ──
+   v0.19.1：聚焦光环（--ring-accent 柔光圈）、发送键糖霜化 + 按压弹性 */
 .chat-composer {
   display: flex;
   gap: 8px;
@@ -425,21 +528,34 @@ body {
   line-height: 1.5;
   color: var(--text-strong);
   outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .chat-composer textarea:focus {
   border-color: var(--border-accent);
+  box-shadow: 0 0 0 3px var(--ring-accent);
 }
 
 .chat-send {
   padding: 9px 16px;
   border: none;
   border-radius: 12px;
-  background: var(--accent-fill);
+  background: var(--glaze);
   color: var(--text-on-accent);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  transition: transform 120ms ease, box-shadow 140ms ease;
+}
+
+.chat-send:hover:not(:disabled) {
+  box-shadow: var(--shadow-ambient);
+  transform: translateY(-1px);
+}
+
+/* 按压弹性：往里按而不是往上弹——"软糯"的触觉方向 */
+.chat-send:active:not(:disabled) {
+  transform: translateY(1px) scale(0.97);
 }
 
 .chat-send:disabled {
@@ -449,6 +565,7 @@ body {
 
 .chat-send--stop {
   background: var(--bg-accent-tint);
+  color: var(--accent-text);
 }
 
 /* ── 设置面板 ── */
@@ -669,6 +786,11 @@ body {
   border-radius: 11px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
+  transition: box-shadow 140ms ease;
+}
+
+.todo-row:hover {
+  box-shadow: var(--shadow-ambient);
 }
 
 .todo-row--done {
@@ -686,12 +808,41 @@ body {
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
+  transition: transform 120ms ease, background-color 140ms ease;
 }
 
+.todo-row__check:hover:not(:disabled) {
+  transform: scale(1.1);
+}
+
+.todo-row__check:active:not(:disabled) {
+  transform: scale(0.88);
+}
+
+/* 完成瞬间（v0.19.1）：勾选框从小弹过阈值再落定——"盖了一个草莓章" */
 .todo-row__check:disabled {
   background: var(--border-accent);
   color: var(--text-on-accent);
   cursor: default;
+  animation: check-pop 240ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes check-pop {
+  0% {
+    transform: scale(0.65);
+  }
+  60% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todo-row__check:disabled {
+    animation: none;
+  }
 }
 
 .todo-row__body {
@@ -924,9 +1075,10 @@ body {
   align-items: center;
   gap: 8px;
   padding: 22px;
-  border-radius: 16px;
+  border-radius: 18px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
+  box-shadow: var(--shadow-ambient);
 }
 
 .pomo-card--focus {
@@ -941,14 +1093,18 @@ body {
 
 .pomo-phase {
   color: var(--text-faint);
-  font-size: 13px;
-  letter-spacing: 2px;
+  font-size: 12px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
 }
 
+/* 计时数字（v0.19.1）：大号细体 + 等宽数字——"甜品店挂钟"的观感；
+   字重从 700 降到 300（46px 大字号下细笔画更从容，且不与 tabular-nums 冲突） */
 .pomo-time {
-  font-size: 44px;
-  font-weight: 700;
+  font-size: 46px;
+  font-weight: 300;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
   color: var(--text-strong);
   line-height: 1.1;
 }
@@ -962,15 +1118,26 @@ body {
   padding: 9px 26px;
   border: none;
   border-radius: 11px;
-  background: var(--accent-fill);
+  background: var(--glaze);
   color: var(--text-on-accent);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: transform 120ms ease, box-shadow 140ms ease;
+}
+
+.pomo-btn:hover:not(:disabled) {
+  box-shadow: var(--shadow-ambient);
+  transform: translateY(-1px);
+}
+
+.pomo-btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.97);
 }
 
 .pomo-btn--stop {
   background: var(--bg-accent-tint);
+  color: var(--accent-text);
 }
 
 .pomo-hint {
@@ -1493,3 +1660,82 @@ body {
   background: var(--bg-surface);
   color: var(--text-strong);
 }
+
+/* ── v0.19.1 点心铺精修（追加层：压过前面的同特异性规则）── */
+
+/* 主按钮统一"软按压"：hover 轻浮起 + 环境影，active 往里按（软糯的触觉方向） */
+.todos-add button,
+.settings-test button {
+  transition: transform 120ms ease, box-shadow 140ms ease;
+}
+
+.todos-add button:hover:not(:disabled),
+.settings-test button:hover:not(:disabled) {
+  box-shadow: var(--shadow-ambient);
+  transform: translateY(-1px);
+}
+
+.todos-add button:active:not(:disabled),
+.settings-test button:active:not(:disabled),
+.settings-ghost-btn:active,
+.settings-danger button:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+/* 输入聚焦光环：border 变色之外再加一圈柔光，"点进去"的面积感 */
+.todos-add input:focus,
+.todos-due input:focus,
+.settings-field select:focus,
+.settings-field input:focus {
+  box-shadow: 0 0 0 3px var(--ring-accent);
+}
+
+/* 待办行卡片：悬停浮起已就位；删除键按压反馈 */
+.todo-row__del {
+  transition: background-color 120ms ease, transform 120ms ease;
+}
+
+.todo-row__del:active {
+  transform: scale(0.88);
+}
+
+/* 细滚动条：内容区不再顶系统默认宽灰条（thumb 用边框色，hover 提到粉灰） */
+.chat-msg-list::-webkit-scrollbar,
+.settings-panel::-webkit-scrollbar,
+.todos-panel::-webkit-scrollbar,
+.pomo-panel::-webkit-scrollbar,
+.rem-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-msg-list::-webkit-scrollbar-thumb,
+.settings-panel::-webkit-scrollbar-thumb,
+.todos-panel::-webkit-scrollbar-thumb,
+.pomo-panel::-webkit-scrollbar-thumb,
+.rem-panel::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+.chat-msg-list::-webkit-scrollbar-thumb:hover,
+.settings-panel::-webkit-scrollbar-thumb:hover,
+.todos-panel::-webkit-scrollbar-thumb:hover,
+.pomo-panel::-webkit-scrollbar-thumb:hover,
+.rem-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-muted);
+}
+
+.chat-msg-list::-webkit-scrollbar-track,
+.settings-panel::-webkit-scrollbar-track,
+.todos-panel::-webkit-scrollbar-track,
+.pomo-panel::-webkit-scrollbar-track,
+.rem-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 复制按钮浮起时带一点影（原来是裸边框小片） */
+.chat-copy-btn {
+  box-shadow: var(--shadow-ambient);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+

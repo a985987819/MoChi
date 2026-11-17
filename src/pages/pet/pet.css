@@ -42,7 +42,7 @@ body {
   border-radius: 14px 14px 13px 5px;
   background: var(--bg-warn-tint);
   color: var(--text-bubble);
-  box-shadow: 0 4px 12px var(--shadow-color), inset 0 1px 0 var(--highlight);
+  box-shadow: 0 1px 2px var(--shadow-color), 0 4px 12px var(--shadow-color), inset 0 1px 0 var(--highlight);
   /* v0.13.1 字体：原先是 "STKaiti","KaiTi"（楷体）——12px 下笔画细、发虚，
      用户反馈"看不清、不够凌厉"。改成系统无衬线（Segoe UI 优先，中文回落雅黑 UI）：
      笔画直、边缘实，小字号下清晰度是楷体比不了的。中文名必须排在 sans-serif 之前，

@@ -69,6 +69,23 @@
   /* 阴影与高光 */
   --shadow-color: rgba(114, 80, 57, 0.11);
   --highlight: #ffffff;
+
+  /* ── 点心铺精修层（v0.19.1）──
+     麻薯本身是点心：界面按"好甜品店的包装"做——草莓糖霜渐变、奶茶色层叠阴影、
+     纸感噪点、窗顶一圈暖光。全部随主题成对定义。 */
+  /* 糖霜渐变（用户气泡 / 主按钮）：白字在其上的对比度与原 #ff8fab 同级 */
+  --glaze: linear-gradient(135deg, #ffa9b7 0%, #ff8fab 100%);
+  /* 卡片双层阴影：近距接触影 + 远距环境影（奶茶暖棕，深色翻黑） */
+  --shadow-ambient: 0 1px 2px rgba(114, 80, 57, 0.05), 0 3px 12px rgba(114, 80, 57, 0.07);
+  --shadow-lift: 0 2px 4px rgba(114, 80, 57, 0.1), 0 10px 26px rgba(114, 80, 57, 0.14);
+  /* 窗内氛围：顶部一圈暖光 + 右下角一抹腮红（深色整组减淡） */
+  --shell-wash:
+    radial-gradient(140% 80% at 50% -8%, rgba(255, 143, 171, 0.09), transparent 55%),
+    radial-gradient(90% 60% at 100% 112%, rgba(255, 200, 214, 0.28), transparent 62%);
+  /* 聚焦光环（输入框 focus 的柔光圈） */
+  --ring-accent: rgba(255, 143, 171, 0.22);
+  /* 纸感噪点（tiled SVG feTurbulence；透明度在使用处按明暗调整） */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 :root[data-theme="dark"] {
@@ -113,4 +130,13 @@
   /* 阴影与高光：暗底用深阴影，高光换成极淡的白 */
   --shadow-color: rgba(0, 0, 0, 0.5);
   --highlight: rgba(255, 255, 255, 0.08);
+
+  /* 点心铺精修层（深色）：糖霜翻深（白字对比更好），氛围光减淡 */
+  --glaze: linear-gradient(135deg, #e88497 0%, #d9546d 100%);
+  --shadow-ambient: 0 1px 2px rgba(0, 0, 0, 0.35), 0 3px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lift: 0 2px 4px rgba(0, 0, 0, 0.42), 0 10px 26px rgba(0, 0, 0, 0.45);
+  --shell-wash:
+    radial-gradient(140% 80% at 50% -8%, rgba(255, 143, 171, 0.05), transparent 55%),
+    radial-gradient(90% 60% at 100% 112%, rgba(255, 143, 171, 0.05), transparent 62%);
+  --ring-accent: rgba(255, 143, 171, 0.18);
 }
