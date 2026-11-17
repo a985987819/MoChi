@@ -103,8 +103,15 @@ export const STATE_EVENTS = {
   /**
    * 开机自启开关（v0.9.0 P1-14，前端 → Rust）。载荷：{ enabled: boolean }。
    * Rust 收到后 enable/disable 系统自启项（Win 注册表 Run / mac LaunchAgent）。
+   * v0.9.1 起界面文案为「开机自动打开」。
    */
   autostartChanged: "state://autostart-changed",
+  /**
+   * 自启应用结果（v0.9.1，Rust → 前端）。载荷：{ enabled, ok, error? }。
+   * enabled 是**系统真值**（Rust 执行后 is_enabled 读回），不是用户点的值——
+   * 二者不一致说明被安全软件回滚/被系统策略拒绝，设置页据此提示而不是假成功。
+   */
+  autostartState: "state://autostart-state",
   /**
    * 游戏模式开关（v0.9.0 自迭代，前端 → Rust）。载荷：{ enabled: boolean }。
    * Rust 收到后启停"前台全屏检测"（只读窗口矩形几何，不读应用名——learning/08

@@ -52,9 +52,12 @@ export interface AppSettings extends AddressingPreferences {
    */
   shortcutEnabled: boolean;
   /**
-   * 开机自启（v0.9.0 P1-14，**默认关**——不默认自启是桌宠软件的底线）。
-   * 设置是事实源：Rust 收 state://autostart-changed 后 enable/disable 系统项；
-   * 启动时前端按本字段应用一次。
+   * 开机自动打开（v0.9.0 P1-14 引入，v0.9.1 定为现名与现语义，**默认关**——
+   * 不默认自启是桌宠软件的底线）。
+   * 设置是事实源：Rust 收 state://autostart-changed 后 enable/disable 系统项，
+   * 并立刻用 is_enabled() 读回真值经 state://autostart-state 回执（v0.9.1）——
+   * 前端不能把"我点开了"当成"系统里真的开了"。启动时宠物窗按本字段应用一次，
+   * 顺带自愈：重装/搬家后注册表里的 exe 路径会被这次应用刷新成当前路径。
    */
   autostartEnabled: boolean;
   /**

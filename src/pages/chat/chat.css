@@ -511,6 +511,21 @@ body {
   border-top: 1px dashed #f0e4e8;
 }
 
+/* 自启真值回显（v0.9.1）：ok = 系统已登记；warn = 设置与系统不一致/被拦截。
+   只做轻微色差，不抢主内容——提示语气要"告知"，不是"报警"。 */
+.settings-note--ok {
+  color: #5f9e7a;
+}
+
+.settings-note--warn {
+  color: #c0722c;
+}
+
+.settings-note--warn .settings-link {
+  margin-left: 4px;
+  color: #c0722c;
+}
+
 .settings-test {
   display: flex;
   align-items: center;

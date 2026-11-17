@@ -4,7 +4,8 @@ import { petState } from "@/services/pet-state";
 import { presenceService } from "@/services/presence";
 import { standupService, pomodoroService } from "@/services/timers";
 import { reminderScheduler } from "@/services/reminders";
-import { loadSettings } from "@/services/settings";
+import { listen } from "@tauri-apps/api/event";
+import { loadSettings, type AppSettings } from "@/services/settings";
 import { warmupNotificationPermission } from "@/services/notifications";
 import { sendStateEvent, sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { hostServices } from "@/services/host-services";
@@ -36,22 +37,66 @@ if (import.meta.hot) import.meta.hot.dispose(() => {
 });
 
 /**
- * 启动时的一次设置读取，做三件事（P1-13/14/15 + v0.9.0 首启引导）：
- * ① 全局快捷键 / 开机自启 / 宠物大小按设置应用——设置页切换走同样的 state://
- *    事件，Rust 只执行系统级变更；
+ * 启动时的设置读取，做三件事（P1-13/14/15 + v0.9.0 首启引导）：
+ * ① 全局快捷键 / 开机自动打开（自启）/ 游戏模式 / 宠物大小按设置应用——设置页
+ *    切换走同样的 state:// 事件，Rust 只执行系统级变更。**开机自启在启动时重放
+ *    一次是自愈**：重装或换安装目录后，注册表里旧的 exe 路径会被刷新成当前路径；
  * ② 首启引导入口：「双击宠物打开聊天」是个没有暗示的隐藏手势，新用户装完只看
  *    得到一个静止的团子——首启由宠物窗延迟 1.2s 把聊天窗叫出来展示 WelcomeGuide
- *    （先让麻薯在右下角建立"会动的小东西"的第一印象，再弹向导）。
+ *    （先让麻薯在右下角建立"会动的小东西"的第一印象，再弹向导）；
+ * ③ 兜底重放（v0.9.1，见下方 bootSync 注释）——打包版首启存在"脚本早于 Rust
+ *    监听注册"的时序，靠原生节拍补一次。
  * 读失败静默跳过：监督器负责服务重试，这里是纯 UI 预设，下个设置变更会补上。
  */
-void loadSettings().then(settings => {
+
+/** 四项系统级设置的重放（幂等：同值重复应用安全，见各 Rust 处理函数） */
+function syncStartupSettings(settings: AppSettings): void {
   void sendStateEvent(STATE_EVENTS.shortcutChanged, { enabled: settings.shortcutEnabled }).catch(() => undefined);
   void sendStateEvent(STATE_EVENTS.autostartChanged, { enabled: settings.autostartEnabled }).catch(() => undefined);
   void sendStateEvent(STATE_EVENTS.gameModeChanged, { enabled: settings.gameModeEnabled }).catch(() => undefined);
   void sendStateEvent(STATE_EVENTS.petScaleChanged, { scale: settings.petScale }).catch(() => undefined);
-  if (!settings.onboardingDone) {
-    window.setTimeout(() => void sendUIEvent(UI_EVENTS.openChat).catch(() => undefined), 1200);
-  }
+}
+
+/** 首启引导只叫一次（首次读取与兜底重放都可能走到这里） */
+let onboardingOpened = false;
+function maybeOpenOnboarding(settings: AppSettings): void {
+  if (onboardingOpened || settings.onboardingDone) return;
+  onboardingOpened = true;
+  window.setTimeout(() => void sendUIEvent(UI_EVENTS.openChat).catch(() => undefined), 1200);
+}
+
+void loadSettings().then(settings => {
+  syncStartupSettings(settings);
+  maybeOpenOnboarding(settings);
+}).catch(() => undefined);
+
+/**
+ * 首启兜底重放（v0.9.1 实测修复）。
+ *
+ * 现象：打包版**首次**启动时「开机自动打开」不生效（系统启动项没写入），用调试
+ * 端口手动重载宠物页立刻正常；开发模式（页面由 vite 提供）也一直正常。
+ *
+ * 原因：webview → Rust 的单向事件在启动瞬间有竞态。前端 `emit()` 发出的事件如果
+ * 早于 Rust `setup_ui_event_listeners` 注册监听，就会被**直接丢弃且不报错**
+ * ——`.catch()` 也捕获不到（invoke 本身是成功的）。内嵌资源比 vite 加载快得多，
+ * 于是只有"打包版 + 首启"这一种组合会踩中；同一段代码里 v0.9.0 的快捷键、宠物
+ * 大小其实有同样风险（只是没人注意到首次启动没生效）。
+ *
+ * 为什么不改成命令（invoke）：invoke 有请求/响应，天然不会丢，但那要把四项设置
+ * 各写一个命令，等于把"事件驱动"的通信协议拆成两套。这里沿用既有协议，用**原生
+ * 节拍**当"两侧都就绪"的确定信号——它由 Rust 在 setup 之后每秒发给宠物窗一次，
+ * 第一拍到达时再重放一次即可（重放幂等，正常路径下等于把同值再设一遍）。
+ */
+let bootSyncRetried = false;
+void listen(STATE_EVENTS.nativeTick, () => {
+  if (bootSyncRetried) return;
+  bootSyncRetried = true;
+  void loadSettings()
+    .then(settings => {
+      syncStartupSettings(settings);
+      maybeOpenOnboarding(settings);
+    })
+    .catch(() => undefined);
 }).catch(() => undefined);
 
 createRoot(document.getElementById("root")!).render(<PetApp />);

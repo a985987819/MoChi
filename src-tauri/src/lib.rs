@@ -62,8 +62,16 @@ const EVT_SHORTCUT_CHANGED: &str = "state://shortcut-changed";
 const EVT_SHORTCUT_STATE: &str = "state://shortcut-state";
 /// 快捷键键位（v1 写死；CmdOrCtrl 在 Windows=Ctrl、macOS=Cmd）
 const SHORTCUT_CHAT: &str = "CmdOrCtrl+Shift+M";
-/// 开机自启（v0.9.0 P1-14）：前端开关 → Rust 应用（enable/disable 系统项）
+/// 开机自启（v0.9.0 P1-14）：前端开关 → Rust 应用（enable/disable 系统项）。
+/// v0.9.1 起设置页把它呈现为「开机自动打开」——语义不变：开机后麻薯自动出现。
 const EVT_AUTOSTART_CHANGED: &str = "state://autostart-changed";
+/// 自启应用结果（Rust → 前端，v0.9.1）：载荷 `{ enabled, ok, error? }`。
+///
+/// 为什么要回执：`enable()` 返回 Ok 不等于系统真的记住了——安全软件的"启动项
+/// 加固"会把注册表值悄悄删掉/回滚。前端只翻转布尔值就会出现「开关开着、开机
+/// 却没启动」的假成功。这里执行后用 `is_enabled()` 读回系统真值再广播，
+/// 让设置页说人话（成功/被拦截/已失效）。
+const EVT_AUTOSTART_STATE: &str = "state://autostart-state";
 /// 宠物大小档位（v0.9.0 P1-15）：前端 → Rust（改窗口尺寸）+ 宠物窗（CSS 变量）
 const EVT_PET_SCALE_CHANGED: &str = "state://pet-scale-changed";
 /// 拖拽状态边界广播（v0.9.0 手感优化）：开始/结束各一次，前端切握持/放下动画
@@ -276,7 +284,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_user_pet_assets, get_idle_seconds,
             show_app_alert, get_app_alert, ack_app_alert, dismiss_app_alert,
-            set_pet_hit_test
+            set_pet_hit_test, get_autostart_enabled
         ]);
 
     builder
@@ -534,9 +542,31 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
         } else {
             handle.autolaunch().disable()
         };
-        if let Err(e) = result {
-            eprintln!("[autostart] 应用失败: {e}");
+        // 回执读系统真值（v0.9.1）：注册表被安全软件回滚时 enable() 仍是 Ok，
+        // 只有 is_enabled() 才代表"下次开机会真的启动"。读取失败按"未生效"处理——
+        // 宁可让用户看到提示，也不要给出假成功。
+        let actual = handle.autolaunch().is_enabled().unwrap_or(false);
+        let error = match result {
+            Ok(()) if actual == enabled => None,
+            Ok(()) => Some(if enabled {
+                "系统没有保留这次修改（可能被安全软件的启动项防护拦下了）".to_string()
+            } else {
+                "系统里还留着启动项，可能被安全软件的启动项防护锁定了".to_string()
+            }),
+            Err(e) => Some(e.to_string()),
+        };
+        if let Some(msg) = &error {
+            eprintln!("[autostart] 应用失败: {msg}");
         }
+        // 广播的是 actual（系统真值）而不是用户点的值：UI 据此判断是否"错位"。
+        let _ = handle.emit(
+            EVT_AUTOSTART_STATE,
+            serde_json::json!({
+                "enabled": actual,
+                "ok": error.is_none(),
+                "error": error,
+            }),
+        );
     });
 
     // 游戏模式开关（v0.9.0 自迭代）：只置标志位，检测在 native tick 里做（1s 节奏，
@@ -896,6 +926,19 @@ fn list_user_pet_assets(app: tauri::AppHandle) -> BTreeMap<String, Vec<String>> 
         }
     }
     result
+}
+
+/// 读取系统自启项真值（v0.9.1）—— 设置页挂载时调用，把「设置里的开关」与
+/// 「系统里真实登记的启动项」对齐。
+///
+/// 为什么需要它：设置文件是应用私有数据，系统启动项是另一份事实。两者会因为
+/// 用户手工清理任务管理器启动项、安全软件拦截、换安装路径而错位。只显示设置值
+/// 就会出现"开关开着但开机不启动"。读失败返回 false（不抛错）：设置页据此提示，
+/// 不影响其他设置项。
+#[tauri::command]
+fn get_autostart_enabled(app: tauri::AppHandle) -> bool {
+    use tauri_plugin_autostart::ManagerExt as _;
+    app.autolaunch().is_enabled().unwrap_or(false)
 }
 
 /// 距上次用户输入的秒数（learning/08 §3.1）。

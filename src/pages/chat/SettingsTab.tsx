@@ -6,6 +6,12 @@ import { AppUpdatesSection } from "./AppUpdatesSection";
 import { createProvider, PRESETS, getPreset } from "@/agent/providers";
 import type { ProviderError } from "@/agent/providers";
 import { memoryService, type MemoryItem } from "@/agent/memory/long-term";
+import {
+  applyAutostart,
+  describeAutostart,
+  readSystemAutostart,
+  type AutostartSystemState,
+} from "@/services/autostart";
 import { historyStore } from "@/agent/memory/history-store";
 import { sendStateEvent, STATE_EVENTS } from "@/shared/events";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
@@ -429,9 +435,16 @@ function ShortcutSection({
 }
 
 /**
- * 开机自启（P1-14）：默认关——不默认自启是桌宠软件的底线。
- * 设置是事实源；Rust 收事件后改系统自启项（Win 注册表 Run / mac LaunchAgent）。
- * 开启时说明会"开机后在托盘待命"，管理预期。
+ * 开机自动打开（v0.9.1 由 P1-14「开机自启」升级而来，**默认关**——不默认自启是底线）。
+ *
+ * 语义：开机后麻薯自己出现在桌面上（位置沿用上次拖到的地方，不弹聊天窗）。
+ *
+ * 三层事实，缺一层就会骗人：
+ * ① 设置值（settings.autostartEnabled）——用户的意图，落 settings.json；
+ * ② 系统启动项——真正决定开机是否启动的东西，只有 Rust 能写/读；
+ * ③ 回执（state://autostart-state）——Rust 执行后用 is_enabled() 读回的真值。
+ * 本组件把 ①③ 对齐后交给 describeAutostart 说人话：生效/被拦截/系统里还留着。
+ * 没有 ③ 时，开关一旦被安全软件回滚就是"开关开着、开机不启动"的假成功。
  */
 function AutostartSection({
   settings,
@@ -440,26 +453,68 @@ function AutostartSection({
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => void;
 }) {
+  const [system, setSystem] = useState<AutostartSystemState | null>(null);
+  const [applying, setApplying] = useState(false);
+
+  // 挂载时读一次系统真值（校正"设置说开着、系统里没有"的错位），并订阅回执
+  useEffect(() => {
+    void readSystemAutostart().then(enabled => {
+      if (enabled !== null) setSystem(prev => ({ enabled, ok: prev?.ok ?? true, error: prev?.error }));
+    });
+    const unlisten = listen<AutostartSystemState>(STATE_EVENTS.autostartState, e => {
+      setSystem(e.payload);
+      setApplying(false);
+    });
+    return () => {
+      void unlisten.then(off => off());
+    };
+  }, []);
+
   const toggle = useCallback(
     (enabled: boolean) => {
       update({ autostartEnabled: enabled });
-      void sendStateEvent(STATE_EVENTS.autostartChanged, { enabled });
+      setApplying(true);
+      void applyAutostart(enabled).finally(() => setApplying(false));
     },
     [update],
   );
 
+  /** 重新应用 = 无视当前开关值，把设置值再写一次系统（用于自愈/清理残留） */
+  const reapply = useCallback(() => {
+    setApplying(true);
+    void applyAutostart(settings.autostartEnabled).finally(() => setApplying(false));
+  }, [settings.autostartEnabled]);
+
+  const hint = describeAutostart(settings.autostartEnabled, system);
+
   return (
     <div className="settings-autostart">
-      <span className="settings-field-label">开机自启</span>
+      <span className="settings-field-label">开机自动打开</span>
       <label className="settings-toggle">
         <input
           type="checkbox"
           checked={settings.autostartEnabled}
           onChange={e => toggle(e.target.checked)}
         />
-        <span>开机后自动运行（在托盘待命，不弹窗）</span>
+        <span>开机后自动打开麻薯（出现在桌面右下角，不弹聊天窗）</span>
       </label>
-      <p className="settings-note">关闭这个开关就会恢复；也可以随时在任务管理器的「启动应用」里管理。</p>
+
+      {hint.tone !== "none" && (
+        <p className={`settings-note settings-note--${hint.tone}`}>
+          {hint.text}
+          {hint.tone === "warn" && (
+            <button className="settings-link" onClick={reapply} disabled={applying}>
+              {applying ? "正在应用…" : "重新应用"}
+            </button>
+          )}
+        </p>
+      )}
+
+      <p className="settings-note">
+        {settings.autostartEnabled
+          ? "关掉这个开关就会取消；也可以在任务管理器的「启动应用」里管理。"
+          : "不开也能用：随时双击桌面上的麻薯，或用托盘图标打开。"}
+      </p>
     </div>
   );
 }
