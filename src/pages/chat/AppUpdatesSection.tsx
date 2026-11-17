@@ -7,6 +7,7 @@ import {
   detectUpdatePlatform,
   type AppUpdateResult,
 } from "@/services/app-updates";
+import { useT } from "@/shared/i18n/react";
 import "./app-updates.css";
 
 type UpdateState = { kind: "idle" | "checking" } | AppUpdateResult;
@@ -15,8 +16,10 @@ type UpdateState = { kind: "idle" | "checking" } | AppUpdateResult;
  * 版本更新是应用能力：服务负责判版本和选包，组件只负责用户反馈。
  * 仅在用户点击时访问公开发布信息；切走设置页会取消请求，避免过期回包覆盖新界面。
  * 下载交给系统浏览器，让用户自行覆盖安装，不把「打开下载页」误报成「更新已完成」。
+ * v0.21.0：文案迁入 i18n（updates.*）。
  */
 export function AppUpdatesSection() {
+  const { t } = useT();
   const [version, setVersion] = useState("");
   const [state, setState] = useState<UpdateState>({ kind: "idle" });
   const [opened, setOpened] = useState<"download" | "release" | null>(null);
@@ -31,7 +34,7 @@ export function AppUpdatesSection() {
     void getVersion().then(value => { if (mounted.current) setVersion(value); }).catch(() => {
       // 初始读取与用户主动重试可能并发，旧失败不能覆盖新的检查结果。
       if (mounted.current) setState(previous => previous.kind === "idle"
-        ? { kind: "error", code: "version", message: "无法读取当前版本，请重试检查更新。" }
+        ? { kind: "error", code: "version", message: t("updates.versionReadFail") }
         : previous);
     });
     return () => {
@@ -39,7 +42,7 @@ export function AppUpdatesSection() {
       openAttempt.current += 1;
       activeRequest.current?.abort();
     };
-  }, []);
+  }, [t]);
 
   const check = useCallback(async () => {
     activeRequest.current?.abort();
@@ -57,10 +60,10 @@ export function AppUpdatesSection() {
       if (!request.signal.aborted) setState(result);
     } catch {
       if (!request.signal.aborted) {
-        setState({ kind: "error", code: "version", message: "无法读取当前版本，请重试检查更新。" });
+        setState({ kind: "error", code: "version", message: t("updates.versionReadFail") });
       }
     }
-  }, [platform, version]);
+  }, [platform, version, t]);
 
   const openDownload = useCallback(async (url: string, kind: "download" | "release" = "release") => {
     const attempt = ++openAttempt.current;
@@ -77,23 +80,23 @@ export function AppUpdatesSection() {
 
   const available = state.kind === "available" ? state : null;
   const release = state.kind === "available" || state.kind === "current" ? state.release : null;
-  const message = state.kind === "checking" ? "正在检查公开发布的正式版本…"
-    : state.kind === "available" ? `发现新版本 v${state.release.version}`
-    : state.kind === "current" ? `当前版本无需更新，公开正式版为 v${state.release.version}。`
-    : state.kind === "unpublished" ? "暂时没有公开的正式版本，发布后可在这里检查。"
+  const message = state.kind === "checking" ? t("updates.checking")
+    : state.kind === "available" ? t("updates.available", { version: state.release.version })
+    : state.kind === "current" ? t("updates.current", { version: state.release.version })
+    : state.kind === "unpublished" ? t("updates.unpublished")
     : state.kind === "error" ? state.message
-    : "让麻薯保持新鲜，也让熟悉的陪伴留在身边。";
-  const installerLabel = platform === "windows" ? "Windows 安装包" : "macOS 安装包";
+    : t("updates.tagline");
+  const installerLabel = platform === "windows" ? t("updates.installerWin") : t("updates.installerMac");
 
   return (
     <section className="settings-update" aria-labelledby="app-update-title" aria-busy={state.kind === "checking"}>
       <div className="settings-update__header">
         <div>
-          <h2 id="app-update-title">版本与更新</h2>
+          <h2 id="app-update-title">{t("updates.title")}</h2>
           <p className="settings-update__version">Mochi <span>v{version || "…"}</span></p>
         </div>
         <button className="settings-ghost-btn" onClick={() => void check()} disabled={state.kind === "checking"}>
-          {state.kind === "checking" ? "检查中…" : state.kind === "error" ? "重新检查" : "检查更新"}
+          {state.kind === "checking" ? t("updates.checkingBtn") : state.kind === "error" ? t("updates.recheck") : t("updates.check")}
         </button>
       </div>
       <p className={`settings-update__status${state.kind === "error" ? " settings-update__status--error" : ""}`} role="status">
@@ -102,38 +105,38 @@ export function AppUpdatesSection() {
       {available && (
         <div className="settings-update__available">
           <button className="settings-update__download" onClick={() => void openDownload(available.installer?.url ?? available.release.releaseUrl, available.installer ? "download" : "release")}>
-            {available.installer ? `下载 ${installerLabel}` : "前往发布页查看下载"}
+            {available.installer ? t("updates.downloadInstaller", { installer: installerLabel }) : t("updates.goRelease")}
             {available.installer && available.installer.size > 0 && <span> · {(available.installer.size / 1024 / 1024).toFixed(1)} MB</span>}
           </button>
-          {!available.installer && <p className="settings-note">暂未找到适合本机的安装包，请在发布页确认系统与芯片类型。</p>}
+          {!available.installer && <p className="settings-note">{t("updates.noInstaller")}</p>}
         </div>
       )}
       {release && (
         <details className="settings-update__details" open={state.kind === "available"}>
-          <summary>v{release.version} 更新说明</summary>
+          <summary>{t("updates.releaseNotes", { version: release.version })}</summary>
           {/* 按纯文本展示远程说明，避免远程 HTML 或链接绕过下载地址校验。 */}
-          <div className="settings-update__notes" tabIndex={0} role="region" aria-label={`v${release.version} 更新说明正文`}>{release.notes || "本版本暂无详细说明，可到发布页查看。"}</div>
+          <div className="settings-update__notes" tabIndex={0} role="region" aria-label={t("updates.notesAria", { version: release.version })}>{release.notes || t("updates.notesEmpty")}</div>
         </details>
       )}
       <details className="settings-update__details">
-        <summary>如何更新并保留数据</summary>
+        <summary>{t("updates.howToUpdate")}</summary>
         <ol className="settings-update__steps">
-          <li>下载适合本机的新版本安装包。</li>
-          <li>从托盘菜单退出 Mochi，避免文件被占用。</li>
-          <li>{platform === "mac" ? "打开 DMG，将 Mochi 拖入「应用程序」并替换旧版本。"
-            : platform === "windows" ? "运行安装包，使用原来的安装位置覆盖安装。" : "按发布页提供的系统安装说明完成更新。"}</li>
-          <li>重新打开 Mochi，在这里核对版本号。</li>
+          <li>{t("updates.stepDownload")}</li>
+          <li>{t("updates.stepQuit")}</li>
+          <li>{platform === "mac" ? t("updates.stepInstallMac")
+            : platform === "windows" ? t("updates.stepInstallWin") : t("updates.stepInstallGeneric")}</li>
+          <li>{t("updates.stepReopen")}</li>
         </ol>
-        <p className="settings-note">正常覆盖安装会保留聊天、待办、设置和自定义素材。更新前可通过下方「打开数据目录」备份。</p>
+        <p className="settings-note">{t("updates.keepData")}</p>
       </details>
-      <button className="settings-link settings-update__release-link" onClick={() => void openDownload(APP_RELEASES_URL)}>查看所有发布版本</button>
+      <button className="settings-link settings-update__release-link" onClick={() => void openDownload(APP_RELEASES_URL)}>{t("updates.allReleases")}</button>
       {opened && <p className="settings-update__feedback" role="status">{opened === "download"
-        ? "已在浏览器打开下载。下载完成后，请按上方步骤安装。"
-        : "已在浏览器打开发布页，请选择适合本机的安装包。"}</p>}
+        ? t("updates.openedDownload")
+        : t("updates.openedRelease")}</p>}
       {failedUrl && (
         <label className="settings-update__fallback" role="alert">
-          浏览器未能打开，请复制地址访问：
-          <input aria-label="更新下载地址" value={failedUrl} readOnly onFocus={event => event.currentTarget.select()} />
+          {t("updates.browserFail")}
+          <input aria-label={t("updates.downloadUrlAria")} value={failedUrl} readOnly onFocus={event => event.currentTarget.select()} />
         </label>
       )}
     </section>

@@ -20,12 +20,6 @@ const ROOT = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "
  *  ③ 服务层错误/日志文本（待集中到 error-text 后统一走 t）。 */
 const PENDING = [
   // ① UI 欠账
-  "src/pages/chat/ChatTab.tsx",
-  "src/pages/chat/SettingsTab.tsx",
-  "src/pages/chat/WelcomeGuide.tsx",
-  "src/pages/chat/tool-labels.ts",
-  "src/pages/chat/AssetsTab.tsx",
-  "src/pages/chat/AppUpdatesSection.tsx",
   "src/services/pet-chatter-lines.ts",
   "src/services/pet-chatter-context.ts",
   "src/services/pet-chatter.ts",
@@ -50,7 +44,8 @@ const PENDING = [
   "src/agent/tools/pet-state.ts",
   "src/agent/providers/presets.ts",
   "src/agent/providers/openai-compatible.ts",
-  // ③ 服务层错误/日志文本
+  // ③ 服务层错误/日志文本（console/日志用途，不进 UI）
+  "src/pages/pet/ContextMenu.tsx",
   "src/services/log.ts",
   "src/agent/core/context-builder.ts",
   "src/agent/core/prompt.ts",
@@ -82,11 +77,8 @@ const PENDING = [
   "src/services/service-scope.ts",
   "src/pages/chat/app-updates.css",
   "src/pages/pet/PetApp.tsx",
-  "src/pages/pet/ContextMenu.tsx",
   "src/pages/pet/menu-position.ts",
   "src/pages/pet/gestures.ts",
-  "src/shared/components/Loading.tsx",
-  "src/shared/components/MochiPlaceholder.tsx",
   "src/shared/show-transition.ts",
   "src/shared/events.ts",
 ];

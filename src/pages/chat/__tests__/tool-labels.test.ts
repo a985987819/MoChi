@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { formatToolTrace, TOOL_LABELS } from "../tool-labels";
+import { setLocale } from "@/shared/i18n/core";
 
 /**
  * 工具文案表全量断言（施工单 §7.1：漏译是必然的，要机械保证）。
@@ -27,6 +28,7 @@ function scanRegisteredToolNames(): string[] {
 }
 
 describe("tool-labels 文案表", () => {
+  beforeEach(() => setLocale("zh-CN")); // 值已迁入 i18n：断言前固定 locale
   it("与工具注册名全等：每个注册工具都有文案，文案表没有幽灵条目", () => {
     expect(Object.keys(TOOL_LABELS).sort()).toEqual(scanRegisteredToolNames());
   });

@@ -13,6 +13,7 @@ import {
   targetFileName,
 } from "@/services/pet-asset-import";
 import type { PetState } from "@/services/pet-state";
+import { useT } from "@/shared/i18n/react";
 import "./assets.css";
 
 /**
@@ -57,6 +58,7 @@ interface Notice {
 }
 
 export function AssetsTab() {
+  const { t, locale } = useT();
   const [pending, setPending] = useState<PendingFile[]>([]);
   const [existing, setExisting] = useState<string[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -105,11 +107,14 @@ export function AssetsTab() {
       rejected.length > 0
         ? {
             tone: "error",
-            text: `已忽略 ${rejected.length} 个不支持的文件：${rejected.slice(0, 3).join("、")}${rejected.length > 3 ? "…" : ""}（只支持 PNG / JPG / GIF / WEBP / SVG）`,
+            text: t("assets.rejected", {
+              count: rejected.length,
+              names: rejected.slice(0, 3).join("、") + (rejected.length > 3 ? "…" : ""),
+            }),
           }
         : null,
     );
-  }, []);
+  }, [t]);
 
   /** 目标文件名预览：与 Rust 同算法，且同批内递增，避免两张图抢同一个名字 */
   const planned = useMemo(() => {
@@ -149,10 +154,16 @@ export function AssetsTab() {
     refresh();
     setNotice(
       failed.length === 0
-        ? { tone: "ok", text: `已导入 ${saved.length} 张：${saved.slice(0, 4).join("、")}${saved.length > 4 ? "…" : ""}。放图即生效，不用重启。` }
-        : { tone: "error", text: `成功 ${saved.length} 张，失败 ${failed.length} 张：${failed.slice(0, 2).join("；")}` },
+        ? {
+            tone: "ok",
+            text: t("assets.imported", {
+              count: saved.length,
+              names: saved.slice(0, 4).join("、") + (saved.length > 4 ? "…" : ""),
+            }),
+          }
+        : { tone: "error", text: t("assets.partial", { ok: saved.length, failed: failed.length, names: failed.slice(0, 2).join("；") }) },
     );
-  }, [pending, busy, refresh]);
+  }, [pending, busy, refresh, t]);
 
   const openFolder = useCallback(async () => {
     try {
@@ -162,10 +173,10 @@ export function AssetsTab() {
       try {
         await revealItemInDir(await appDataDir());
       } catch {
-        setNotice({ tone: "error", text: "没能打开目录，可在设置 → 关于 里打开数据目录。" });
+        setNotice({ tone: "error", text: t("assets.openFail") });
       }
     }
-  }, []);
+  }, [t]);
 
   return (
     <div className="assets-page">
@@ -218,8 +229,11 @@ export function AssetsTab() {
           </div>
           {sequenceStates.length > 0 && (
             <p className="assets-pending__sequence">
-              检测到帧序列：{sequenceStates.map(state => STATE_DOCS.find(doc => doc.state === state)?.zh ?? state).join("、")}
-              {" "}会按 001 / 002 / … 的顺序循环播放。同一帧重新导入会覆盖那一帧，不会打乱顺序。
+              {t("assets.sequence", {
+                states: sequenceStates
+                  .map(state => (locale === "en" ? STATE_DOCS.find(doc => doc.state === state)?.en : STATE_DOCS.find(doc => doc.state === state)?.zh) ?? state)
+                  .join(locale === "en" ? ", " : "、"),
+              })}
             </p>
           )}
           <ul className="assets-pending__list">
@@ -256,7 +270,7 @@ export function AssetsTab() {
                   className="assets-pending__remove"
                   onClick={() => setPending(prev => prev.filter(entry => entry.id !== item.id))}
                   disabled={busy}
-                  aria-label={`移除 ${item.from}`}
+                  aria-label={t("assets.remove", { name: item.from })}
                 >
                   ×
                 </button>
@@ -267,7 +281,7 @@ export function AssetsTab() {
             ))}
           </ul>
           <button className="assets-import__go" onClick={() => void importAll()} disabled={busy}>
-            {busy ? "导入中… / Importing…" : `导入这 ${pending.length} 张 / Import ${pending.length}`}
+            {busy ? t("assets.importing") : t("assets.importN", { count: pending.length })}
           </button>
         </section>
       )}
@@ -292,7 +306,7 @@ export function AssetsTab() {
                 <strong>{doc.zh}</strong>
                 <span className="assets-state__en">{doc.en}</span>
                 <span className="assets-state__count">
-                  {counts[doc.state] ? `${counts[doc.state]} 张` : "内置图"}
+                  {counts[doc.state] ? t("assets.count", { count: counts[doc.state] }) : t("assets.builtin")}
                 </span>
               </div>
               <p className="assets-state__when">{doc.zhWhen}</p>

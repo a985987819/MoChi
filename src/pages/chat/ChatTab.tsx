@@ -8,16 +8,9 @@ import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { truncateForBubble } from "@/shared/bubble-text";
 import { SkeletonLines } from "@/shared/components/Loading";
 import { answerLocally, isLocalAnswer, localKnowledgeSize } from "@/rag/local-qa";
-
-/**
- * 未连接大模型时，本地知识库范围之外问题的引导话术（v0.9.0 健康问答扩展）。
- * 给出可执行的连接路径而非空泛提示；知识库规模用实际数字增强"本地能答什么"的预期。
- */
-const OFFLINE_GUIDANCE =
-  `这个问题超出了我的本地知识库（目前有 ${localKnowledgeSize()}，覆盖膳食、运动、久坐保健、` +
-  `康复医学、临床营养与食物热量）。\n\n想让我回答任意问题，需要连接大模型：\n` +
-  `1. 打开**设置** Tab\n2. 选择提供商（推荐 DeepSeek）\n3. 填入 API Key 并测试连通\n\n` +
-  `连接后这类问题我就能调用模型来回答了～`;
+import { useT } from "@/shared/i18n/react";
+import { t } from "@/shared/i18n/core";
+import type { MessageKey } from "@/shared/i18n/zh-CN";
 import type { ProviderError } from "@/agent/providers";
 import { isProviderReady, loadSettings, type AppSettings } from "@/services/settings";
 import { applyTtsFromSettings, speak, stopSpeaking } from "@/services/tts";
@@ -28,6 +21,7 @@ import { formatToolTrace } from "./tool-labels";
  * 聊天 Tab —— v0.5.0：历史从 SQLite 恢复（情景记忆），发送走 Facade（内部闭环
  * 记忆检索/窗口裁剪/协议持久化），本组件只管渲染与输入。
  * note 条目：工具轨迹（实时来自 step-end；历史恢复时来自 assistant.toolCalls）。
+ * v0.21.0：文案迁入 i18n（OFFLINE_GUIDANCE → chat.offlineGuidance，插值知识库规模）。
  */
 
 interface ChatEntry {
@@ -48,13 +42,14 @@ const STREAM_THROTTLE_MS = 80;
 /**
  * 空态指令 chips（P1-12）：点一下填入输入框（**不自动发送**——自动发送会让
  * 用户觉得失去控制权，施工单附录 B 交互约定），聚焦输入框等用户改改再发。
+ * v0.21.0：值改为 i18n key，填输入框时经 t() 翻译成当前语言。
  */
-const EMPTY_CHIPS = [
-  "帮我加个待办：明天九点开周会",
-  "来个番茄钟",
-  "巨无霸多少热量",
-  "记住我晚上不喝咖啡",
-] as const;
+const EMPTY_CHIPS: MessageKey[] = [
+  "chat.chip1",
+  "chat.chip2",
+  "chat.chip3",
+  "chat.chip4",
+];
 
 /** SQLite 协议消息 → UI 条目（tool 明细并入 assistant 的 note，不单气泡展示） */
 async function loadEntries(): Promise<ChatEntry[]> {
@@ -77,6 +72,7 @@ async function loadEntries(): Promise<ChatEntry[]> {
 }
 
 export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const { t } = useT();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [entries, setEntries] = useState<ChatEntry[] | null>(null); // null=历史加载中
   const [historyError, setHistoryError] = useState(false);
@@ -153,7 +149,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
           setEntries(prev => [
             ...(prev ?? []),
             { id: nextId++, role: "user", content: text },
-            { id: nextId++, role: "note", content: `📚 本地知识库 · ${local.count} 条依据` },
+            { id: nextId++, role: "note", content: t("chat.localNote", { count: local.count }) },
             { id: nextId++, role: "assistant", content: local.text },
           ]);
           speak(local.text); // 本地回答也是"麻薯说的话"（v0.15.0 TTS；开关/免打扰内部判断）
@@ -162,7 +158,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
         setEntries(prev => [
           ...(prev ?? []),
           { id: nextId++, role: "user", content: text },
-          { id: nextId++, role: "assistant", content: OFFLINE_GUIDANCE },
+          { id: nextId++, role: "assistant", content: t("chat.offlineGuidance", { knowledge: localKnowledgeSize() }) },
         ]);
         return;
       }
@@ -236,7 +232,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
       setBusy(false);
       abortRef.current = null;
     }
-  }, [busy, settings]); // entries 不进依赖：全程用函数式更新（P2-16 顺带修复闭包重建）
+  }, [busy, settings, t]); // entries 不进依赖：全程用函数式更新（P2-16 顺带修复闭包重建）
 
   const send = useCallback(() => void doSend(input), [doSend, input]);
 
@@ -284,24 +280,24 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
         )}
         {historyError && (
           <div className="chat-history-error" role="alert">
-            <p>聊天记录读取失败（数据库暂不可用）。</p>
-            <button className="chat-chip" onClick={reloadHistory}>重试</button>
+            <p>{t("chat.historyError")}</p>
+            <button className="chat-chip" onClick={reloadHistory}>{t("chat.retry")}</button>
           </div>
         )}
         {entries !== null && entries.length === 0 && (
           <div className="chat-empty">
-            <p>跟麻薯说句话吧～</p>
+            <p>{t("chat.emptyHello")}</p>
             <div className="chat-empty__chips">
-              {EMPTY_CHIPS.map(text => (
+              {EMPTY_CHIPS.map(key => (
                 <button
-                  key={text}
+                  key={key}
                   className="chat-chip"
                   onClick={() => {
-                    setInput(text);
+                    setInput(t(key));
                     textareaRef.current?.focus();
                   }}
                 >
-                  {text}
+                  {t(key)}
                 </button>
               ))}
             </div>
@@ -322,7 +318,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
                     className="chat-copy-btn"
                     onClick={ev => copyEntry(e, ev.currentTarget.closest(".chat-msg__bubble"))}
                   >
-                    {copiedId === e.id ? "已复制" : "复制"}
+                    {copiedId === e.id ? t("chat.copied") : t("chat.copy")}
                   </button>
                 )}
                 {e.role === "assistant" ? (
@@ -338,7 +334,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
                 // 失败重试（P1-08）：重发**该轮**的用户输入（比"最后一条"更准——
                 // 连续多轮失败时每条气泡知道自己的输入）
                 <button className="chat-retry-btn" onClick={() => void doSend(e.retryText ?? "")}>
-                  重试
+                  {t("chat.retry")}
                 </button>
               )}
             </div>
@@ -371,7 +367,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
                 )}
               </div>
               <details className="chat-error__details">
-                <summary>详情</summary>
+                <summary>{t("chat.details")}</summary>
                 <code>{error.message}</code>
               </details>
             </div>
@@ -384,16 +380,16 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="说点什么…（Enter 发送 / Shift+Enter 换行）"
+          placeholder={t("chat.placeholder")}
           rows={2}
         />
         {busy ? (
           <button className="chat-send chat-send--stop" onClick={stop}>
-            停止
+            {t("chat.stop")}
           </button>
         ) : (
           <button className="chat-send" onClick={() => void send()} disabled={!input.trim()}>
-            发送
+            {t("chat.send")}
           </button>
         )}
       </div>
@@ -404,7 +400,8 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
 /** Markdown 渲染（memo 化，P1-05）：非流式消息在流式重渲染中零开销——
  *  entry 对象引用不变，memo 直接跳过重解析 */
 const MarkdownView = memo(function MarkdownView({ text, streaming }: { text: string; streaming?: boolean }) {
-  if (!text.trim() && !streaming) return <span className="chat-msg__plain">（空回复）</span>;
+  // MarkdownView 是 memo 的非 hook 组件：t() 可直接调用（运行时读 locale，不依赖 hook）
+  if (!text.trim() && !streaming) return <span className="chat-msg__plain">{t("chat.emptyReply")}</span>;
   return (
     <div className={`chat-md${streaming ? " chat-md--streaming" : ""}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>

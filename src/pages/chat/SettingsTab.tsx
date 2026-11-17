@@ -52,6 +52,7 @@ type TestState =
   | { phase: "fail"; error: ProviderError };
 
 export function SettingsTab() {
+  const { t } = useT();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [test, setTest] = useState<TestState>({ phase: "idle" });
@@ -74,8 +75,8 @@ export function SettingsTab() {
   const persist = useCallback((next: AppSettings) => {
     void saveSettings(next).then(() => setSaveError("")).catch(() => {
       // 失败也不能打印包含 Key 的整个配置。
-      setSaveError("设置保存失败，请检查磁盘后重试");
-      logError("settings", "设置保存失败（磁盘不可写或 store 异常）");
+      setSaveError(t("settings.saveFail"));
+      logError("settings", t("settings.saveFail"));
     });
   }, []);
 
@@ -142,7 +143,7 @@ export function SettingsTab() {
           break;
         }
       }
-      setTest(prev => (prev.phase === "testing" ? { phase: "fail", error: { kind: "network", message: "无响应" } } : prev));
+      setTest(prev => (prev.phase === "testing" ? { phase: "fail", error: { kind: "network", message: t("settings.testNoResponse") } } : prev));
     } catch (e) {
       setTest({ phase: "fail", error: { kind: "network", message: String(e) } });
     } finally {
@@ -153,8 +154,8 @@ export function SettingsTab() {
   if (loadError) {
     return (
       <div className="settings-panel">
-        <p role="alert">设置读取失败，可能是磁盘或应用数据目录暂时不可用。</p>
-        <p className="settings-note"><button className="settings-link" onClick={reload}>重试加载</button></p>
+        <p role="alert">{t("settings.loadFail")}</p>
+        <p className="settings-note"><button className="settings-link" onClick={reload}>{t("settings.retryLoad")}</button></p>
       </div>
     );
   }
@@ -174,32 +175,32 @@ export function SettingsTab() {
 
   return (
     <div className="settings-panel">
-      {saveError && <p role="alert">{saveError} <button onClick={() => persist(settings)}>重试保存</button></p>}
+      {saveError && <p role="alert">{saveError} <button onClick={() => persist(settings)}>{t("settings.retrySave")}</button></p>}
 
       <AppUpdatesSection />
 
       <label className="settings-field">
-        <span>ta自称</span>
+        <span>{t("settings.petSelfName")}</span>
         <input
           type="text"
           value={settings.petSelfName}
           onChange={e => update({ petSelfName: e.target.value })}
-          placeholder="麻薯"
+          placeholder={t("settings.petSelfPlaceholder")}
         />
       </label>
       <label className="settings-field">
-        <span>ta对我的称呼</span>
+        <span>{t("settings.userNickname")}</span>
         <input
           type="text"
           value={settings.userNickname}
           onChange={e => update({ userNickname: e.target.value })}
-          placeholder="人"
+          placeholder={t("settings.userPlaceholder")}
         />
       </label>
-      <p className="settings-note">保存后从下一轮对话生效；留空时分别使用「麻薯」和「人」。</p>
+      <p className="settings-note">{t("settings.addressingNote")}</p>
 
       <label className="settings-field">
-        <span>提供商</span>
+        <span>{t("settings.provider")}</span>
         <select value={settings.providerId} onChange={e => update({ providerId: e.target.value })}>
           {PRESETS.map(p => (
             <option key={p.id} value={p.id}>
@@ -219,7 +220,7 @@ export function SettingsTab() {
             value={apiKey}
             onChange={e => updateKey(preset.id, e.target.value)}
             onBlur={flushSettingsSave}
-            placeholder={apiKey ? "已保存（输入即覆盖）" : "sk-…"}
+            placeholder={apiKey ? t("settings.apiKeySaved") : "sk-…"}
             autoComplete="off"
           />
         </label>
@@ -227,7 +228,7 @@ export function SettingsTab() {
       {preset?.keysUrl && <KeysUrlNote url={preset.keysUrl} />}
 
       <label className="settings-field">
-        <span>模型</span>
+        <span>{t("settings.model")}</span>
         {preset && preset.models.length > 0 ? (
           <select value={model} onChange={e => updateModel(preset.id, e.target.value)}>
             {preset.models.map(m => (
@@ -243,7 +244,7 @@ export function SettingsTab() {
               value={model}
               onChange={e => preset && updateModel(preset.id, e.target.value, true)}
               onBlur={flushSettingsSave}
-              placeholder="模型名（如 qwen2.5:7b）"
+              placeholder={t("settings.modelPlaceholder")}
             />
             <datalist id="model-suggestions">
               {preset?.models.map(m => (
@@ -256,9 +257,9 @@ export function SettingsTab() {
 
       <div className="settings-test">
         <button onClick={() => void runTest()} disabled={test.phase === "testing"}>
-          {test.phase === "testing" ? "测试中…" : "测试连通性"}
+          {test.phase === "testing" ? t("settings.testing") : t("settings.test")}
         </button>
-        {test.phase === "ok" && <span className="settings-test__ok">✓ 连通（首字 {test.firstTokenMs}ms）</span>}
+        {test.phase === "ok" && <span className="settings-test__ok">{t("settings.testOk", { ms: test.firstTokenMs })}</span>}
         {test.phase === "fail" && (
           <span className="settings-test__fail">
             ✗ [{test.error.kind}] {test.error.message}
@@ -319,11 +320,12 @@ function TimerConfigSection({
   update: (patch: Partial<AppSettings>) => void;
   updateDebounced: (patch: Partial<AppSettings>) => void;
 }) {
+  const { t } = useT();
   return (
     <div className="settings-timers">
-      <span className="settings-field-label">计时配置</span>
+      <span className="settings-field-label">{t("settings.timers")}</span>
       <label className="settings-field">
-        <span>站立提醒间隔（分钟，1~120）</span>
+        <span>{t("settings.standupInterval")}</span>
         <input
           type="number"
           min={1}
@@ -335,7 +337,7 @@ function TimerConfigSection({
       </label>
       <div className="settings-row">
         <label className="settings-field">
-          <span>番茄钟专注（分钟）</span>
+          <span>{t("settings.pomodoroFocus")}</span>
           <input
             type="number"
             min={5}
@@ -346,7 +348,7 @@ function TimerConfigSection({
           />
         </label>
         <label className="settings-field">
-          <span>休息（分钟）</span>
+          <span>{t("settings.pomodoroBreak")}</span>
           <input
             type="number"
             min={1}
@@ -363,7 +365,7 @@ function TimerConfigSection({
           checked={settings.notificationsEnabled}
           onChange={e => update({ notificationsEnabled: e.target.checked })}
         />
-        <span>启用系统通知（站立提醒 / 番茄钟 / 到点提醒）</span>
+        <span>{t("settings.notifications")}</span>
       </label>
       <label className="settings-toggle">
         <input
@@ -371,27 +373,27 @@ function TimerConfigSection({
           checked={settings.quietHoursEnabled}
           onChange={e => update({ quietHoursEnabled: e.target.checked })}
         />
-        <span>免打扰时段（只静默站立提醒）</span>
+        <span>{t("settings.quietToggle")}</span>
       </label>
       {settings.quietHoursEnabled && (
         <>
           <div className="settings-field">
-            <span>时段（跨午夜会自动顺延到次日）</span>
+            <span>{t("settings.quietRange")}</span>
             <div className="settings-hours">
               <select
                 value={settings.quietStartHour}
                 onChange={e => update({ quietStartHour: Number(e.target.value) })}
-                aria-label="免打扰开始时间"
+                aria-label={t("settings.quietFrom")}
               >
                 {QUIET_HOURS.map(hour => (
                   <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>
                 ))}
               </select>
-              <span className="settings-hours__sep">到</span>
+              <span className="settings-hours__sep">{t("settings.quietSep")}</span>
               <select
                 value={settings.quietEndHour}
                 onChange={e => update({ quietEndHour: Number(e.target.value) })}
-                aria-label="免打扰结束时间"
+                aria-label={t("settings.quietTo")}
               >
                 {QUIET_HOURS.map(hour => (
                   <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>
@@ -400,7 +402,7 @@ function TimerConfigSection({
             </div>
           </div>
           <p className="settings-note">
-            时段内不弹站立提醒，结束后补一次；自定义提醒和番茄钟照常响——那是你定的时间。
+            {t("settings.quietNote")}
           </p>
         </>
       )}
@@ -416,6 +418,7 @@ function TimerConfigSection({
  * 查询中渲染 null，避免闪一下"未授权"。
  */
 function NotificationPermissionHint() {
+  const { t } = useT();
   const [granted, setGranted] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -429,15 +432,15 @@ function NotificationPermissionHint() {
   }, []);
 
   if (granted === null) return null;
-  if (granted) return <p className="settings-note">系统通知权限：已授权 ✓</p>;
+  if (granted) return <p className="settings-note">{t("settings.notifyGranted")}</p>;
   return (
     <div>
       <p className="settings-note">
-        系统通知权限：未授权，到点提醒只弹宠物提醒窗、没有系统通知。
+        {t("settings.notifyDenied")}
       </p>
       <p className="settings-note">
-        <button className="settings-link" onClick={request}>请求权限</button>
-        ，或到系统设置开启（Windows：设置 → 系统 → 通知；macOS：系统设置 → 通知 → Mochi）。
+        <button className="settings-link" onClick={request}>{t("settings.notifyRequest")}</button>
+        {t("settings.notifyRequestSuffix")}
       </p>
     </div>
   );
@@ -455,6 +458,7 @@ function ShortcutSection({
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => void;
 }) {
+  const { t } = useT();
   const [registered, setRegistered] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -477,17 +481,17 @@ function ShortcutSection({
 
   return (
     <div className="settings-shortcut">
-      <span className="settings-field-label">全局快捷键</span>
+      <span className="settings-field-label">{t("settings.shortcut")}</span>
       <label className="settings-toggle">
         <input
           type="checkbox"
           checked={settings.shortcutEnabled}
           onChange={e => toggle(e.target.checked)}
         />
-        <span>Ctrl/Cmd + Shift + M 打开聊天窗</span>
+        <span>{t("settings.shortcutToggle")}</span>
       </label>
       {settings.shortcutEnabled && registered === false && (
-        <p className="settings-note">快捷键被其他软件占用了，功能不受影响；关掉占用方后重新打开开关即可。</p>
+        <p className="settings-note">{t("settings.shortcutTaken")}</p>
       )}
     </div>
   );
@@ -512,6 +516,7 @@ function AutostartSection({
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => void;
 }) {
+  const { t } = useT();
   const [system, setSystem] = useState<AutostartSystemState | null>(null);
   const [applying, setApplying] = useState(false);
 
@@ -548,14 +553,14 @@ function AutostartSection({
 
   return (
     <div className="settings-autostart">
-      <span className="settings-field-label">开机自动打开</span>
+      <span className="settings-field-label">{t("settings.autostart")}</span>
       <label className="settings-toggle">
         <input
           type="checkbox"
           checked={settings.autostartEnabled}
           onChange={e => toggle(e.target.checked)}
         />
-        <span>开机后自动打开麻薯（出现在桌面右下角，不弹聊天窗）</span>
+        <span>{t("settings.autostartToggle")}</span>
       </label>
 
       {hint.tone !== "none" && (
@@ -563,7 +568,7 @@ function AutostartSection({
           {hint.text}
           {hint.tone === "warn" && (
             <button className="settings-link" onClick={reapply} disabled={applying}>
-              {applying ? "正在应用…" : "重新应用"}
+              {applying ? t("settings.autostartApplying") : t("settings.autostartReapply")}
             </button>
           )}
         </p>
@@ -571,8 +576,8 @@ function AutostartSection({
 
       <p className="settings-note">
         {settings.autostartEnabled
-          ? "关掉这个开关就会取消；也可以在任务管理器的「启动应用」里管理。"
-          : "不开也能用：随时双击桌面上的麻薯，或用托盘图标打开。"}
+          ? t("settings.autostartOnNote")
+          : t("settings.autostartOffNote")}
       </p>
     </div>
   );
@@ -594,20 +599,21 @@ function SoundSection({
   update: (patch: Partial<AppSettings>) => void;
   updateDebounced: (patch: Partial<AppSettings>) => void;
 }) {
+  const { t } = useT();
   return (
     <div className="settings-sound">
-      <span className="settings-field-label">声音</span>
+      <span className="settings-field-label">{t("settings.sound")}</span>
       <label className="settings-toggle">
         <input
           type="checkbox"
           checked={settings.soundEnabled}
           onChange={e => update({ soundEnabled: e.target.checked })}
         />
-        <span>点击与提醒音效（合成音，可随时关掉）</span>
+        <span>{t("settings.soundToggle")}</span>
       </label>
       {settings.soundEnabled && (
         <label className="settings-field">
-          <span>音量 {settings.soundVolume}%</span>
+          <span>{t("settings.volume", { volume: settings.soundVolume })}</span>
           <input
             type="range"
             min={0}
@@ -620,7 +626,7 @@ function SoundSection({
         </label>
       )}
       <p className="settings-note">
-        免打扰时段内提醒不出声；点击音仍然保留——那是你主动点的，静默它只会让人以为卡住了。
+        {t("settings.soundNote")}
       </p>
     </div>
   );
@@ -640,14 +646,15 @@ function ThemeSection({
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => void;
 }) {
+  const { t } = useT();
   const options: Array<{ value: ThemeMode; label: string }> = [
-    { value: "system", label: "跟随系统" },
-    { value: "light", label: "浅色" },
-    { value: "dark", label: "深色" },
+    { value: "system", label: t("settings.themeSystem") },
+    { value: "light", label: t("settings.themeLight") },
+    { value: "dark", label: t("settings.themeDark") },
   ];
   return (
     <div className="settings-sound">
-      <span className="settings-field-label">主题</span>
+      <span className="settings-field-label">{t("settings.theme")}</span>
       <div className="settings-segment">
         {options.map(option => (
           <button
@@ -659,7 +666,7 @@ function ThemeSection({
           </button>
         ))}
       </div>
-      <p className="settings-note">宠物形象与素材不受主题影响；提醒弹窗、右键菜单会一起切换。</p>
+      <p className="settings-note">{t("settings.themeNote")}</p>
     </div>
   );
 }
@@ -719,6 +726,7 @@ function TtsSection({
   update: (patch: Partial<AppSettings>) => void;
   updateDebounced: (patch: Partial<AppSettings>) => void;
 }) {
+  const { t } = useT();
   const [voices, setVoices] = useState(() => listTtsVoices());
 
   // 系统音色异步枚举（WebView2 首次 getVoices() 常为空）：voiceschanged 到达后刷新
@@ -729,19 +737,19 @@ function TtsSection({
 
   return (
     <div className="settings-sound">
-      <span className="settings-field-label">语音朗读</span>
+      <span className="settings-field-label">{t("settings.tts")}</span>
       <label className="settings-toggle">
         <input
           type="checkbox"
           checked={settings.ttsEnabled}
           onChange={e => update({ ttsEnabled: e.target.checked })}
         />
-        <span>朗读麻薯的回复（系统语音，默认关）</span>
+        <span>{t("settings.ttsToggle")}</span>
       </label>
       {settings.ttsEnabled && (
         <>
           <label className="settings-field">
-            <span>语速 {settings.ttsRate.toFixed(1)}x</span>
+            <span>{t("settings.ttsRate", { rate: settings.ttsRate.toFixed(1) })}</span>
             <input
               type="range"
               min={0.5}
@@ -753,12 +761,12 @@ function TtsSection({
             />
           </label>
           <label className="settings-field">
-            <span>音色</span>
+            <span>{t("settings.ttsVoice")}</span>
             <select
               value={settings.ttsVoiceName}
               onChange={e => update({ ttsVoiceName: e.target.value })}
             >
-              <option value="">自动（中文优先）</option>
+              <option value="">{t("settings.ttsAuto")}</option>
               {voices.map(v => (
                 <option key={v.name} value={v.name}>
                   {v.name}（{v.lang}）
@@ -767,18 +775,18 @@ function TtsSection({
             </select>
           </label>
           {voices.length > 0 && !hasChineseVoice && (
-            <p className="settings-note">系统里没找到中文音色，会使用系统默认音色念中文。</p>
+            <p className="settings-note">{t("settings.ttsNoChineseVoice")}</p>
           )}
           {!selectedVoiceExists && (
-            <p className="settings-note">之前选择的音色不在了（系统语音包变化），已回落到自动挑选。</p>
+            <p className="settings-note">{t("settings.ttsVoiceGone")}</p>
           )}
           <div className="settings-test">
-            <button onClick={() => speak("你好，我是麻薯，这是朗读试听。")}>试听一句</button>
+            <button onClick={() => speak(t("settings.ttsSample"))}>{t("settings.ttsPreview")}</button>
           </div>
         </>
       )}
       <p className="settings-note">
-        新回复说完才朗读；发新消息、点一下麻薯或关掉聊天窗都会立刻停。免打扰时段内不朗读。
+        {t("settings.ttsNote")}
       </p>
     </div>
   );
@@ -797,6 +805,7 @@ function GameModeSection({
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => void;
 }) {
+  const { t } = useT();
   const isMac = /Mac/i.test(navigator.platform);
   const toggle = useCallback(
     (enabled: boolean) => {
@@ -808,7 +817,7 @@ function GameModeSection({
 
   return (
     <div className="settings-gamemode">
-      <span className="settings-field-label">游戏模式</span>
+      <span className="settings-field-label">{t("settings.gameMode")}</span>
       <label className="settings-toggle">
         <input
           type="checkbox"
@@ -816,15 +825,15 @@ function GameModeSection({
           disabled={isMac}
           onChange={e => toggle(e.target.checked)}
         />
-        <span>全屏应用（游戏/视频）时自动隐藏麻薯</span>
+        <span>{t("settings.gameModeToggle")}</span>
       </label>
-      {isMac && <p className="settings-note">macOS 暂不支持此功能（已知限制），开关保持关闭。</p>}
+      {isMac && <p className="settings-note">{t("settings.gameModeMac")}</p>}
       {!isMac && settings.gameModeEnabled && (
         <p className="settings-note">
-          只检测前台窗口是否全屏（不看应用名和内容）；麻薯所在屏幕被全屏覆盖时隐藏，退出全屏恢复。
+          {t("settings.gameModeNote")}
         </p>
       )}
-      <p className="settings-note">默认关闭——任何形式的"看前台"都需要你明示开启。</p>
+      <p className="settings-note">{t("settings.gameModeDefault")}</p>
     </div>
   );
 }
@@ -840,6 +849,7 @@ function PetSizeSection({
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => void;
 }) {
+  const { t } = useT();
   const change = useCallback(
     (scale: number) => {
       update({ petScale: scale });
@@ -850,13 +860,13 @@ function PetSizeSection({
 
   return (
     <div className="settings-petsize">
-      <span className="settings-field-label">宠物大小</span>
+      <span className="settings-field-label">{t("settings.petSize")}</span>
       <label className="settings-field">
-        <span>麻薯的个头</span>
+        <span>{t("settings.petSizeLabel")}</span>
         <select value={String(settings.petScale)} onChange={e => change(Number(e.target.value))}>
-          <option value="0.8">小（0.8×）</option>
-          <option value="1">标准</option>
-          <option value="1.2">大（1.2×）</option>
+          <option value="0.8">{t("settings.petSizeSmall")}</option>
+          <option value="1">{t("settings.petSizeStandard")}</option>
+          <option value="1.2">{t("settings.petSizeLarge")}</option>
         </select>
       </label>
     </div>
@@ -868,6 +878,7 @@ function PetSizeSection({
  * "记住我…"写入的事实在这里全部可见、可单条删除。
  */
 function MemoriesSection() {
+  const { t } = useT();
   const [items, setItems] = useState<MemoryItem[] | null>(null); // null=加载中（区别于"空"）
   const [loadError, setLoadError] = useState(false);
 
@@ -884,15 +895,15 @@ function MemoriesSection() {
 
   return (
     <div className="settings-memories">
-      <span className="settings-field-label">长期记忆（{items?.length ?? "…"}）</span>
-      {items === null && !loadError && <Loading label="正在读取记忆…" />}
-      {loadError && <p className="settings-note" role="alert">记忆读取失败（数据库暂不可用），功能重试稍后自动恢复。</p>}
-      {items !== null && !loadError && items.length === 0 && <p className="settings-note">还没有。对话里说"记住我喜欢低糖饮食"试试。</p>}
+      <span className="settings-field-label">{t("settings.memories", { count: items?.length ?? "…" })}</span>
+      {items === null && !loadError && <Loading label={t("settings.memoriesLoading")} />}
+      {loadError && <p className="settings-note" role="alert">{t("settings.memoriesError")}</p>}
+      {items !== null && !loadError && items.length === 0 && <p className="settings-note">{t("settings.memoriesEmpty")}</p>}
       {items?.map(m => (
         <div key={m.id} className="settings-memory">
           <span className="settings-memory__fact">{m.fact}</span>
-          <span className="settings-memory__src">{m.source === "agent" ? "自动" : "手动"}</span>
-          <button onClick={() => remove(m.id)} aria-label="删除记忆">
+          <span className="settings-memory__src">{m.source === "agent" ? t("settings.memorySourceAuto") : t("settings.memorySourceManual")}</span>
+          <button onClick={() => remove(m.id)} aria-label={t("settings.memoryDelete")}>
             ×
           </button>
         </div>
@@ -907,6 +918,7 @@ function MemoriesSection() {
  * 聊天窗（ChatApp）用同一套 WelcomeGuide 覆盖层接住，避免两份文案漂移。
  */
 function OnboardingSection({ update }: { update: (patch: Partial<AppSettings>) => void }) {
+  const { t } = useT();
   const replay = useCallback(() => {
     update({ onboardingDone: false });
     void sendStateEvent(STATE_EVENTS.onboardingRequested);
@@ -914,9 +926,9 @@ function OnboardingSection({ update }: { update: (patch: Partial<AppSettings>) =
 
   return (
     <div className="settings-help">
-      <span className="settings-field-label">使用指引</span>
+      <span className="settings-field-label">{t("settings.onboarding")}</span>
       <button className="settings-ghost-btn" onClick={replay}>
-        重新显示新手引导
+        {t("settings.onboardingReplay")}
       </button>
     </div>
   );
@@ -924,15 +936,16 @@ function OnboardingSection({ update }: { update: (patch: Partial<AppSettings>) =
 
 /** 危险区：清空聊天历史（协议层 messages 表；待办/记忆不受影响） */
 function DangerZone() {
+  const { t } = useT();
   const clearHistory = useCallback(() => {
-    if (!window.confirm("确定清空全部聊天历史？此操作不可恢复（待办与记忆保留）。")) return;
+    if (!window.confirm(t("settings.clearHistoryConfirm"))) return;
     void historyStore.clear().then(() => void sendStateEvent(STATE_EVENTS.historyCleared));
   }, []);
 
   return (
     <div className="settings-danger">
-      <span className="settings-field-label">危险操作</span>
-      <button onClick={clearHistory}>清空聊天历史</button>
+      <span className="settings-field-label">{t("settings.danger")}</span>
+      <button onClick={clearHistory}>{t("settings.clearHistory")}</button>
     </div>
   );
 }
@@ -946,6 +959,7 @@ function DangerZone() {
  * 剪贴板用 navigator.clipboard（WebView2 支持，零新依赖），失败给可见提示。
  */
 function AboutSection() {
+  const { t } = useT();
   const [version, setVersion] = useState("");
   const [dataDir, setDataDir] = useState("");
   const [lastPanic, setLastPanic] = useState<string | null>(null);
@@ -962,7 +976,7 @@ function AboutSection() {
   }, []);
 
   const copyDiagnostics = useCallback(() => {
-    const text = `Mochi v${version}\n平台：${navigator.userAgent}\n数据目录：${dataDir}`;
+    const text = `Mochi v${version}\n${t("settings.diagPlatform")}: ${navigator.userAgent}\n${t("settings.diagDataDir")}: ${dataDir}`;
     navigator.clipboard
       .writeText(text)
       .then(() => setCopyState("ok"))
@@ -981,25 +995,23 @@ function AboutSection() {
 
   return (
     <div className="settings-about">
-      <span className="settings-field-label">关于</span>
+      <span className="settings-field-label">{t("settings.about")}</span>
       <p className="settings-note">Mochi v{version || "…"}</p>
       <p className="settings-note">数据目录：{dataDir || "…"}</p>
       {lastPanic && (
         <p className="settings-note settings-note--panic">
-          上次崩溃记录（{dataDir ? `${dataDir}\\logs\\last-panic.txt` : "数据目录 logs/last-panic.txt"}）：
-          {"\n"}
-          {lastPanic}
+          {t("settings.panicNote", { summary: lastPanic })}
         </p>
       )}
       <div className="settings-about__row">
         <button className="settings-ghost-btn" onClick={copyDiagnostics}>
-          {copyState === "ok" ? "已复制 ✓" : copyState === "fail" ? "复制失败，请手动截图" : "复制诊断信息"}
+          {copyState === "ok" ? t("settings.diagCopied") : copyState === "fail" ? t("settings.diagFail") : t("settings.diagCopy")}
         </button>
         <button className="settings-ghost-btn" onClick={revealDataDir}>
-          打开数据目录
+          {t("settings.openDataDir")}
         </button>
       </div>
-      <p className="settings-note">运行日志在数据目录的 logs\ 文件夹（按天一个文件，保留 7 天）。</p>
+      <p className="settings-note">{t("settings.logsNote")}</p>
     </div>
   );
 }
@@ -1021,6 +1033,7 @@ function AboutSection() {
  * 写入。pre-restore 自动备份恒含密钥——它是覆盖前的退路，退路不能比现场贫瘠。
  */
 function BackupsSection() {
+  const { t } = useT();
   const [backups, setBackups] = useState<BackupInfo[] | null>(null);
   const [listError, setListError] = useState("");
   const [includeKeys, setIncludeKeys] = useState(false);
@@ -1036,7 +1049,7 @@ function BackupsSection() {
     setListError("");
     void listBackups()
       .then(setBackups)
-      .catch(() => setListError("备份列表读取失败，请稍后重试"));
+      .catch(() => setListError(t("settings.backupListError")));
   }, []);
 
   useEffect(() => {
@@ -1077,40 +1090,40 @@ function BackupsSection() {
 
   return (
     <div className="settings-sound">
-      <span className="settings-field-label">备份与恢复</span>
+      <span className="settings-field-label">{t("settings.backup")}</span>
       <label className="settings-toggle">
         <input
           type="checkbox"
           checked={includeKeys}
           onChange={e => setIncludeKeys(e.target.checked)}
         />
-        <span>备份包含 API Key（默认不包含——备份文件可能被拷到网盘/U盘）</span>
+        <span>{t("settings.backupIncludeKeys")}</span>
       </label>
       <div className="settings-test">
         <button onClick={runExport} disabled={exporting}>
-          {exporting ? "导出中…" : "导出备份"}
+          {exporting ? t("settings.backupExporting") : t("settings.backupExport")}
         </button>
         {exportedPath && (
           <>
-            <span className="settings-test__ok">✓ 已导出</span>
+            <span className="settings-test__ok">{t("settings.backupExported")}</span>
             <button className="settings-ghost-btn" onClick={revealExport}>
-              打开位置
+              {t("settings.backupOpenLocation")}
             </button>
           </>
         )}
       </div>
       <p className="settings-note">
-        备份内容：设置（{includeKeys ? "含" : "不含"}密钥）+ 数据库 + 素材，存到 {dir || "数据目录\\backups"}。
+        {t("settings.backupContent", { keys: includeKeys ? t("settings.backupKeysWith") : t("settings.backupKeysWithout"), dir: dir || t("settings.backupDirFallback") })}
       </p>
 
-      <span className="settings-field-label">从备份恢复</span>
+      <span className="settings-field-label">{t("settings.backupRestore")}</span>
       {listError && (
         <p className="rem-hint rem-hint--error" role="alert">
           {listError}
         </p>
       )}
       {backups !== null && backups.length === 0 && !listError && (
-        <p className="rem-hint">还没有备份。导出一次，或把别的备份 zip 放进 backups 文件夹</p>
+        <p className="rem-hint">{t("settings.backupListEmpty")}</p>
       )}
       {backups?.map(backup => (
         <div key={backup.name} className="settings-backup__row">
@@ -1129,20 +1142,20 @@ function BackupsSection() {
           {pendingImport?.name === backup.name ? (
             <span className="settings-backup__confirm">
               <button disabled={importing} onClick={() => runImport(backup)}>
-                {importing ? "恢复中…" : "确认覆盖"}
+                {importing ? t("settings.backupImporting") : t("settings.backupConfirm")}
               </button>
               <button disabled={importing} onClick={() => setPendingImport(null)}>
-                取消
+                {t("settings.backupCancel")}
               </button>
             </span>
           ) : (
-            <button onClick={() => setPendingImport(backup)}>导入</button>
+            <button onClick={() => setPendingImport(backup)}>{t("settings.backupImport")}</button>
           )}
         </div>
       ))}
       {pendingImport && (
         <p className="settings-note settings-note--panic">
-          即将用「{pendingImport.name}」覆盖当前全部数据（会先自动备份现有数据）。确认无误再点「确认覆盖」。
+          {t("settings.backupPending", { name: pendingImport.name })}
         </p>
       )}
       {importMessage && <p className="settings-test__ok">✓ {importMessage}</p>}

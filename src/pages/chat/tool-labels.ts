@@ -10,26 +10,31 @@
  * - 未知工具（未来新增但漏译）兜底显示原始名——单测的全等断言会让漏译在
  *   CI 就暴露，兜底只是双保险。
  *
- * 纯函数、零依赖：与 listTools() 的全量断言见 __tests__/tool-labels.test.ts
- * （facade 依赖 tauri 进不了 node 测试，断言以工具源码为事实源做机械扫描）。
+ * v0.21.0 i18n：值改为 **i18n key**（MessageKey），文案在 zh-CN.ts / en.ts——
+ * t() 在调用时读当前 locale（模块级状态），所以本模块在 React 外也正确。
+ * 与 listTools() 的全量断言见 __tests__/tool-labels.test.ts（facade 依赖 tauri
+ * 进不了 node 测试，断言以工具源码为事实源做机械扫描）。
  */
 
-/** 工具名 → 用户看到的动作文案（与 src/agent/tools/ 注册名一一对应） */
-export const TOOL_LABELS: Record<string, string> = {
-  add_todo: "已加入待办",
-  list_todos: "翻了翻你的待办",
-  complete_todo: "已勾掉一条待办",
-  delete_todo: "已删除一条待办",
-  search_food: "查了热量表",
-  search_health_advice: "翻了翻权威健康指南",
-  create_reminder: "设好了提醒",
-  cancel_reminder: "取消了提醒",
-  skip_reminder: "把下一次提醒先放一放",
-  list_reminders: "看了你的提醒",
-  start_pomodoro: "开始专注",
-  stop_pomodoro: "停止了专注",
-  get_pomodoro_status: "看了下番茄钟",
-  remember: "记住了这件事",
+import { t } from "@/shared/i18n/core";
+import type { MessageKey } from "@/shared/i18n/zh-CN";
+
+/** 工具名 → 动作文案的 i18n key（与 src/agent/tools/ 注册名一一对应） */
+export const TOOL_LABELS: Record<string, MessageKey | ""> = {
+  add_todo: "tool.addTodo",
+  list_todos: "tool.listTodos",
+  complete_todo: "tool.completeTodo",
+  delete_todo: "tool.deleteTodo",
+  search_food: "tool.searchFood",
+  search_health_advice: "tool.searchHealthAdvice",
+  create_reminder: "tool.createReminder",
+  cancel_reminder: "tool.cancelReminder",
+  skip_reminder: "tool.skipReminder",
+  list_reminders: "tool.listReminders",
+  start_pomodoro: "tool.startPomodoro",
+  stop_pomodoro: "tool.stopPomodoro",
+  get_pomodoro_status: "tool.getPomodoroStatus",
+  remember: "tool.remember",
   set_pet_state: "", // 情绪副作用：不展示（见 formatToolTrace 的过滤）
 };
 
@@ -46,12 +51,12 @@ export function formatToolTrace(summaries: ToolSummary[]): string {
   const parts: string[] = [];
   for (const s of summaries) {
     if (s.name === "set_pet_state") continue; // 内部动作，不进用户轨迹
-    const label = TOOL_LABELS[s.name];
-    if (label === undefined) {
+    const key = TOOL_LABELS[s.name];
+    if (key === undefined) {
       // 漏译兜底：显示原始名（全等断言保证这里平时不会走到）
-      parts.push(s.ok ? s.name : `${s.name}没成功`);
-    } else {
-      parts.push(s.ok ? label : `「${label}」没成功`);
+      parts.push(s.ok ? s.name : t("tool.failRaw", { name: s.name }));
+    } else if (key !== "") {
+      parts.push(s.ok ? t(key) : t("tool.fail", { label: t(key) }));
     }
   }
   return parts.join(" · ");
