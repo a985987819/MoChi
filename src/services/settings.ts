@@ -53,6 +53,17 @@ export interface AppSettings extends AddressingPreferences {
   /** 音效音量（0~100，默认 30）：这是**相对**音量，乘在每个音符的基准增益上 */
   soundVolume: number;
   /**
+   * 语音朗读开关（v0.15.0 P1-03，**默认关**——比音效保守）。
+   * 音效是提示音（预期短、可忽略），TTS 是把整段回复念出来——不问就把每次对话
+   * 念出声是打扰，所以默认关，让用户主动开。音源是 Web Speech API 系统语音包
+   * （免费、离线、零 Key），云端 TTS 与"离线可用"气质冲突，不做。
+   */
+  ttsEnabled: boolean;
+  /** 朗读语速（0.5~2.0，默认 1）：Web Speech 的 rate 直传 */
+  ttsRate: number;
+  /** 朗读音色名（系统语音包里的 name；空串 = 自动，zh-CN 优先） */
+  ttsVoiceName: string;
+  /**
    * 是否已完成首次启动引导（v0.9.0）。
    *
    * 为什么把「引导是否看过」放在设置里而不是 localStorage：
@@ -110,6 +121,9 @@ export function defaultSettings(): AppSettings {
     quietEndHour: 8,
     soundEnabled: true,
     soundVolume: 30,
+    ttsEnabled: false,
+    ttsRate: 1,
+    ttsVoiceName: "",
     onboardingDone: false,
     shortcutEnabled: true,
     autostartEnabled: false,
@@ -124,6 +138,12 @@ export const PET_SCALES = [0.8, 1, 1.2] as const;
 /** 数值字段夹紧（防设置页输入 0/负数/离谱值） */
 const clampInt = (v: unknown, min: number, max: number, fallback: number): number => {
   const n = typeof v === "number" ? Math.round(v) : Number.NaN;
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+};
+
+/** 浮点夹紧（v0.15.0：朗读语速 0.5~2.0 是浮点档位，不能取整） */
+const clampFloat = (v: unknown, min: number, max: number, fallback: number): number => {
+  const n = typeof v === "number" ? v : Number.NaN;
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
 };
 
@@ -150,6 +170,10 @@ export function normalize(raw: unknown): AppSettings {
     quietEndHour: clampInt(r.quietEndHour, 0, 23, d.quietEndHour),
     soundEnabled: typeof r.soundEnabled === "boolean" ? r.soundEnabled : d.soundEnabled,
     soundVolume: clampInt(r.soundVolume, 0, 100, d.soundVolume),
+    // v0.15.0：语速浮点夹紧（0.5~2），音色名只认字符串（未知名字由 TTS 层回落自动挑选）
+    ttsEnabled: typeof r.ttsEnabled === "boolean" ? r.ttsEnabled : d.ttsEnabled,
+    ttsRate: clampFloat(r.ttsRate, 0.5, 2, d.ttsRate),
+    ttsVoiceName: typeof r.ttsVoiceName === "string" ? r.ttsVoiceName : d.ttsVoiceName,
     // 老版本 settings.json 没有这个字段：undefined → false（当作没看过引导）。
     // 这正是「升级用户也会看到一次引导」的期望行为——v0.9.0 之前没有引导。
     onboardingDone: typeof r.onboardingDone === "boolean" ? r.onboardingDone : d.onboardingDone,

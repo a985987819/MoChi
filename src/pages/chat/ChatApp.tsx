@@ -11,6 +11,7 @@ import { sendUIEvent, BRIDGE_EVENTS, STATE_EVENTS, UI_EVENTS } from "@/shared/ev
 import { playShowTransition, onWindowShown } from "@/shared/show-transition";
 import { loadSettings, saveSettings } from "@/services/settings";
 import { reminderStore } from "@/services/reminders";
+import { stopSpeaking } from "@/services/tts";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import "./chat.css";
 
@@ -121,6 +122,7 @@ export function ChatApp() {
   }, []);
 
   const handleClose = useCallback(() => {
+    stopSpeaking(); // 关窗 = 用户离开对话（P1-03）：不留半句悬着的朗读
     void sendUIEvent(UI_EVENTS.hideChat);
   }, []);
 

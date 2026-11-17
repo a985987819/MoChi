@@ -20,6 +20,7 @@ const OFFLINE_GUIDANCE =
   `连接后这类问题我就能调用模型来回答了～`;
 import type { ProviderError } from "@/agent/providers";
 import { isProviderReady, loadSettings, type AppSettings } from "@/services/settings";
+import { applyTtsFromSettings, speak, stopSpeaking } from "@/services/tts";
 import { toFriendlyError } from "@/agent/error-text";
 import { formatToolTrace } from "./tool-labels";
 
@@ -105,6 +106,32 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
     };
   }, [reloadHistory]);
 
+  // TTS（v0.15.0）：配置跟随设置（启动读一次 + settingsChanged 跟随）；
+  // 「打断」的第二条通道——单击宠物（resetStandup 全窗广播）也停读。
+  // 朗读只在聊天窗发生（回复在这里结束），配置在这里应用就够了。
+  useEffect(() => {
+    void loadSettings().then(applyTtsFromSettings).catch(() => undefined);
+    let disposed = false;
+    const offs: Array<() => void> = [];
+    void listen(STATE_EVENTS.settingsChanged, () => {
+      void loadSettings()
+        .then(applyTtsFromSettings)
+        .catch(() => undefined);
+    }).then(off => {
+      if (disposed) off();
+      else offs.push(off);
+    });
+    void listen(UI_EVENTS.resetStandup, () => stopSpeaking()).then(off => {
+      if (disposed) off();
+      else offs.push(off);
+    });
+    return () => {
+      disposed = true;
+      for (const off of offs) off();
+      stopSpeaking(); // 组件卸载（关窗/切引导）不留半句悬着的朗读
+    };
+  }, []);
+
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [entries]);
@@ -129,6 +156,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
             { id: nextId++, role: "note", content: `📚 本地知识库 · ${local.count} 条依据` },
             { id: nextId++, role: "assistant", content: local.text },
           ]);
+          speak(local.text); // 本地回答也是"麻薯说的话"（v0.15.0 TTS；开关/免打扰内部判断）
           return;
         }
         setEntries(prev => [
@@ -140,6 +168,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
       }
       lastInputRef.current = text; // 失败重试（P1-07/08）重发最近一次输入
 
+      stopSpeaking(); // 新消息打断正在进行的朗读（P1-03：随时可打断）
       setError(null);
       setInput("");
     setBusy(true);
@@ -195,6 +224,9 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
         const summary = truncateForBubble(finalText);
         if (summary) void sendUIEvent(UI_EVENTS.showBubble, summary);
       }
+      // 朗读（v0.15.0 P1-03）：回复**完整结束后**才读（流式中读会结巴）。
+      // 开关关闭/免打扰/纯代码块都在 speak 内部静默处理；出错路径不读（catch）。
+      speak(finalText);
     } catch (e) {
       setError({ kind: "network", message: String(e) });
       patchAssistant({ failed: true, retryText: text }); // 失败气泡出「重试」（P1-08）

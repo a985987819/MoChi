@@ -24,6 +24,7 @@ import {
   flushSettingsSave,
   type AppSettings,
 } from "@/services/settings";
+import { listTtsVoices, speak, subscribeVoices } from "@/services/tts";
 
 /**
  * 设置 Tab —— v0.3.0：提供商/Key/模型 + 连通性测试。
@@ -268,6 +269,8 @@ export function SettingsTab() {
       <AutostartSection settings={settings} update={update} />
 
       <SoundSection settings={settings} update={update} updateDebounced={updateDebounced} />
+
+      <TtsSection settings={settings} update={update} updateDebounced={updateDebounced} />
 
       <GameModeSection settings={settings} update={update} />
 
@@ -606,6 +609,89 @@ function SoundSection({
       )}
       <p className="settings-note">
         免打扰时段内提醒不出声；点击音仍然保留——那是你主动点的，静默它只会让人以为卡住了。
+      </p>
+    </div>
+  );
+}
+
+/**
+ * 语音朗读（v0.15.0 P1-03）：Web Speech API 系统语音包（免费、离线、零 Key）。
+ *
+ * 为什么默认关（任务单要求写清）：音效是短促提示音，TTS 是把整段回复念出来——
+ * 不问就把每轮对话念出声是打扰，所以默认关，让用户主动开。音色列表来自系统
+ * （voiceschanged 异步到达，订阅刷新）；没有中文音色时如实提示"将使用系统默认"。
+ * 「试听」直接调 speak：开关/免打扰的拦截逻辑对试听同样生效——关着开关点试听
+ * 没有声音是**正确行为**，按钮在开关关闭时禁用。
+ */
+function TtsSection({
+  settings,
+  update,
+  updateDebounced,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+  updateDebounced: (patch: Partial<AppSettings>) => void;
+}) {
+  const [voices, setVoices] = useState(() => listTtsVoices());
+
+  // 系统音色异步枚举（WebView2 首次 getVoices() 常为空）：voiceschanged 到达后刷新
+  useEffect(() => subscribeVoices(() => setVoices(listTtsVoices())), []);
+
+  const hasChineseVoice = voices.some(v => v.lang.toLowerCase().startsWith("zh"));
+  const selectedVoiceExists = !settings.ttsVoiceName || voices.some(v => v.name === settings.ttsVoiceName);
+
+  return (
+    <div className="settings-sound">
+      <span className="settings-field-label">语音朗读</span>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={settings.ttsEnabled}
+          onChange={e => update({ ttsEnabled: e.target.checked })}
+        />
+        <span>朗读麻薯的回复（系统语音，默认关）</span>
+      </label>
+      {settings.ttsEnabled && (
+        <>
+          <label className="settings-field">
+            <span>语速 {settings.ttsRate.toFixed(1)}x</span>
+            <input
+              type="range"
+              min={0.5}
+              max={2}
+              step={0.1}
+              value={settings.ttsRate}
+              onChange={e => updateDebounced({ ttsRate: Number(e.target.value) })}
+              onBlur={flushSettingsSave}
+            />
+          </label>
+          <label className="settings-field">
+            <span>音色</span>
+            <select
+              value={settings.ttsVoiceName}
+              onChange={e => update({ ttsVoiceName: e.target.value })}
+            >
+              <option value="">自动（中文优先）</option>
+              {voices.map(v => (
+                <option key={v.name} value={v.name}>
+                  {v.name}（{v.lang}）
+                </option>
+              ))}
+            </select>
+          </label>
+          {voices.length > 0 && !hasChineseVoice && (
+            <p className="settings-note">系统里没找到中文音色，会使用系统默认音色念中文。</p>
+          )}
+          {!selectedVoiceExists && (
+            <p className="settings-note">之前选择的音色不在了（系统语音包变化），已回落到自动挑选。</p>
+          )}
+          <div className="settings-test">
+            <button onClick={() => speak("你好，我是麻薯，这是朗读试听。")}>试听一句</button>
+          </div>
+        </>
+      )}
+      <p className="settings-note">
+        新回复说完才朗读；发新消息、点一下麻薯或关掉聊天窗都会立刻停。免打扰时段内不朗读。
       </p>
     </div>
   );
