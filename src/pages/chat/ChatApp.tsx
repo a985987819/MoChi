@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ChatTab } from "./ChatTab";
 import { TodosTab } from "./TodosTab";
 import { PomodoroTab } from "./PomodoroTab";
+import { AssetsTab } from "./AssetsTab";
 import { SettingsTab } from "./SettingsTab";
 import { WelcomeGuide } from "./WelcomeGuide";
 import { sendUIEvent, BRIDGE_EVENTS, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
@@ -14,15 +15,17 @@ import "./chat.css";
 /**
  * 聊天窗（chat）—— v0.7.0：Tabs（聊天/待办/番茄钟/设置）。
  *
+ * v0.9.2 增加「素材」Tab：双语图片导入页（讲清每个状态代表什么、导入时自动改成英文名）。
+ *
  * v0.9.0 增加首次启动引导：`onboardingDone === false` 时用 WelcomeGuide 覆盖内容区，
  * 此时隐藏 Tab 栏（避免"引导在上、Tab 在下"两套导航抢注意力），关闭按钮保留。
  * 触发来源有两处——首次启动（pet 窗自动打开聊天窗）与设置页的「重新显示」事件。
  */
-type TabId = "chat" | "todos" | "pomodoro" | "settings";
+type TabId = "chat" | "todos" | "pomodoro" | "assets" | "settings";
 
 /** open-chat 载荷的 tab 字段收窄（非法值回落 chat——收方校验，协议文档见 events.ts） */
 function asTabId(v: unknown): TabId {
-  return v === "todos" || v === "pomodoro" || v === "settings" || v === "chat" ? v : "chat";
+  return v === "todos" || v === "pomodoro" || v === "assets" || v === "settings" || v === "chat" ? v : "chat";
 }
 
 export function ChatApp() {
@@ -106,6 +109,9 @@ export function ChatApp() {
             <TabButton active={tab === "pomodoro"} onClick={() => setTab("pomodoro")}>
               番茄钟
             </TabButton>
+            <TabButton active={tab === "assets"} onClick={() => setTab("assets")}>
+              素材
+            </TabButton>
             <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
               设置
             </TabButton>
@@ -120,7 +126,7 @@ export function ChatApp() {
         <WelcomeGuide onFinish={finishWelcome} onDismissForever={() => void dismissForever()} />
       ) : (
         <>
-          {/* keep-alive：四个 Tab 常驻不卸载，切换只切 visible——旧条件渲染会在
+          {/* keep-alive：五个 Tab 常驻不卸载，切换只切 visible——旧条件渲染会在
               每次切换时重挂组件（聊天历史重查 SQLite、设置重读 store、监听反复
               装卸），既闪又费。CSS 入场动画在 display:none→显示时自动重播，
               切换的"进入感"零 JS 成本。 */}
@@ -132,6 +138,9 @@ export function ChatApp() {
           </div>
           <div className="chat-tab-page" hidden={tab !== "pomodoro"}>
             <PomodoroTab />
+          </div>
+          <div className="chat-tab-page" hidden={tab !== "assets"}>
+            <AssetsTab />
           </div>
           <div className="chat-tab-page" hidden={tab !== "settings"}>
             <SettingsTab />

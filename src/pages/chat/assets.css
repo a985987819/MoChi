@@ -1,0 +1,321 @@
+/* 素材 Tab（v0.9.2）—— 双语导入页样式。
+   色彩沿用设置/待办页的浅粉体系（#ff8fab 主色 / #f0e4e8 分隔 / #a39690 次要文字），
+   不自造第二套视觉语言。整页自身滚动：状态说明有 10 条，内容一定会超过窗口高度。 */
+
+.assets-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 18px;
+}
+
+.assets-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.assets-head h2 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 15px;
+  color: #3d3733;
+}
+
+/* 英文副标题：比中文小一号、灰一档——双语并列但不抢主语言 */
+.assets-en {
+  font-size: 11px;
+  font-weight: 400;
+  color: #b3a49e;
+}
+
+.assets-lead {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #6f625d;
+}
+
+.assets-lead--en {
+  margin-top: -6px;
+  font-size: 11.5px;
+  color: #a39690;
+}
+
+.assets-lead code,
+.assets-pending__to,
+.assets-state__code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #fdf3f5;
+  color: #c0556d;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.assets-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #e2708a;
+  font-family: inherit;
+  font-size: 11.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.assets-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── 选择文件 ── */
+
+.assets-import {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* 隐藏原生 file input：样式不可控，用按钮代触发；仍保留可访问性（label/按钮聚焦后回车） */
+.assets-import__input {
+  display: none;
+}
+
+.assets-import__pick,
+.assets-import__go {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 9px;
+  background: #ff8fab;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.assets-import__go {
+  align-self: flex-start;
+}
+
+.assets-import__pick:disabled,
+.assets-import__go:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.assets-import__hint {
+  font-size: 11px;
+  color: #a39690;
+}
+
+/* ── 待确认列表 ── */
+
+.assets-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #f0e4e8;
+  border-radius: 10px;
+  background: #fffdfd;
+}
+
+.assets-pending__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: #3d3733;
+}
+
+.assets-pending__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+/* 每行：左侧"原名 → 新名"，右侧状态下拉与删除；窄窗下名字先省略号，不撑破布局 */
+.assets-pending__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.assets-pending__names {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.assets-pending__from {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #8a7f7a;
+}
+
+.assets-pending__arrow {
+  flex: 0 0 auto;
+  color: #c9b8b2;
+}
+
+.assets-pending__to {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.assets-pending__item select {
+  padding: 5px 6px;
+  border: 1px solid #f0e4e8;
+  border-radius: 8px;
+  background: #fff;
+  color: #3d3733;
+  font-family: inherit;
+  font-size: 11.5px;
+  outline: none;
+  cursor: pointer;
+}
+
+.assets-pending__item select:focus {
+  border-color: #ffc4d0;
+}
+
+.assets-pending__remove {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #b3a49e;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.assets-pending__remove:hover {
+  background: #ffe1e6;
+  color: #c94a5a;
+}
+
+/* 状态是猜的：用警示色提醒"需要你确认一下" */
+.assets-pending__note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 11px;
+  color: #c0722c;
+}
+
+/* ── 结果提示 ── */
+
+.assets-notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.assets-notice--ok {
+  background: #f0f8f3;
+  color: #3f7a5a;
+}
+
+.assets-notice--error {
+  background: #fdf1f2;
+  color: #b5445a;
+}
+
+/* ── 状态说明 ── */
+
+.assets-states {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assets-states h3 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  color: #3d3733;
+}
+
+.assets-states__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assets-state {
+  padding: 8px 10px;
+  border: 1px solid #f3e8ec;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.assets-state__title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.assets-state__title strong {
+  font-size: 12.5px;
+  color: #3d3733;
+}
+
+.assets-state__en {
+  font-size: 11px;
+  color: #b3a49e;
+}
+
+/* 已有素材计数靠右：一眼看出"这个状态我配没配过图" */
+.assets-state__count {
+  margin-left: auto;
+  font-size: 11px;
+  color: #b3a49e;
+}
+
+.assets-state__when {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #3d3733;
+}
+
+.assets-state__when-en {
+  margin: 1px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #a39690;
+}
+
+.assets-foot {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #a39690;
+}

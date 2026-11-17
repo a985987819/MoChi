@@ -284,7 +284,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_user_pet_assets, get_idle_seconds,
             show_app_alert, get_app_alert, ack_app_alert, dismiss_app_alert,
-            set_pet_hit_test, get_autostart_enabled
+            set_pet_hit_test, get_autostart_enabled, save_pet_asset
         ]);
 
     builder
@@ -928,6 +928,128 @@ fn list_user_pet_assets(app: tauri::AppHandle) -> BTreeMap<String, Vec<String>> 
     result
 }
 
+// ── 宠物素材导入（v0.9.2） ─────────────────────────────────────────────────
+//
+// 为什么写文件放在 Rust：前端只拿到 core/store/sql/notification 这些插件权限，
+// 没有通用文件系统权限（见 capabilities/default.json）。素材目录是应用数据目录里
+// 唯一允许用户自定义的目录，**校验**（状态白名单 / 扩展名 / 大小）必须和写入在同一侧，
+// 否则"前端过滤一次、Rust 再信一次"等于没过滤。
+//
+// 为什么用 base64 而不是新增 tauri-plugin-fs：为一次低频导入引入一个插件 + 一组
+// ACL 权限不值得；图片通常 < 2MB，base64 的 33% 膨胀在桌面端可接受。解码自己写
+// （约 20 行、有单测），避免为这点功能再加一个 crate 依赖。
+
+/// 素材状态白名单——与前端 `PET_STATES`、docs/pet-assets.md §3 同一个集合。
+const PET_ASSET_STATES: [&str; 10] = [
+    "idle", "happy", "sad", "thinking", "talking", "alert", "stretch", "focus", "break", "sleep",
+];
+/// 支持的图片扩展名——与前端 `SUPPORTED_EXTS` 一致（jpeg 在入口处归一为 jpg）。
+const PET_ASSET_EXTS: [&str; 5] = ["png", "jpg", "gif", "webp", "svg"];
+/// 单文件上限：桌宠素材通常在 1MB 内；16MiB 用来兜住"误选视频/PSD"这类输入。
+const PET_ASSET_MAX_BYTES: usize = 16 * 1024 * 1024;
+
+/// 导入一张素材：写进 `{appData}/pet-assets/{state}[_N].{ext}`，返回最终文件名。
+///
+/// 文件名由 Rust 决定而不是前端传：变体序号要和目录现状一致（防覆盖、防并发下重名），
+/// 只有写文件的一侧知道真实目录内容。前端只负责预览（同算法，纯函数可单测）。
+#[tauri::command]
+fn save_pet_asset(
+    app: tauri::AppHandle,
+    state: String,
+    ext: String,
+    base64: String,
+) -> Result<String, String> {
+    let state = state.trim().to_ascii_lowercase();
+    if !PET_ASSET_STATES.contains(&state.as_str()) {
+        return Err(format!("未知状态：{state}"));
+    }
+    let ext = ext.trim().to_ascii_lowercase();
+    let ext = if ext == "jpeg" { "jpg".to_string() } else { ext };
+    if !PET_ASSET_EXTS.contains(&ext.as_str()) {
+        return Err(format!("不支持的图片格式：{ext}"));
+    }
+    let bytes = decode_base64(&base64).map_err(|e| format!("图片数据解析失败：{e}"))?;
+    if bytes.is_empty() {
+        return Err("图片是空的".to_string());
+    }
+    if bytes.len() > PET_ASSET_MAX_BYTES {
+        return Err("图片超过 16MB，请先压缩再导入".to_string());
+    }
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("找不到应用数据目录：{e}"))?
+        .join("pet-assets");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建素材目录失败：{e}"))?;
+    let name = next_asset_file_name(&dir, &state, &ext);
+    std::fs::write(dir.join(&name), &bytes).map_err(|e| format!("写入失败：{e}"))?;
+    Ok(name)
+}
+
+/// 取下一个可用文件名：`state.ext` → `state_2.ext` → `state_3.ext`…
+/// （与 docs/pet-assets.md §2 的变体约定一致：序号从 2 开始，绝不覆盖已有素材。）
+fn next_asset_file_name(dir: &std::path::Path, state: &str, ext: &str) -> String {
+    let base = format!("{state}.{ext}");
+    if !dir.join(&base).exists() {
+        return base;
+    }
+    for index in 2..=9999u32 {
+        let candidate = format!("{state}_{index}.{ext}");
+        if !dir.join(&candidate).exists() {
+            return candidate;
+        }
+    }
+    // 极端情况（同一状态上千张）：用时间戳兜底，宁可名字难看也不覆盖用户素材。
+    format!("{state}_{}.{ext}", chrono_like_now().replace([':', '-', ' ', '.'], ""))
+}
+
+/// 标准 base64 解码（字母表 + `=` 填充，忽略换行/空格）。
+///
+/// 前端用 `FileReader.readAsDataURL` 拿到 `data:image/png;base64,...`，前缀由前端剥掉。
+/// 自己写而不是加依赖：只需要这一种用法，出错返回 Err（不 panic），并有单测覆盖填充位。
+fn decode_base64(input: &str) -> Result<Vec<u8>, &'static str> {
+    fn sextet(byte: u8) -> Option<u8> {
+        match byte {
+            b'A'..=b'Z' => Some(byte - b'A'),
+            b'a'..=b'z' => Some(byte - b'a' + 26),
+            b'0'..=b'9' => Some(byte - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+
+    let cleaned: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
+    // data URL 前缀忘了剥时给一句能看懂的错，而不是"非法字符"。
+    if cleaned.starts_with(b"data:") {
+        return Err("请先去掉 data: 前缀");
+    }
+    if cleaned.len() % 4 != 0 {
+        return Err("长度不是 4 的倍数");
+    }
+    let mut out = Vec::with_capacity(cleaned.len() / 4 * 3);
+    for chunk in cleaned.chunks(4) {
+        let pad = chunk.iter().filter(|&&c| c == b'=').count();
+        if pad > 2 || (pad > 0 && chunk[..4 - pad].contains(&b'=')) {
+            return Err("填充符位置不对");
+        }
+        let mut values = [0u8; 4];
+        for (slot, &byte) in values.iter_mut().zip(chunk.iter()) {
+            if byte != b'=' {
+                *slot = sextet(byte).ok_or("含非法 base64 字符")?;
+            }
+        }
+        out.push((values[0] << 2) | (values[1] >> 4));
+        if pad < 2 {
+            out.push((values[1] << 4) | (values[2] >> 2));
+        }
+        if pad < 1 {
+            out.push((values[2] << 6) | values[3]);
+        }
+    }
+    Ok(out)
+}
+
 /// 读取系统自启项真值（v0.9.1）—— 设置页挂载时调用，把「设置里的开关」与
 /// 「系统里真实登记的启动项」对齐。
 ///
@@ -1263,5 +1385,42 @@ mod alert_tests {
         assert!(!is_fullscreen_cover((0, 0, 1920, 900), (0, 0, 1920, 1080)));
         // 防御：零尺寸显示器恒 false（除零保护）
         assert!(!is_fullscreen_cover((0, 0, 1920, 1080), (0, 0, 0, 0)));
+    }
+
+    /// base64 解码是素材导入的唯一数据入口：三种填充位 + 脏输入都要有断言。
+    /// 期望值用标准实现对照（"Man" / "Ma" / "M" 分别覆盖 0/1/2 个填充符）。
+    #[test]
+    fn base64_decodes_all_padding_cases() {
+        assert_eq!(decode_base64("TWFu").unwrap(), b"Man");
+        assert_eq!(decode_base64("TWE=").unwrap(), b"Ma");
+        assert_eq!(decode_base64("TQ==").unwrap(), b"M");
+        // 换行/空格（部分阅读器导出的 base64 会折行）不影响结果
+        assert_eq!(decode_base64("TWFu\nTWFu").unwrap(), b"ManMan");
+        // 空串是合法的（上层再判断"图片是空的"）
+        assert_eq!(decode_base64("").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn base64_rejects_malformed_input() {
+        assert!(decode_base64("TWF").is_err()); // 长度不是 4 的倍数
+        assert!(decode_base64("TW*u").is_err()); // 非法字符
+        assert!(decode_base64("T===").is_err()); // 填充符过多
+        assert!(decode_base64("data:image/png;base64,TWFu").is_err()); // 忘了剥前缀
+    }
+
+    /// 变体序号必须"避开已有文件"：这就是导入不覆盖用户素材的保证。
+    #[test]
+    fn next_asset_file_name_never_overwrites() {
+        let dir = std::env::temp_dir().join(format!("mochi-asset-name-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("创建临时目录");
+        assert_eq!(next_asset_file_name(&dir, "happy", "png"), "happy.png");
+        std::fs::write(dir.join("happy.png"), b"x").unwrap();
+        assert_eq!(next_asset_file_name(&dir, "happy", "png"), "happy_2.png");
+        std::fs::write(dir.join("happy_2.png"), b"x").unwrap();
+        assert_eq!(next_asset_file_name(&dir, "happy", "png"), "happy_3.png");
+        // 不同扩展名各算各的：happy.gif 不占用 happy.png 的序号
+        assert_eq!(next_asset_file_name(&dir, "happy", "gif"), "happy.gif");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
