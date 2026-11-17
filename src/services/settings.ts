@@ -36,6 +36,16 @@ export interface AppSettings extends AddressingPreferences {
   /** 系统通知开关（站立提醒/番茄钟/自定义提醒共用） */
   notificationsEnabled: boolean;
   /**
+   * 免打扰时段（v0.10.0，**默认关**）：只静默**站立提醒**——它由系统自动生成，
+   * 夜里弹出来纯属打扰；用户自己定的提醒与番茄钟照常响（那是明确的指令）。
+   * `quietStartHour > quietEndHour` 表示跨午夜（如 22 → 8）；两者相等视为未设置。
+   */
+  quietHoursEnabled: boolean;
+  /** 静默开始的小时（0~23，本地时间） */
+  quietStartHour: number;
+  /** 静默结束的小时（0~23，本地时间，整点恢复） */
+  quietEndHour: number;
+  /**
    * 是否已完成首次启动引导（v0.9.0）。
    *
    * 为什么把「引导是否看过」放在设置里而不是 localStorage：
@@ -88,6 +98,9 @@ export function defaultSettings(): AppSettings {
     pomodoroFocusMin: 25,
     pomodoroBreakMin: 5,
     notificationsEnabled: true,
+    quietHoursEnabled: false,
+    quietStartHour: 22,
+    quietEndHour: 8,
     onboardingDone: false,
     shortcutEnabled: true,
     autostartEnabled: false,
@@ -122,6 +135,10 @@ export function normalize(raw: unknown): AppSettings {
     pomodoroFocusMin: clampInt(r.pomodoroFocusMin, 5, 90, d.pomodoroFocusMin),
     pomodoroBreakMin: clampInt(r.pomodoroBreakMin, 1, 30, d.pomodoroBreakMin),
     notificationsEnabled: typeof r.notificationsEnabled === "boolean" ? r.notificationsEnabled : d.notificationsEnabled,
+    quietHoursEnabled: typeof r.quietHoursEnabled === "boolean" ? r.quietHoursEnabled : d.quietHoursEnabled,
+    // 小时越界即夹紧：0~23 是"整点"语义，越界值（如 24）会让静默时段变成全天或永不生效
+    quietStartHour: clampInt(r.quietStartHour, 0, 23, d.quietStartHour),
+    quietEndHour: clampInt(r.quietEndHour, 0, 23, d.quietEndHour),
     // 老版本 settings.json 没有这个字段：undefined → false（当作没看过引导）。
     // 这正是「升级用户也会看到一次引导」的期望行为——v0.9.0 之前没有引导。
     onboardingDone: typeof r.onboardingDone === "boolean" ? r.onboardingDone : d.onboardingDone,

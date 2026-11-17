@@ -284,6 +284,9 @@ export function SettingsTab() {
   );
 }
 
+/** 免打扰时段可选整点（0~23）：分钟级精度对"别半夜吵我"没有意义，整点足够 */
+const QUIET_HOURS = Array.from({ length: 24 }, (_, index) => index);
+
 /**
  * 计时配置 —— v0.7.0：站立间隔/番茄钟时长/通知开关。
  * 数字输入框走防抖（P0-02）：onChange 每敲一个键 queue 一次、blur 冲刷一次，
@@ -345,6 +348,45 @@ function TimerConfigSection({
         />
         <span>启用系统通知（站立提醒 / 番茄钟 / 到点提醒）</span>
       </label>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={settings.quietHoursEnabled}
+          onChange={e => update({ quietHoursEnabled: e.target.checked })}
+        />
+        <span>免打扰时段（只静默站立提醒）</span>
+      </label>
+      {settings.quietHoursEnabled && (
+        <>
+          <div className="settings-field">
+            <span>时段（跨午夜会自动顺延到次日）</span>
+            <div className="settings-hours">
+              <select
+                value={settings.quietStartHour}
+                onChange={e => update({ quietStartHour: Number(e.target.value) })}
+                aria-label="免打扰开始时间"
+              >
+                {QUIET_HOURS.map(hour => (
+                  <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>
+                ))}
+              </select>
+              <span className="settings-hours__sep">到</span>
+              <select
+                value={settings.quietEndHour}
+                onChange={e => update({ quietEndHour: Number(e.target.value) })}
+                aria-label="免打扰结束时间"
+              >
+                {QUIET_HOURS.map(hour => (
+                  <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <p className="settings-note">
+            时段内不弹站立提醒，结束后补一次；自定义提醒和番茄钟照常响——那是你定的时间。
+          </p>
+        </>
+      )}
       <NotificationPermissionHint />
     </div>
   );

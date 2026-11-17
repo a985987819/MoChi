@@ -485,6 +485,24 @@ body {
   border-color: #ffc4d0;
 }
 
+/* 免打扰时段的两个整点下拉并排（v0.10.0）：横排一行，不占两倍高度 */
+.settings-hours {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-hours select {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-hours__sep {
+  flex: 0 0 auto;
+  color: #8a7f7a;
+  font-size: 12px;
+}
+
 .settings-note {
   margin: 0;
   color: #a39690;

@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => ({})) }));
 
 import {
   extOfFileName,
+  frameOfFileName,
   guessStateFromFileName,
   targetFileName,
 } from "@/services/pet-asset-import";
@@ -73,5 +74,25 @@ describe("targetFileName（英文命名 + 变体序号）", () => {
   it("不同扩展名各算各的；比较不区分大小写", () => {
     expect(targetFileName("happy", "gif", ["happy.png"])).toBe("happy.gif");
     expect(targetFileName("happy", "png", ["HAPPY.PNG"])).toBe("happy_2.png");
+  });
+
+  it("帧号存在时保留三位序号，不参与避让（帧位置由序号决定）", () => {
+    expect(targetFileName("happy", "png", [], [], 1)).toBe("happy_001.png");
+    expect(targetFileName("happy", "png", ["happy_001.png"], [], 1)).toBe("happy_001.png");
+    expect(targetFileName("happy", "png", ["happy.png"], [], 12)).toBe("happy_012.png");
+  });
+});
+
+describe("frameOfFileName（三位序号 = 帧，短序号 = 变体）", () => {
+  it("三位零填充识别为帧", () => {
+    expect(frameOfFileName("开心_001.png")).toBe(1);
+    expect(frameOfFileName("idle_012.webp")).toBe(12);
+  });
+
+  it("一到两位是变体、四位以上也不是帧（避免误伤）", () => {
+    expect(frameOfFileName("开心_2.png")).toBeNull();
+    expect(frameOfFileName("idle_12.png")).toBeNull();
+    expect(frameOfFileName("photo_2026.png")).toBeNull();
+    expect(frameOfFileName("开心.png")).toBeNull();
   });
 });

@@ -12,11 +12,21 @@ import { loadSettings } from "@/services/settings";
 import { showAppAlert, dismissAppAlert, type AppAlert } from "@/services/alerts";
 import { subscribeHeartbeat } from "@/services/heartbeat";
 import { ServiceScope } from "@/services/service-scope";
+import { isQuietHour, quietEndAt } from "@/services/quiet-hours";
 import type { PomodoroResult } from "@/services/pomodoro-control";
 
 type TimerConfig = Pick<Awaited<ReturnType<typeof loadSettings>>,
-  "standupIntervalMin" | "pomodoroFocusMin" | "pomodoroBreakMin" | "notificationsEnabled">;
-const defaults = (): TimerConfig => ({ standupIntervalMin: 60, pomodoroFocusMin: 25, pomodoroBreakMin: 5, notificationsEnabled: true });
+  "standupIntervalMin" | "pomodoroFocusMin" | "pomodoroBreakMin" | "notificationsEnabled"
+  | "quietHoursEnabled" | "quietStartHour" | "quietEndHour">;
+const defaults = (): TimerConfig => ({
+  standupIntervalMin: 60,
+  pomodoroFocusMin: 25,
+  pomodoroBreakMin: 5,
+  notificationsEnabled: true,
+  quietHoursEnabled: false,
+  quietStartHour: 22,
+  quietEndHour: 8,
+});
 const ALERT_AUTO_DISMISS_MS = 10 * 60_000;
 
 /** 站立计时不会因 away 暂停；弹窗失败保留已过期的 deadline，下一节拍重试。 */
@@ -123,6 +133,13 @@ export class StandupService {
     if (this.state === "fired") {
       // 超时同样比较时间戳，后台 setTimeout 不执行也不会留下永久弹窗。
       if (this.dismissAt > 0 && Date.now() >= this.dismissAt) this.ack();
+      return;
+    }
+    // 免打扰时段（v0.10.0）：不弹站立提醒，把截止时间推到时段结束。
+    // 注意是"推"到结束而不是清零——恢复后的第一次提醒发生在早上，不是半夜。
+    if (this.config.quietHoursEnabled && isQuietHour(Date.now(), this.config.quietStartHour, this.config.quietEndHour)) {
+      const until = quietEndAt(Date.now(), this.config.quietStartHour, this.config.quietEndHour);
+      if (until !== null && this.deadline < until) this.deadline = until;
       return;
     }
     if (Date.now() < this.deadline || presenceService.current === "away" || this.deliveryInFlight) return;

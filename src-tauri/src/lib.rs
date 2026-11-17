@@ -212,6 +212,63 @@ fn drag_transition(dragging: bool, move_age_ms: Option<u64>) -> Option<bool> {
     }
 }
 
+/// 贴边吸附阈值（物理像素，v0.10.0）：24 物理 px 在 100%/150% 缩放下约 24/16 逻辑 px，
+/// 正好是"看起来已经贴着了、还差一点点"的距离；再大就会在拖动过程中频繁跳位。
+const SNAP_THRESHOLD_PX: i32 = 24;
+
+/// 拖拽结束后把窗口贴到最近的工作区边缘（纯函数，可单测；坐标为物理像素）。
+///
+/// 只处理"接近"的情况：贴左/右各取较近的一侧，贴顶/底同理；离得远就保持用户
+/// 放下的位置不动。**不做全局 clamp**——允许用户把宠物故意放在屏幕边上留一半，
+/// 那是常见用法，强行拉回反而烦人。
+fn snap_to_work_area(
+    pos: (i32, i32),
+    size: (u32, u32),
+    area: (i32, i32, u32, u32),
+    threshold: i32,
+) -> (i32, i32) {
+    let (x, y) = pos;
+    let (w, h) = (size.0 as i32, size.1 as i32);
+    let (ax, ay, aw, ah) = (area.0, area.1, area.2 as i32, area.3 as i32);
+    let mut next_x = x;
+    let mut next_y = y;
+    if (x - ax).abs() <= threshold {
+        next_x = ax;
+    } else if ((ax + aw) - (x + w)).abs() <= threshold {
+        next_x = ax + aw - w;
+    }
+    if (y - ay).abs() <= threshold {
+        next_y = ay;
+    } else if ((ay + ah) - (y + h)).abs() <= threshold {
+        next_y = ay + ah - h;
+    }
+    (next_x, next_y)
+}
+
+/// 吸附当前宠物窗（拖拽收尾时调用）。取窗口所在显示器的工作区（已扣除任务栏），
+/// 拿不到显示器就静默放弃——吸附是手感增强，不该因为枚举失败而影响拖拽本身。
+fn snap_pet_to_edges(app: &tauri::AppHandle) {
+    let Some(pet) = app.get_webview_window("pet") else { return };
+    let (Ok(position), Ok(size)) = (pet.outer_position(), pet.outer_size()) else { return };
+    let monitor = match pet.current_monitor() {
+        Ok(Some(monitor)) => monitor,
+        _ => match pet.primary_monitor() {
+            Ok(Some(monitor)) => monitor,
+            _ => return,
+        },
+    };
+    let area = monitor.work_area();
+    let next = snap_to_work_area(
+        (position.x, position.y),
+        (size.width, size.height),
+        (area.position.x, area.position.y, area.size.width, area.size.height),
+        SNAP_THRESHOLD_PX,
+    );
+    if next != (position.x, position.y) {
+        let _ = pet.set_position(tauri::PhysicalPosition::new(next.0, next.1));
+    }
+}
+
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -774,17 +831,31 @@ fn start_native_tick(app: tauri::AppHandle) {
             if let Ok(mut queue) = state.lock() {
                 if queue.needs_present { let _ = present_alert(&handle, &mut queue); }
             };
-            // 拖拽收尾：上次 Moved 静默超窗 → 广播「放下」。锁失败静默（反馈非关键路径）
-            let drag_state = handle.state::<Mutex<DragMotion>>();
-            if let Ok(mut motion) = drag_state.lock() {
-                let age = motion.last_move_at.map(|t| t.elapsed().as_millis() as u64);
-                if let Some(next) = drag_transition(motion.dragging, age) {
-                    motion.dragging = next;
-                    if !next {
-                        motion.last_move_at = None;
-                        let _ = handle.emit_to("pet", EVT_PET_DRAG_CHANGED, serde_json::json!({ "dragging": false }));
+            // 拖拽收尾：上次 Moved 静默超窗 → 广播「放下」+ 贴边吸附（v0.10.0）。
+            // 锁的作用域收紧到"只算状态"：窗口 API（get/set_position）在锁外调用——
+            // 持锁调 UI 线程是本文件开头警告过的死锁形态。
+            let dropped = {
+                let drag_state = handle.state::<Mutex<DragMotion>>();
+                match drag_state.lock() {
+                    Ok(mut motion) => {
+                        let age = motion.last_move_at.map(|t| t.elapsed().as_millis() as u64);
+                        match drag_transition(motion.dragging, age) {
+                            Some(next) => {
+                                motion.dragging = next;
+                                if !next {
+                                    motion.last_move_at = None;
+                                }
+                                !next
+                            }
+                            None => false,
+                        }
                     }
+                    Err(_) => false, // 锁中毒：拖拽反馈是锦上添花，静默跳过
                 }
+            };
+            if dropped {
+                snap_pet_to_edges(&handle);
+                let _ = handle.emit_to("pet", EVT_PET_DRAG_CHANGED, serde_json::json!({ "dragging": false }));
             }
             // 游戏模式（v0.9.0 自迭代）：默认关；开启时 1s 节奏检测前台全屏。
             // 只在"遮挡宠物所在屏"时隐藏，退出全屏恢复——不碰用户手动 toggle 的状态
@@ -952,12 +1023,17 @@ const PET_ASSET_MAX_BYTES: usize = 16 * 1024 * 1024;
 ///
 /// 文件名由 Rust 决定而不是前端传：变体序号要和目录现状一致（防覆盖、防并发下重名），
 /// 只有写文件的一侧知道真实目录内容。前端只负责预览（同算法，纯函数可单测）。
+///
+/// `frame`（v0.10.0）：来自 `{state}_001.png` 这类**帧序列**文件名。给了序号就原样
+/// 保留成 `{state}_{:03}.{ext}`——帧的位置由序号决定，改名等于改播放顺序；
+/// 同序号重复导入视为"更新这一帧"，允许覆盖（与变体的"绝不覆盖"是有意的区别）。
 #[tauri::command]
 fn save_pet_asset(
     app: tauri::AppHandle,
     state: String,
     ext: String,
     base64: String,
+    frame: Option<u32>,
 ) -> Result<String, String> {
     let state = state.trim().to_ascii_lowercase();
     if !PET_ASSET_STATES.contains(&state.as_str()) {
@@ -981,7 +1057,10 @@ fn save_pet_asset(
         .map_err(|e| format!("找不到应用数据目录：{e}"))?
         .join("pet-assets");
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建素材目录失败：{e}"))?;
-    let name = next_asset_file_name(&dir, &state, &ext);
+    let name = match frame {
+        Some(index) if index > 0 => format!("{state}_{index:03}.{ext}"),
+        _ => next_asset_file_name(&dir, &state, &ext),
+    };
     std::fs::write(dir.join(&name), &bytes).map_err(|e| format!("写入失败：{e}"))?;
     Ok(name)
 }
@@ -1422,5 +1501,27 @@ mod alert_tests {
         // 不同扩展名各算各的：happy.gif 不占用 happy.png 的序号
         assert_eq!(next_asset_file_name(&dir, "happy", "gif"), "happy.gif");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 贴边吸附（v0.10.0）：只在阈值内吸附，远处一律不动；负坐标副屏也成立。
+    #[test]
+    fn snap_pulls_only_near_edges() {
+        let area = (0, 0, 1920, 1040); // 工作区已扣除任务栏
+        let size = (220, 260);
+        // 距左边 10px → 贴左；距右边 8px → 贴右
+        assert_eq!(snap_to_work_area((10, 300), size, area, 24), (0, 300));
+        assert_eq!(snap_to_work_area((1692, 300), size, area, 24), (1700, 300));
+        // 距顶 5px → 贴顶；距底 12px → 贴底
+        assert_eq!(snap_to_work_area((600, 5), size, area, 24), (600, 0));
+        assert_eq!(snap_to_work_area((600, 768), size, area, 24), (600, 780));
+        // 屏幕中间 → 不动（不做全局 clamp：允许用户故意放在偏外）
+        assert_eq!(snap_to_work_area((600, 400), size, area, 24), (600, 400));
+        // 刚好超出阈值 1px → 不吸
+        assert_eq!(snap_to_work_area((25, 300), size, area, 24), (25, 300));
+        // 负坐标副屏：以工作区原点为基准
+        assert_eq!(
+            snap_to_work_area((-1910, 300), size, (-1920, 0, 1920, 1040), 24),
+            (-1920, 300)
+        );
     }
 }

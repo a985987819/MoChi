@@ -5,6 +5,7 @@ import {
   STATE_DOCS,
   extOfFileName,
   fileNameOf,
+  frameOfFileName,
   guessStateFromFileName,
   listUserAssets,
   readFileAsBase64,
@@ -43,6 +44,11 @@ interface PendingFile {
   state: PetState;
   /** true = 状态由文件名猜出；false = 认不出，用默认待机并提示手选 */
   guessed: boolean;
+  /**
+   * 源文件里的帧号（`开心_001.png` → 1）。非 null 时导入后保留 `_001` 形式，
+   * 多帧同状态会组成逐帧动画；null 则按普通变体处理。
+   */
+  frame: number | null;
 }
 
 interface Notice {
@@ -91,6 +97,7 @@ export function AssetsTab() {
         ext,
         state: guessedState ?? "idle",
         guessed: guessedState !== null,
+        frame: frameOfFileName(file.name),
       });
     }
     setPending(prev => [...prev, ...accepted]);
@@ -108,11 +115,20 @@ export function AssetsTab() {
   const planned = useMemo(() => {
     const reserved: string[] = [];
     return pending.map(item => {
-      const name = targetFileName(item.state, item.ext, existing, reserved);
+      const name = targetFileName(item.state, item.ext, existing, reserved, item.frame);
       reserved.push(name);
       return name;
     });
   }, [pending, existing]);
+
+  /** 本批里的帧按状态分组：同状态 >= 2 帧才会真正组成逐帧动画 */
+  const sequenceStates = useMemo(() => {
+    const byState = new Map<PetState, number>();
+    for (const item of pending) {
+      if (item.frame !== null) byState.set(item.state, (byState.get(item.state) ?? 0) + 1);
+    }
+    return [...byState.entries()].filter(([, count]) => count >= 2).map(([state]) => state);
+  }, [pending]);
 
   const importAll = useCallback(async () => {
     if (pending.length === 0 || busy) return;
@@ -123,7 +139,7 @@ export function AssetsTab() {
     for (const item of pending) {
       try {
         const base64 = await readFileAsBase64(item.file);
-        saved.push(await savePetAsset(item.state, item.ext, base64));
+        saved.push(await savePetAsset(item.state, item.ext, base64, item.frame));
       } catch (error) {
         failed.push(`${item.from}（${error instanceof Error ? error.message : String(error)}）`);
       }
@@ -166,6 +182,7 @@ export function AssetsTab() {
       <p className="assets-lead">
         导入的图片会自动改成<strong>英文文件名</strong>（<code>happy.png</code>、
         <code>happy_2.png</code>）再放进项目素材目录——项目只认英文状态名，中文名的图不会生效。
+        文件名带三位序号（<code>开心_001.png</code>）的会按<strong>逐帧动画</strong>保留序号。
       </p>
       <p className="assets-lead assets-lead--en">
         Imported images are renamed to the English state codes automatically
@@ -199,6 +216,12 @@ export function AssetsTab() {
               清空
             </button>
           </div>
+          {sequenceStates.length > 0 && (
+            <p className="assets-pending__sequence">
+              检测到帧序列：{sequenceStates.map(state => STATE_DOCS.find(doc => doc.state === state)?.zh ?? state).join("、")}
+              {" "}会按 001 / 002 / … 的顺序循环播放。同一帧重新导入会覆盖那一帧，不会打乱顺序。
+            </p>
+          )}
           <ul className="assets-pending__list">
             {pending.map((item, index) => (
               <li key={item.id} className="assets-pending__item">
@@ -208,6 +231,9 @@ export function AssetsTab() {
                   </span>
                   <span className="assets-pending__arrow">→</span>
                   <code className="assets-pending__to">{planned[index]}</code>
+                  {item.frame !== null && (
+                    <span className="assets-pending__frame">帧 {String(item.frame).padStart(3, "0")}</span>
+                  )}
                 </div>
                 <select
                   value={item.state}

@@ -20,6 +20,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { PET_STATES, type PetState } from "@/services/pet-state";
+import { parseAssetFile } from "@/services/pet-assets";
 
 /** 支持导入的扩展名（与 Rust PET_ASSET_EXTS、pet-assets.ts SUPPORTED_EXTS 一致） */
 export const IMPORT_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg"] as const;
@@ -166,17 +167,35 @@ export function extOfFileName(fileName: string): string | null {
 }
 
 /**
+ * 从文件名里取出**帧序号**（v0.10.0）：`开心_001.png` → 1，`idle_2.png` → null。
+ *
+ * 为什么要单独认这个：帧序列（`_001`…）和变体（`_2`…）在导入时命运不同——
+ * 变体要改成"下一个可用序号"，帧必须**保住原序号**，否则 `_003` 被改成 `_2`
+ * 会直接打乱播放顺序。用户从 Aseprite 之类导出时天然就是三号零填充。
+ */
+export function frameOfFileName(fileName: string): number | null {
+  const parts = parseAssetFile(fileName);
+  return parts?.frame && parts.frame > 0 ? parts.frame : null;
+}
+
+/**
  * 规划落盘文件名（**预览用**，最终名字由 Rust 写盘时决定）。
  *
- * 与 Rust `next_asset_file_name` 同一算法：先试 `{state}.{ext}`，被占用就递增 `_2`、`_3`…
- * 这里额外传入"本批已排队的名字"，让同一次导入多张同状态图片不互相抢名。
+ * - 帧号存在时：`{state}_{NNN}.{ext}`，序号原样保留（同名即"重导同一帧"，允许覆盖）；
+ * - 否则与 Rust `next_asset_file_name` 同一算法：`{state}.{ext}` → `_2` → `_3`…，
+ *   并接受 `reserved`（本批已排队的名字）避免同批互相抢名。
  */
 export function targetFileName(
   state: string,
   ext: string,
   existing: readonly string[],
   reserved: readonly string[] = [],
+  frame: number | null = null,
 ): string {
+  if (frame !== null && frame > 0) {
+    // 帧名由序号唯一决定：不避让、不递增——挪位就是错位
+    return `${state}_${String(frame).padStart(3, "0")}.${ext}`;
+  }
   const taken = new Set([...existing, ...reserved].map(name => name.toLowerCase()));
   const base = `${state}.${ext}`;
   if (!taken.has(base)) return base;
@@ -206,8 +225,13 @@ export function readFileAsBase64(file: Blob): Promise<string> {
 }
 
 /** 写入一张素材，返回 Rust 决定的最终文件名（成功即已落盘到 pet-assets/） */
-export async function savePetAsset(state: PetState, ext: string, base64: string): Promise<string> {
-  return invoke<string>("save_pet_asset", { state, ext, base64 });
+export async function savePetAsset(
+  state: PetState,
+  ext: string,
+  base64: string,
+  frame: number | null = null,
+): Promise<string> {
+  return invoke<string>("save_pet_asset", { state, ext, base64, frame });
 }
 
 /** 用户目录现有素材：{ 状态: [完整路径] }（目录不存在时返回空对象） */

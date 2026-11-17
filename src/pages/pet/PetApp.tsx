@@ -45,6 +45,46 @@ function usePetState(): PetState {
 }
 
 /**
+ * 帧序列播放间隔（v0.10.0）：150ms ≈ 6.7fps。桌宠的"呼吸感"比流畅度重要——
+ * 常见 8~12 帧的待机动画在这个节奏下约 1.2~1.8 秒一轮，接近手绘 GIF 的观感。
+ * 不做按状态差异化提速：目前没有可信的真机手感数据，先给一个稳妥值。
+ */
+const FRAME_INTERVAL_MS = 150;
+
+/**
+ * 帧序列播放：把 `asset.frames` 循环成当前帧 URL。
+ *
+ * 两个细节：
+ * 1. **预加载所有帧**：`<img src>` 首次切到未缓存的 URL 会闪一下，而宠物窗是透明背景，
+ *    闪白非常显眼；提前 `new Image()` 让切换走缓存。
+ * 2. **依赖用拼接串**：`frames` 数组每次解析都是新引用，直接进依赖数组会让计时器
+ *    在每个渲染周期被重置（动画永远停在第一帧）。
+ */
+function useFrameUrl(asset: PetVariant | null): string | null {
+  const [index, setIndex] = useState(0);
+  const frames = asset?.frames;
+  const frameKey = frames?.join("|") ?? "";
+
+  useEffect(() => {
+    setIndex(0);
+    if (!frames || frames.length < 2) return;
+    for (const url of frames) {
+      const preload = new Image();
+      preload.src = url;
+    }
+    const timer = window.setInterval(() => {
+      setIndex(previous => (previous + 1) % frames.length);
+    }, FRAME_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+    // frameKey 是 frames 的内容摘要：数组引用会变，内容不变时不该重启计时器
+  }, [frameKey]);
+
+  if (!asset) return null;
+  if (!frames || frames.length < 2) return asset.url;
+  return frames[Math.min(index, frames.length - 1)];
+}
+
+/**
  * 状态 → 素材展示：进入新状态时解析变体池并随机取一张；
  * 若取到静态图且池内有多张静态图，每 5~9 秒随机轮换；动画图（gif/webp）播到天荒地老不轮换。
  * 轮换定时器闭包内自递归；加载失败排除 URL 后重新解析，状态切换重新挂载并允许重试。
@@ -58,8 +98,8 @@ function usePetAsset(state: PetState): { asset: PetVariant | null; onError(): vo
     let cancelled = false;
 
     const scheduleRotate = (pool: PetVariant[], current: PetVariant) => {
-      const statics = pool.filter(v => !v.animated);
-      if (statics.length <= 1) return; // 单一静态图 / 动画图：不轮换
+      const statics = pool.filter(v => !v.animated && !(v.frames && v.frames.length > 1));
+      if (statics.length <= 1) return; // 单一静态图 / 动画图 / 帧序列：都不轮换
       const delay = 5000 + Math.random() * 4000;
       rotateTimer.current = window.setTimeout(() => {
         if (cancelled) return;
@@ -75,7 +115,7 @@ function usePetAsset(state: PetState): { asset: PetVariant | null; onError(): vo
       if (cancelled) return;
       const first = pickRandom(pool) ?? null;
       setAsset(first);
-      if (first && !first.animated) scheduleRotate(pool, first);
+      if (first && !first.animated && !(first.frames && first.frames.length > 1)) scheduleRotate(pool, first);
     }).catch(() => {
       if (!cancelled) setAsset(null); // 异常路径也显示占位，避免未处理 Promise 和空白宠物
     });
@@ -98,8 +138,9 @@ function usePetAsset(state: PetState): { asset: PetVariant | null; onError(): vo
 /** 按状态重新挂载：失败 URL 只在本次显示会话内排除，用户替换文件后下次切换可重试。 */
 function PetSprite({ state }: { state: PetState }) {
   const { asset, onError } = usePetAsset(state);
-  return asset ? (
-    <img className="pet-stage__img" src={asset.url} alt={state} draggable={false} onError={onError} />
+  const frameUrl = useFrameUrl(asset);
+  return frameUrl ? (
+    <img className="pet-stage__img" src={frameUrl} alt={state} draggable={false} onError={onError} />
   ) : <MochiPlaceholder />;
 }
 

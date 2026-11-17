@@ -214,6 +214,27 @@
   color: #c94a5a;
 }
 
+/* 帧序号角标（v0.10.0）：与变体序号在不同色系，提醒"这是动画的一帧，不是另一张图" */
+.assets-pending__frame {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #eaf1fb;
+  color: #3d6fa8;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.assets-pending__sequence {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #f1f6fd;
+  color: #3f6690;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
 /* 状态是猜的：用警示色提醒"需要你确认一下" */
 .assets-pending__note {
   grid-column: 1 / -1;
