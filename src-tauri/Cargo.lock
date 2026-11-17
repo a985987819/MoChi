@@ -2399,8 +2399,9 @@ dependencies = [
 
 [[package]]
 name = "mochi"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
  "tauri",

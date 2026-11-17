@@ -1407,3 +1407,10 @@ body {
   color: #c4b6bd;
   cursor: default;
 }
+
+/* 崩溃摘要（v0.16.0）：多行原文展示，pre-wrap 保留换行 */
+.settings-note--panic {
+  color: #b3455a;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

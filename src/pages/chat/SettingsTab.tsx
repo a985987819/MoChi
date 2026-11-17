@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { appDataDir } from "@tauri-apps/api/path";
 import { AppUpdatesSection } from "./AppUpdatesSection";
@@ -25,6 +26,7 @@ import {
   type AppSettings,
 } from "@/services/settings";
 import { listTtsVoices, speak, subscribeVoices } from "@/services/tts";
+import { logError } from "@/services/log";
 
 /**
  * 设置 Tab —— v0.3.0：提供商/Key/模型 + 连通性测试。
@@ -70,6 +72,7 @@ export function SettingsTab() {
     void saveSettings(next).then(() => setSaveError("")).catch(() => {
       // 失败也不能打印包含 Key 的整个配置。
       setSaveError("设置保存失败，请检查磁盘后重试");
+      logError("settings", "设置保存失败（磁盘不可写或 store 异常）");
     });
   }, []);
 
@@ -861,11 +864,17 @@ function DangerZone() {
 function AboutSection() {
   const [version, setVersion] = useState("");
   const [dataDir, setDataDir] = useState("");
+  const [lastPanic, setLastPanic] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
 
   useEffect(() => {
     void getVersion().then(setVersion);
     void appDataDir().then(setDataDir);
+    // 上次崩溃摘要（v0.16.0）：无记录 = 最近没有崩溃，什么也不显示（不打扰）；
+    // 读取失败静默——「关于」页不该因为排障通道挂掉而报错。
+    void invoke<string | null>("get_last_panic")
+      .then(summary => setLastPanic(summary ?? null))
+      .catch(() => undefined);
   }, []);
 
   const copyDiagnostics = useCallback(() => {
@@ -891,6 +900,13 @@ function AboutSection() {
       <span className="settings-field-label">关于</span>
       <p className="settings-note">Mochi v{version || "…"}</p>
       <p className="settings-note">数据目录：{dataDir || "…"}</p>
+      {lastPanic && (
+        <p className="settings-note settings-note--panic">
+          上次崩溃记录（{dataDir ? `${dataDir}\\logs\\last-panic.txt` : "数据目录 logs/last-panic.txt"}）：
+          {"\n"}
+          {lastPanic}
+        </p>
+      )}
       <div className="settings-about__row">
         <button className="settings-ghost-btn" onClick={copyDiagnostics}>
           {copyState === "ok" ? "已复制 ✓" : copyState === "fail" ? "复制失败，请手动截图" : "复制诊断信息"}
@@ -899,6 +915,7 @@ function AboutSection() {
           打开数据目录
         </button>
       </div>
+      <p className="settings-note">运行日志在数据目录的 logs\ 文件夹（按天一个文件，保留 7 天）。</p>
     </div>
   );
 }

@@ -24,6 +24,7 @@ import { showAppAlert } from "@/services/alerts";
 import { formatBatchBody } from "@/services/system-events";
 import { parseRepeat, nextOccurrence, type Repeat } from "@/services/recurrence";
 import { groupHistoryRows, type HistoryEntry } from "@/services/reminder-history";
+import { logError } from "@/services/log";
 
 export interface Reminder {
   id: number;
@@ -279,7 +280,15 @@ export class ReminderScheduler {
     if (!this.running) return Promise.resolve();
     if (this.inFlight) return this.inFlight;
     const generation = this.generation;
-    this.inFlight = this.tick(generation).catch(() => undefined).finally(() => { this.inFlight = null; });
+    // v0.16.0：每秒重试的失败只记一次级别 error——不记正文（隐私红线），
+    // 只记"发生了什么"；连续失败会让日志每秒一条，这是刻意保留的节流上限。
+    this.inFlight = this.tick(generation)
+      .catch((error: unknown) => {
+        logError("reminders", `提醒扫描失败: ${error instanceof Error ? error.message : String(error)}`);
+      })
+      .finally(() => {
+        this.inFlight = null;
+      });
     return this.inFlight;
   }
 
@@ -489,6 +498,7 @@ export class ReminderScheduler {
     } catch {
       // 汇总弹窗失败就不再退回逐条补发（那正是要避免的轰炸），只留控制台痕迹。
       console.error("[reminders] 合并提醒显示失败，已按已交付处理", claimed.length);
+      logError("reminders", `合并提醒显示失败，已按已交付处理 ${claimed.length} 条`);
     }
   }
 }

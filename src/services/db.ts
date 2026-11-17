@@ -9,6 +9,7 @@
  */
 
 import Database from "@tauri-apps/plugin-sql";
+import { logError } from "@/services/log";
 
 export type Db = Database;
 
@@ -25,6 +26,8 @@ export function getDb(): Promise<Db> {
   })().catch(error => {
     // 磁盘忙/插件尚未就绪属于可恢复失败，不能把 rejected Promise 永久当作连接缓存。
     // 同一轮并发调用仍等待同一个 Promise；下一次调用重新连接并幂等建表。
+    // v0.16.0：连不上也要留痕（release 无控制台，console 在打包版里会丢）。
+    logError("db", `数据库连接失败: ${error instanceof Error ? error.message : String(error)}`);
     dbReady = null;
     throw error;
   });

@@ -16,6 +16,7 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import { sendUIEvent, UI_EVENTS } from "@/shared/events";
+import { logError } from "@/services/log";
 
 /**
  * 发一条系统通知。
@@ -29,6 +30,7 @@ export async function notify(title: string, body: string): Promise<boolean> {
     return true;
   } catch (e) {
     console.error("[notify] 发送失败:", e);
+    logError("notify", `通知发送失败: ${e instanceof Error ? e.message : String(e)}`);
     return false;
   }
 }
@@ -71,6 +73,7 @@ export async function registerNotificationTapRouting(): Promise<void> {
     if (import.meta.hot) import.meta.hot.dispose(() => void listener.unregister());
   } catch (e) {
     console.error("[notify] 通知点击路由注册失败（点击通知将无响应）:", e);
+    logError("notify", `通知点击路由注册失败: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
@@ -84,6 +87,7 @@ export async function warmupNotificationPermission(): Promise<boolean> {
     return (await requestPermission()) === "granted";
   } catch (e) {
     console.error("[notify] 权限预热失败:", e);
+    logError("notify", `通知权限预热失败: ${e instanceof Error ? e.message : String(e)}`);
     return false;
   }
 }

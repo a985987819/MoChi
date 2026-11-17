@@ -159,13 +159,207 @@ fn cursor_hits_sprite(
     cursor.0 >= x0 && cursor.0 <= x1 && cursor.1 >= y0 && cursor.1 <= y1
 }
 
-/// 极简本地时间戳（panic 日志用）：不想为几行日志引入 chrono。
+/// 本地时间戳（素材名兜底用）。v0.16.0 起日志模块已引入 chrono（见 Cargo.toml
+/// 注释：它本来就是依赖树里的传递依赖），这里的 unix 秒格式升级为可读的本地时间。
 fn chrono_like_now() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    format!("unix:{secs}")
+    chrono::Local::now().format("%Y%m%d%H%M%S").to_string()
+}
+
+// ── 结构化日志（v0.16.0，P2-01）───────────────────────────────────────────
+//
+// # 为什么要有它
+//
+// release 是 `windows_subsystem = "windows"`：没有控制台，所有 `eprintln!` 直接
+// 丢失。v0.9.1 排查"开机自启不生效"时只能临时加埋点、构建带控制台的调试版才拿到
+// 证据。日志是每次排障都在还的债（任务单 P2-01 背景）。
+//
+// # 形态（刻意简单）
+//
+// 一个目录（{appData}/logs/）+ 逐条 open-append-close，**不**引 tracing/log 框架：
+// - 量级极低：只记 error/warn/info 级"发生了什么 + 长度/计数"，不是调试 trace；
+// - 逐条开合换来跨天/轮转的简单正确——不持有长寿命句柄就没有"句柄指向旧文件"；
+// - 前端与 Rust 写**同一个文件**（前端经 append_log 命令上报），排障一处看全。
+//
+// # 隐私边界（learning/08 §3 的延续）
+//
+// 绝不写 API Key、聊天正文、提醒正文、窗口标题/进程名——消息源头只写"发生了什么"，
+// `redact_message` 兜住"意外带进来"的情况（与前端 redact 同一套规则，双端各一道）。
+
+/// 日志目录名（appData 之下）
+const LOG_DIR: &str = "logs";
+/// 上次崩溃摘要文件名（单文件覆盖写，「关于」页读取展示）
+const LAST_PANIC_FILE: &str = "last-panic.txt";
+/// 单文件大小上限：超过就换名另起（-1、-2…），当天主文件继续追加
+const LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
+/// 日志保留天数：更早的文件在启动时清理
+const LOG_RETENTION_DAYS: u64 = 7;
+/// 单条日志消息上限（字符）：日志不该成为新的存储
+const LOG_MESSAGE_MAX_CHARS: usize = 800;
+
+/// tauri.conf.json 的 identifier。panic 钩子在 Builder **之前**运行，拿不到运行时
+/// 配置，只能按平台规则手动推导 appData——改名 identifier 时必须同步这里。
+const IDENTIFIER_FOR_PANIC: &str = "com.mochi.pet";
+
+/// appData 目录的平台推导（panic 钩子专用——没有 AppHandle 时的兜底路径）。
+/// 与 Tauri 官方规则一致：Windows = Roaming AppData、macOS = Application Support。
+fn app_data_dir_fallback() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("APPDATA").map(|base| std::path::PathBuf::from(base).join(IDENTIFIER_FOR_PANIC))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var_os("HOME")
+            .map(|base| std::path::PathBuf::from(base).join("Library/Application Support").join(IDENTIFIER_FOR_PANIC))
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        None
+    }
+}
+
+/// 脱敏（与前端 `redact` 同一套规则）：`sk-` 开头的 Key、`Bearer` 令牌打码，
+/// 超长按字符截断。不用 regex crate：就两个前缀模式，手写扫描足够且省依赖。
+fn redact_message(message: &str) -> String {
+    let masked = mask_prefix_tokens(message, "sk-", 6, "sk-***");
+    let masked = mask_prefix_tokens(&masked, "Bearer ", 8, "Bearer ***");
+    if masked.chars().count() > LOG_MESSAGE_MAX_CHARS {
+        let truncated: String = masked.chars().take(LOG_MESSAGE_MAX_CHARS).collect();
+        format!("{truncated}…（截断）")
+    } else {
+        masked
+    }
+}
+
+/// 把 `prefix` 后紧跟的连续 [A-Za-z0-9_-] 段（长度 ≥ min_len）替换为 `replacement`。
+/// 两个防误伤条件：
+/// - **前边界**：前缀必须出现在词边界（前一个字符不是 token 字符），否则
+///   "task-skill" 里的 "sk-" 会被当成密钥前缀；
+/// - **长度**：短于 min_len 的段不算密钥形态（如 "sk-1"），原样保留。
+fn mask_prefix_tokens(message: &str, prefix: &str, min_len: usize, replacement: &str) -> String {
+    let is_token_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    let mut result = String::with_capacity(message.len());
+    let mut rest = message;
+    while let Some(idx) = rest.find(prefix) {
+        let boundary_ok =
+            idx == 0 || rest[..idx].chars().next_back().is_none_or(|c| !is_token_char(c));
+        if boundary_ok {
+            let after = &rest[idx + prefix.len()..];
+            let end = after.find(|c: char| !is_token_char(c)).unwrap_or(after.len());
+            if end >= min_len {
+                result.push_str(&rest[..idx]);
+                result.push_str(replacement);
+                rest = &after[end..];
+                continue;
+            }
+        }
+        // 不满足边界/长度：原样保留到前缀之后，继续向后找（rest 一定变短，无死循环）
+        result.push_str(&rest[..idx + prefix.len()]);
+        rest = &rest[idx + prefix.len()..];
+    }
+    result.push_str(rest);
+    result
+}
+
+/// 日志目录（运行时有 AppHandle 的场景）。拿不到按 None 处理——日志是尽力而为的
+/// 旁路，绝不因为日志失败让业务失败。
+fn log_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager as _;
+    app.path().app_data_dir().ok().map(|p| p.join(LOG_DIR))
+}
+
+/// 追加一行到指定目录的当天日志（含 5MB 轮转）。panic 钩子与常规路径共用。
+fn append_log_line_at(dir: &std::path::Path, level: &str, scope: &str, message: &str) {
+    let now = chrono::Local::now();
+    let path = dir.join(format!("mochi-{}.log", now.format("%Y-%m-%d")));
+    if let Ok(meta) = std::fs::metadata(&path) {
+        if meta.len() >= LOG_MAX_BYTES {
+            rotate_log_file(dir, &path);
+        }
+    }
+    let line = format!(
+        "[{}] [{}] [{}] {}\n",
+        now.format("%Y-%m-%d %H:%M:%S%.3f"),
+        level,
+        scope,
+        redact_message(message)
+    );
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        use std::io::Write as _;
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
+/// 运行时日志入口（有 AppHandle）：目录取 appData；目录不可建就静默放弃。
+fn append_log_line(app: &tauri::AppHandle, level: &str, scope: &str, message: &str) {
+    let Some(dir) = log_dir(app) else { return };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    append_log_line_at(&dir, level, scope, message);
+}
+
+/// 单文件超限换名：`mochi-YYYY-MM-DD.log` → `….log.1` → `….log.2`…（保留完整内容）。
+/// 序号占满（理论不可能：每天 99 个 5MB）就放弃本次轮转，继续追加直到清理。
+fn rotate_log_file(dir: &std::path::Path, path: &std::path::Path) {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else { return };
+    for index in 1..=99u32 {
+        let candidate = dir.join(format!("{name}.{index}"));
+        if !candidate.exists() {
+            let _ = std::fs::rename(path, candidate);
+            return;
+        }
+    }
+}
+
+/// 启动清理：删除修改时间早于保留期的**本项目日志文件**。文件名双重校验
+/// （`mochi-` 前缀 + `.log`/`.log.N` 后缀）——目录里出现别的文件绝不碰。
+fn cleanup_old_logs(dir: &std::path::Path) {
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(LOG_RETENTION_DAYS * 86400);
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        let is_ours = name.starts_with("mochi-")
+            && (name.ends_with(".log")
+                || name.rsplit_once(".log.").is_some_and(|(_, suffix)| !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())));
+        if !is_ours {
+            continue;
+        }
+        if let Ok(meta) = entry.metadata() {
+            if let Ok(modified) = meta.modified() {
+                if modified < cutoff {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+    }
+}
+
+/// 前端日志上报入口（v0.16.0）：async 命令跑在 tokio 线程池——同步 IO 不占主线程
+/// （任务单的坑：别在 native tick / 主线程做同步 IO）。级别白名单、scope 限长；
+/// 消息在 append_log_line_at 里统一脱敏。
+#[tauri::command]
+async fn append_log(app: tauri::AppHandle, level: String, scope: String, message: String) -> Result<(), String> {
+    let level = match level.as_str() {
+        "error" | "warn" | "info" => level,
+        _ => "info".to_string(), // 未知级别降级为 info，而不是拒绝——日志不该报错给业务
+    };
+    if scope.len() > 64 {
+        return Err("scope 过长（应为短标签）".into());
+    }
+    append_log_line(&app, &level, &scope, &message);
+    Ok(())
+}
+
+/// 上次崩溃摘要（v0.16.0）：「关于」页展示。文件不存在或为空 = 最近没有崩溃记录；
+/// 摘要保留到下一次崩溃为止（它就是"上一次"的凭证，不主动清除）。
+#[tauri::command]
+fn get_last_panic(app: tauri::AppHandle) -> Option<String> {
+    let dir = log_dir(&app)?;
+    let content = std::fs::read_to_string(dir.join(LAST_PANIC_FILE)).ok()?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
 
 /// 游戏模式状态（v0.9.0 自迭代）：设置开关（默认关）+ "被本功能隐藏"标记——
@@ -440,20 +634,33 @@ fn snap_pet_to_edges(app: &tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // panic=abort 意味着任何 Rust panic 都会让进程**无声消失**（托盘也没了）。
-    // 先挂 panic 钩子把消息写进临时目录日志：用户反馈"宠物突然没了"时才有迹可循。
-    // 时机在 builder 之前——setup 前后的 panic 都能覆盖；临时目录恒可写，不依赖 appData。
+    // 先挂 panic 钩子：写进 {appData}/logs/（v0.16.0 起与常规日志同目录——用户/支持者
+    // 找得到；旧版写临时目录，用户拿不到）。时机在 builder 之前，setup 前后的 panic
+    // 都能覆盖；此时拿不到运行时配置，appData 路径按平台规则手动推导（见
+    // app_data_dir_fallback），推导失败退回临时目录——有迹可循总比没有强。
     std::panic::set_hook(Box::new(|info| {
         let payload = info.to_string();
         let location = info.location().map_or("<unknown>".into(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
-        let log = format!(
-            "[{}] PANIC {location}\n{payload}\n",
-            chrono_like_now(),
-        );
+        let log = format!("[{}] [error] [panic] PANIC {location}\n{payload}\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"));
         eprintln!("[mochi] {log}");
-        let path = std::env::temp_dir().join("mochi-panic.log");
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-            use std::io::Write as _;
-            let _ = file.write_all(log.as_bytes());
+        // 脱敏兜底：panic 消息理论上是代码路径，但 payload 可能拼接任意运行时数据。
+        let redacted = redact_message(&log);
+        match app_data_dir_fallback().map(|p| p.join(LOG_DIR)) {
+            Some(dir) => {
+                if std::fs::create_dir_all(&dir).is_ok() {
+                    // ① last-panic.txt：单文件覆盖写——「关于」页读它显示上次崩溃摘要
+                    let _ = std::fs::write(dir.join(LAST_PANIC_FILE), redacted.as_bytes());
+                    // ② 当天日志也留痕：排障时一个目录看全（含崩溃前的常规日志）
+                    append_log_line_at(&dir, "error", "panic", &log);
+                }
+            }
+            None => {
+                let path = std::env::temp_dir().join("mochi-panic.log");
+                if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+                    use std::io::Write as _;
+                    let _ = file.write_all(redacted.as_bytes());
+                }
+            }
         }
     }));
 
@@ -473,7 +680,10 @@ pub fn run() {
                         return;
                     }
                     None if attempt < 2 => std::thread::sleep(Duration::from_millis(600)),
-                    None => eprintln!("[single-instance] 宠物窗口尚未就绪，唤起失败"),
+                    None => {
+                        eprintln!("[single-instance] 宠物窗口尚未就绪，唤起失败");
+                        append_log_line(app, "error", "single-instance", "二次启动唤起失败：宠物窗口尚未就绪");
+                    }
                 }
             }
         }))
@@ -508,7 +718,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_user_pet_assets, get_idle_seconds,
             show_app_alert, get_app_alert, ack_app_alert, dismiss_app_alert,
-            set_pet_hit_test, get_autostart_enabled, save_pet_asset
+            set_pet_hit_test, get_autostart_enabled, save_pet_asset,
+            append_log, get_last_panic
         ]);
 
     builder
@@ -520,6 +731,11 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             setup_tray(app)?;
             setup_ui_event_listeners(app.handle().clone());
+            // v0.16.0：启动时清理过期日志（保留 7 天）。readdir 十几个文件的量级，
+            // 一次性同步可接受；不在 native tick 里做（任务单的坑）。
+            if let Some(dir) = log_dir(app.handle()) {
+                cleanup_old_logs(&dir);
+            }
             // v0.9.0 P0-04：先恢复持久化位置 + 可见性校验，失败回退右下角默认位
             ensure_pet_position(app);
             // v0.8.2：原生节拍——隐藏窗口时 WebView 的 setInterval 会被节流
@@ -623,6 +839,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         Some(icon) => tray_builder.icon(icon),
         None => {
             eprintln!("[tray] 缺少应用图标，托盘使用系统默认图标");
+            append_log_line(app.handle(), "warn", "tray", "缺少应用图标，托盘使用系统默认图标");
             tray_builder
         }
     };
@@ -713,6 +930,7 @@ fn register_chat_shortcut(app: &tauri::AppHandle, enabled: bool) {
     let registered = result.is_ok();
     if let Err(e) = result {
         eprintln!("[shortcut] 注册失败（可能被占用）: {e}");
+        append_log_line(app, "warn", "shortcut", &format!("快捷键注册失败（可能被占用）: {e}"));
     }
     let _ = app.emit(EVT_SHORTCUT_STATE, serde_json::json!({ "enabled": true, "registered": registered }));
 }
@@ -809,6 +1027,7 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
         };
         if let Some(msg) = &error {
             eprintln!("[autostart] 应用失败: {msg}");
+            append_log_line(&handle, "error", "autostart", &format!("自启项应用失败: {msg}"));
         }
         // 广播的是 actual（系统真值）而不是用户点的值：UI 据此判断是否"错位"。
         let _ = handle.emit(
@@ -1819,5 +2038,90 @@ mod alert_tests {
         assert_eq!(pos, (300, 300));
         assert_eq!(vel, (0.0, 0.0));
         assert!(done);
+    }
+
+    /// 脱敏（v0.16.0）：Key 形态打码、短前缀不误伤、Bearer 打码、正常文本不变。
+    #[test]
+    fn redact_masks_key_shaped_tokens_but_not_short_prefixes() {
+        assert_eq!(redact_message("sk-abcdefghijklmnop1234"), "sk-***");
+        assert_eq!(redact_message("key=sk-abc123XYZ_-9x"), "key=sk-***");
+        // 短于 6 位的段不是 Key 形态（如 task-1 / sk-1），原样保留
+        assert_eq!(redact_message("task-skill-1"), "task-skill-1");
+        assert_eq!(redact_message("Bearer eyJhbGciOiJIUzI1Ng"), "Bearer ***");
+        assert_eq!(redact_message("连接失败: timeout"), "连接失败: timeout");
+        // 空串安全
+        assert_eq!(redact_message(""), "");
+    }
+
+    /// 脱敏截断（v0.16.0）：超长按字符截断并留提示——日志不该成为新的存储。
+    #[test]
+    fn redact_truncates_overlong_messages_by_chars() {
+        let long = "啊".repeat(2000);
+        let out = redact_message(&long);
+        assert!(out.chars().count() <= LOG_MESSAGE_MAX_CHARS + 8);
+        assert!(out.ends_with("…（截断）"));
+        // 含密钥的超长消息：打码 + 截断同时成立
+        let mixed = format!("{} {}", "前缀", "sk-abcdefghijklmnopqrstuvwxyz");
+        assert!(redact_message(&mixed).contains("sk-***"));
+    }
+
+    /// 轮转（v0.16.0）：换名绝不覆盖已有序号；99 个占满后放弃但不丢当前文件。
+    #[test]
+    fn rotate_log_file_never_overwrites_previous() {
+        let dir = std::env::temp_dir().join(format!("mochi-log-rotate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("创建临时目录");
+        let main = dir.join("mochi-2026-11-17.log");
+        std::fs::write(&main, b"first").unwrap();
+        rotate_log_file(&dir, &main);
+        assert!(!main.exists());
+        assert_eq!(std::fs::read(dir.join("mochi-2026-11-17.log.1")).unwrap(), b"first");
+        // 第二次轮转：序号避让
+        std::fs::write(&main, b"second").unwrap();
+        rotate_log_file(&dir, &main);
+        assert_eq!(std::fs::read(dir.join("mochi-2026-11-17.log.2")).unwrap(), b"second");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 清理（v0.16.0）：只删"自己的 + 过期的"日志——外借文件、last-panic、
+    /// 未过期的日志都不能碰。
+    #[test]
+    fn cleanup_only_removes_own_expired_logs() {
+        use std::time::{Duration, SystemTime};
+        let dir = std::env::temp_dir().join(format!("mochi-log-clean-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("创建临时目录");
+
+        let expired = dir.join("mochi-2026-01-01.log");
+        let rotated = dir.join("mochi-2026-01-01.log.1");
+        let fresh = dir.join("mochi-today.log");
+        let foreign = dir.join("user-data.log");
+        let panic_file = dir.join(LAST_PANIC_FILE);
+        for path in [&expired, &rotated, &fresh, &foreign, &panic_file] {
+            std::fs::write(path, b"x").unwrap();
+        }
+        // 把 expired / rotated 的修改时间拨回 8 天前（fresh 保持现在）
+        let old = SystemTime::now() - Duration::from_secs(8 * 86400);
+        let _ = filetime_set(&expired, old);
+        let _ = filetime_set(&rotated, old);
+
+        cleanup_old_logs(&dir);
+        assert!(!expired.exists(), "过期日志应被删除");
+        assert!(!rotated.exists(), "过期轮转文件同样删除");
+        assert!(fresh.exists(), "未过期日志保留");
+        assert!(foreign.exists(), "别人的文件绝不碰");
+        assert!(panic_file.exists(), "崩溃摘要不受清理影响");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 测试辅助：设置文件修改时间（std `File::set_modified`，Rust 1.75+ 稳定，
+    /// 跨平台——清理判据是 mtime，测试必须能构造"旧文件"）。
+    fn filetime_set(path: &std::path::Path, time: std::time::SystemTime) -> Result<(), ()> {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .map_err(|_| ())?
+            .set_modified(time)
+            .map_err(|_| ())
     }
 }
