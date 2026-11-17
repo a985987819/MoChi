@@ -1,13 +1,14 @@
 {
   "name": "mochi",
   "private": true,
-  "version": "0.18.0",
+  "version": "0.19.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit",
+    "lint:i18n": "node scripts/check-hardcoded-zh.mjs",
     "test": "vitest run",
     "tauri": "tauri",
     "package": "node scripts/package-app.mjs",

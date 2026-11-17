@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { todoService, type Todo } from "@/services/todos";
 import { Loading } from "@/shared/components/Loading";
+import { useT } from "@/shared/i18n/react";
 
 /**
  * 待办 Tab —— v0.4.0：待办的 UI 通道（learning/07 §3 双入口模式的 UI 侧）。
  * Agent 的 add_todo/complete_todo/delete_todo 与这里的按钮/勾选汇入同一个
  * TodoService——两边看到的状态永远一致（订阅 snapshot 刷新）。
+ * v0.19.0：文案走 i18n（P2-03B）。
  */
 export function TodosTab() {
+  const { t } = useT();
   const [todos, setTodos] = useState<Todo[] | null>(null); // null=加载中（区别于"空"）
   const [loadError, setLoadError] = useState(false);
   const [draft, setDraft] = useState("");
@@ -48,14 +51,14 @@ export function TodosTab() {
           onKeyDown={e => {
             if (e.key === "Enter" && !e.nativeEvent.isComposing) add();
           }}
-          placeholder="手动加一条待办…"
+          placeholder={t("todos.placeholder")}
         />
         <button onClick={add} disabled={!draft.trim()}>
-          添加
+          {t("todos.add")}
         </button>
       </div>
       <label className="todos-due">
-        <span>到点提醒（可选）</span>
+        <span>{t("todos.dueLabel")}</span>
         <input
           type="datetime-local"
           value={dueAt}
@@ -63,24 +66,29 @@ export function TodosTab() {
         />
       </label>
 
-      {todos === null && !loadError && <Loading label="正在读取待办…" />}
-      {loadError && <p className="todos-empty" role="alert">待办读取失败（数据库暂不可用），稍后自动重试。</p>}
+      {todos === null && !loadError && <Loading label={t("todos.loading")} />}
+      {loadError && (
+        <p className="todos-empty" role="alert">
+          {t("todos.loadError")}
+        </p>
+      )}
       {(todos ?? []).length === 0 && todos !== null && !loadError && (
         <p className="todos-empty">
-          还没有待办。
+          {t("todos.emptyLine")}
           <br />
-          试试对麻薯说：<strong>帮我加个待办：明天九点开周会</strong>
+          {t("todos.emptyPrompt")}
+          <strong>{t("todos.emptyExample")}</strong>
         </p>
       )}
 
-      {pending.length > 0 && <div className="todos-section">未完成 · {pending.length}</div>}
-      {pending.map(t => (
-        <TodoRow key={t.id} todo={t} />
+      {pending.length > 0 && <div className="todos-section">{t("todos.sectionPending", { count: pending.length })}</div>}
+      {pending.map(todo => (
+        <TodoRow key={todo.id} todo={todo} />
       ))}
 
-      {done.length > 0 && <div className="todos-section">已完成 · {done.length}</div>}
-      {done.map(t => (
-        <TodoRow key={t.id} todo={t} />
+      {done.length > 0 && <div className="todos-section">{t("todos.sectionDone", { count: done.length })}</div>}
+      {done.map(todo => (
+        <TodoRow key={todo.id} todo={todo} />
       ))}
     </div>
   );
@@ -89,8 +97,10 @@ export function TodosTab() {
 /**
  * 到期时间展示（v0.13.0）：今天/明天用相对词（一眼能判断紧迫度），更远的显示月日时分。
  * 不在渲染层做"还剩几分钟"——那需要每秒重渲染，收益很小。
+ * v0.19.0：相对词走 i18n；时间本身仍按本地格式（zh-CN 是显示格式不是语言选择——
+ * 英文界面也用同样简洁的月日时分，保持信息密度）。
  */
-function formatDueAt(ms: number): string {
+function formatDueAt(ms: number, t: (key: "todos.dueToday" | "todos.dueTomorrow", vars?: Record<string, string | number>) => string): string {
   const date = new Date(ms);
   const now = new Date();
   const sameDay = (a: Date, b: Date) =>
@@ -98,12 +108,13 @@ function formatDueAt(ms: number): string {
   const tomorrow = new Date(now);
   tomorrow.setDate(now.getDate() + 1);
   const time = date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-  if (sameDay(date, now)) return `今天 ${time}`;
-  if (sameDay(date, tomorrow)) return `明天 ${time}`;
+  if (sameDay(date, now)) return t("todos.dueToday", { time });
+  if (sameDay(date, tomorrow)) return t("todos.dueTomorrow", { time });
   return date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function TodoRow({ todo }: { todo: Todo }) {
+  const { t } = useT();
   const toggle = useCallback(() => {
     if (!todo.done) void todoService.complete(todo.id);
   }, [todo]);
@@ -120,7 +131,7 @@ function TodoRow({ todo }: { todo: Todo }) {
         className="todo-row__check"
         onClick={toggle}
         disabled={todo.done}
-        aria-label={todo.done ? "已完成" : "标记完成"}
+        aria-label={todo.done ? t("todos.ariaDone") : t("todos.ariaMarkDone")}
       >
         {todo.done ? "✓" : ""}
       </button>
@@ -129,11 +140,11 @@ function TodoRow({ todo }: { todo: Todo }) {
         {todo.due && <span className="todo-row__due">{todo.due}</span>}
         {todo.dueAt != null && (
           <span className={`todo-row__due${overdue ? " todo-row__due--overdue" : ""}`}>
-            ⏰ {formatDueAt(todo.dueAt)}
+            ⏰ {formatDueAt(todo.dueAt, t)}
           </span>
         )}
       </div>
-      <button className="todo-row__del" onClick={remove} aria-label="删除">
+      <button className="todo-row__del" onClick={remove} aria-label={t("todos.ariaDelete")}>
         ×
       </button>
     </div>

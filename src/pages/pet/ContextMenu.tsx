@@ -6,6 +6,7 @@ import { reminderStore } from "@/services/reminders";
 import { pomodoroService, standupService } from "@/services/timers";
 import { sendStateEvent, sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { clampMenuPosition } from "./menu-position";
+import { useT } from "@/shared/i18n/react";
 import "./context-menu.css";
 
 /** 窗口通信异常不应变成未处理 Promise，动作由原生宿主统一执行。 */
@@ -34,6 +35,7 @@ function requestUI(
  *   保留但不再占据一级菜单——用户菜单该以任务为导向。
  */
 export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
+  const { t } = useT();
   const [demoOpen, setDemoOpen] = useState(false);
   const [todoCount, setTodoCount] = useState<number | null>(null);
   const [unackedReminders, setUnackedReminders] = useState<number | null>(null);
@@ -129,10 +131,10 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
 
   const standupLabel =
     standupSec === 0
-      ? "站立提醒 · 等你点击提醒窗"
+      ? t("menu.standupWaiting")
       : standupSec < 60
-        ? "站立提醒 · 还剩不到 1 分钟"
-        : `站立提醒 · 还剩 ${Math.ceil(standupSec / 60)} 分钟`;
+        ? t("menu.standupSoon")
+        : t("menu.standupRemaining", { minutes: Math.ceil(standupSec / 60) });
 
   return (
     <div
@@ -147,33 +149,33 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       onDoubleClick={e => e.stopPropagation()}
       onContextMenu={e => { e.preventDefault(); e.stopPropagation(); }}
     >
-      {item("打开聊天", () => requestUI(UI_EVENTS.openChat))}
-      {item(todoCount === 0 ? "待办" : `待办（${todoCount ?? "…"}）`, () =>
+      {item(t("menu.openChat"), () => requestUI(UI_EVENTS.openChat))}
+      {item(todoCount === 0 ? t("menu.todos") : t("menu.todosCount", { count: todoCount ?? "…" }), () =>
         requestUI(UI_EVENTS.openChat, { tab: "todos" }),
       )}
       {/* 提醒中心（v0.14.0）：有未确认时显示数量——那是"该点开看看"的信号 */}
       {item(
         unackedReminders != null && unackedReminders > 0
-          ? `提醒中心 · ${unackedReminders} 条待确认`
-          : "提醒中心",
+          ? t("menu.remindersPending", { count: unackedReminders })
+          : t("menu.reminders"),
         () => requestUI(UI_EVENTS.openChat, { tab: "reminders" }),
       )}
       {pomo.phase === "idle"
-        ? item("开始番茄钟", () => void sendStateEvent(STATE_EVENTS.pomodoroStart, {}))
+        ? item(t("menu.startPomodoro"), () => void sendStateEvent(STATE_EVENTS.pomodoroStart, {}))
         : item(
             pomo.phase === "focus"
-              ? `番茄钟 · 专注中 ${formatCountdown(pomo.remainingSec)}`
-              : `番茄钟 · 休息中 ${formatCountdown(pomo.remainingSec)}`,
+              ? t("menu.pomodoroFocus", { time: formatCountdown(pomo.remainingSec) })
+              : t("menu.pomodoroBreak", { time: formatCountdown(pomo.remainingSec) }),
             () => void sendStateEvent(STATE_EVENTS.pomodoroStop),
           )}
       {item(standupLabel, () => requestUI(UI_EVENTS.resetStandup))}
       <div className="ctx-divider" />
-      {item("设置…", () => requestUI(UI_EVENTS.openChat, { tab: "settings" }))}
-      {item("暂停提醒 1 小时", () => standupService.snooze(60))}
+      {item(t("menu.settings"), () => requestUI(UI_EVENTS.openChat, { tab: "settings" }))}
+      {item(t("menu.snooze1h"), () => standupService.snooze(60))}
       <div className="ctx-divider" />
-      {item("隐藏麻薯", () => requestUI(UI_EVENTS.togglePet))}
+      {item(t("menu.hidePet"), () => requestUI(UI_EVENTS.togglePet))}
       <button className="ctx-item" onClick={() => setDemoOpen(v => !v)}>
-        调试 {demoOpen ? "▾" : "▸"}
+        {t("menu.debug")} {demoOpen ? "▾" : "▸"}
       </button>
       {demoOpen && (
         <div className="ctx-demo">
@@ -183,10 +185,10 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
         </div>
       )}
       <div className="ctx-divider" />
-      {item("退出 Mochi", () => requestUI(UI_EVENTS.quitApp))}
+      {item(t("menu.quit"), () => requestUI(UI_EVENTS.quitApp))}
       {/* 手势备忘（P1-10）：不可点的静态行——三个手势没有任何视觉暗示，
           菜单每次打开都在，是最便宜的"持续提示位" */}
-      <div className="ctx-hint">拖动移动 · 单击重置站立 · 双击聊天</div>
+      <div className="ctx-hint">{t("menu.gestureHint")}</div>
     </div>
   );
 }

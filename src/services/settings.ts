@@ -102,6 +102,11 @@ export interface AppSettings extends AddressingPreferences {
    */
   petScale: number;
   /**
+   * 界面语言（v0.19.0 P2-03B）：system 跟随系统（默认）。切语言不重启——
+   * 各窗口 installLocaleWatcher 监听 settingsChanged 即时重读。
+   */
+  locale: LocaleSetting;
+  /**
    * 主题模式（v0.18.0 P2-03A）：system 跟随系统（默认）/ light / dark。
    * 每个窗口的 installThemeWatcher 据此写 documentElement[data-theme]，
    * CSS 变量（shared/theme.css）据此切换浅/深。宠物窗背景始终透明——
@@ -114,6 +119,17 @@ export type ThemeMode = "system" | "light" | "dark";
 
 /** 主题模式的合法取值（normalize 与设置页下拉共用，避免三处各写一份） */
 export const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
+
+/**
+ * 界面语言（v0.19.0 P2-03B）：system 跟随系统（默认）/ zh-CN / en。
+ * 每个窗口的 installLocaleWatcher 据此切换（运行时生效，不重启）。
+ * 首批覆盖：Tab 栏/提醒中心/待办/番茄钟/提醒弹窗/右键菜单——覆盖率见
+ * scripts/check-hardcoded-zh.mjs（`pnpm lint:i18n`）。
+ */
+export type LocaleSetting = "system" | "zh-CN" | "en";
+
+/** 语言设置的合法取值（normalize 白名单；"en" 在 UI 里显示为 English） */
+export const LOCALE_SETTINGS: readonly LocaleSetting[] = ["system", "zh-CN", "en"];
 
 const STORE_FILE = "settings.json";
 const KEY = "app";
@@ -142,6 +158,7 @@ export function defaultSettings(): AppSettings {
     gameModeEnabled: false,
     petScale: 1,
     themeMode: "system",
+    locale: "system",
   };
 }
 
@@ -197,6 +214,8 @@ export function normalize(raw: unknown): AppSettings {
     petScale: PET_SCALES.find(s => Math.abs((typeof r.petScale === "number" ? r.petScale : 1) - s) < 1e-6) ?? d.petScale,
     // 主题模式白名单（脏值回落 system——跟随系统是唯一不会"错得离谱"的选择）
     themeMode: THEME_MODES.includes(r.themeMode as ThemeMode) ? (r.themeMode as ThemeMode) : d.themeMode,
+    // 语言白名单（同上：system 是兜底）
+    locale: LOCALE_SETTINGS.includes(r.locale as LocaleSetting) ? (r.locale as LocaleSetting) : d.locale,
   };
 }
 

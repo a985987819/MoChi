@@ -56,6 +56,7 @@ const base: AppSettings = {
   gameModeEnabled: false,
   petScale: 1,
   themeMode: "system" as const,
+  locale: "system" as const,
 };
 
 describe("createSettingsSaveQueue", () => {

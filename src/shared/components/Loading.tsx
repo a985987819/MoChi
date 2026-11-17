@@ -1,3 +1,4 @@
+import { useT } from "@/shared/i18n/react";
 import "./loading.css";
 
 /**
@@ -14,11 +15,13 @@ import "./loading.css";
  */
 
 /** 旋转圈 + 可选文案；容器自带最小高度，避免加载完成时高度突变 */
-export function Loading({ label = "加载中…" }: { label?: string }) {
+export function Loading({ label }: { label?: string }) {
+  const { t } = useT();
+  const text = label ?? t("common.loading");
   return (
     <div className="loading" role="status" aria-live="polite">
       <span className="loading__spinner" aria-hidden="true" />
-      <span className="loading__label">{label}</span>
+      <span className="loading__text">{text}</span>
     </div>
   );
 }

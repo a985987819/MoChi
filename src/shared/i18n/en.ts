@@ -1,0 +1,107 @@
+/**
+ * English messages —— `satisfies Record<MessageKey, string>` 与 zh-CN.ts **类型级对齐**：
+ * 事实源里加 key 而这里没译，编译报错（任务单验收标准）。反过来这里多出的
+ * key 也会被 satisfies 拒绝——两侧永远不多不少。
+ *
+ * 插值占位与中文一致（{name}）；英文需要复数的语义直接调整措辞绕开
+ * （如 "未完成 · N" 译成 "Open · N"），不引复数规则库。
+ */
+import type { MessageKey } from "./zh-CN";
+
+export const en = {
+  "tab.chat": "Chat",
+  "tab.todos": "To-dos",
+  "tab.reminders": "Reminders",
+  "tab.pomodoro": "Pomodoro",
+  "tab.assets": "Assets",
+  "tab.settings": "Settings",
+  "tab.closeWindow": "Close window",
+  "common.loading": "Loading…",
+  "common.petPlaceholder": "Mochi placeholder",
+
+  "repeat.daily": "Daily",
+  "repeat.weekdays": "Weekdays",
+  "repeat.weekly": "Weekly",
+
+  "menu.openChat": "Open chat",
+  "menu.todos": "To-dos",
+  "menu.todosCount": "To-dos ({count})",
+  "menu.reminders": "Reminders",
+  "menu.remindersPending": "Reminders · {count} to confirm",
+  "menu.startPomodoro": "Start pomodoro",
+  "menu.pomodoroFocus": "Pomodoro · focusing {time}",
+  "menu.pomodoroBreak": "Pomodoro · breaking {time}",
+  "menu.standupWaiting": "Stand-up · waiting for your click",
+  "menu.standupSoon": "Stand-up · less than 1 min left",
+  "menu.standupRemaining": "Stand-up · {minutes} min left",
+  "menu.settings": "Settings…",
+  "menu.snooze1h": "Pause stand-up for 1 hour",
+  "menu.hidePet": "Hide Mochi",
+  "menu.debug": "Debug",
+  "menu.quit": "Quit Mochi",
+  "menu.gestureHint": "Drag to move · Click resets stand-up · Double-click chats",
+
+  "alert.titleFallback": "Reminder",
+  "alert.bodyLoading": "Loading reminder…",
+  "alert.standupAck": "Get moving",
+  "alert.standupSnooze": "Later, 5 min",
+  "alert.hintProcessing": "Working…",
+  "alert.hintStandupClick": "Click anywhere on the card to reset the timer",
+  "alert.hintClickToAck": "Click or press Enter to confirm",
+  "alert.ariaAck": "Confirm reminder: {title}",
+  "alert.errorLoad": "Failed to load the reminder, please try again later",
+  "alert.errorListen": "Reminder listener failed, please reopen the app",
+  "alert.errorClose": "Couldn't close it right now, please retry",
+  "alert.errorSnooze": "Couldn't dismiss it right now, please retry",
+
+  "todos.placeholder": "Add a to-do manually…",
+  "todos.add": "Add",
+  "todos.dueLabel": "Due reminder (optional)",
+  "todos.loading": "Loading to-dos…",
+  "todos.loadError": "Couldn't load to-dos (database unavailable), retrying automatically.",
+  "todos.emptyLine": "No to-dos yet.",
+  "todos.emptyPrompt": "Try asking Mochi:",
+  "todos.emptyExample": "Add a to-do: team meeting at 9 tomorrow",
+  "todos.sectionPending": "Open · {count}",
+  "todos.sectionDone": "Done · {count}",
+  "todos.dueToday": "Today {time}",
+  "todos.dueTomorrow": "Tomorrow {time}",
+  "todos.ariaDone": "Completed",
+  "todos.ariaMarkDone": "Mark as done",
+  "todos.ariaDelete": "Delete",
+
+  "pomo.phaseIdle": "Idle",
+  "pomo.phaseFocus": "Focusing",
+  "pomo.phaseBreak": "Breaking",
+  "pomo.start": "Start focus",
+  "pomo.stop": "Stop",
+  "pomo.hintChat": "Or just tell Mochi: \"start a pomodoro\"",
+  "pomo.awayMinutes": "Away for about {minutes} minutes during this focus",
+
+  "rem.activeTitle": "Active ({count})",
+  "rem.loading": "Loading…",
+  "rem.activeEmpty": "No active reminders. Try telling Mochi: \"remind me tomorrow at 9\"",
+  "rem.cancel": "Cancel reminder",
+  "rem.historyTitle": "History",
+  "rem.historyEmpty": "No reminder history yet. Fired or cancelled reminders will show up here",
+  "rem.more": "Load more",
+  "rem.moreLoading": "Loading…",
+  "rem.chipPending": "To confirm",
+  "rem.chipFired": "Fired",
+  "rem.chipCancelled": "Cancelled",
+  "rem.batchChip": "Batched",
+  "rem.batchTitle": "⏰ {count} reminders were due",
+  "rem.snooze30": "+30 min",
+  "rem.snoozeTomorrow": "Tomorrow, same time",
+  "rem.errorCreate": "Couldn't create the reminder, please retry",
+  "rem.errorCancel": "Couldn't cancel it, please retry",
+  "rem.errorLoad": "Couldn't load reminders, please try again later",
+  "rem.errorMore": "Couldn't load more history",
+
+  "settings.language": "语言 / Language",
+  "locale.system": "System",
+  "locale.zhCN": "简体中文",
+  "locale.en": "English",
+  "settings.languageNote":
+    "Tab bar, reminder center, to-dos, pomodoro, reminder popups and the pet menu switch instantly; other surfaces are catching up.",
+} satisfies Record<MessageKey, string>;

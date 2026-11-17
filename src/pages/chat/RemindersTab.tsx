@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { STATE_EVENTS } from "@/shared/events";
 import { reminderStore, type Reminder } from "@/services/reminders";
 import { snoozePlus30, tomorrowSameTime, type HistoryEntry } from "@/services/reminder-history";
+import { useT } from "@/shared/i18n/react";
+import type { Translate } from "@/shared/i18n/react";
 
 /**
  * 提醒中心（P1-02 / v0.14.0）——只回答一个问题：「提醒过什么」。
@@ -23,10 +25,11 @@ import { snoozePlus30, tomorrowSameTime, type HistoryEntry } from "@/services/re
 /** 每页行数：与 SQL LIMIT 对齐；加载更多按行推进 offset（与条目数无关） */
 const PAGE_SIZE = 20;
 
-/** 周期标签与番茄钟页共用一套语义（v0.13.0） */
-const REPEAT_LABEL = { daily: "每天", weekdays: "工作日", weekly: "每周" } as const;
+/** 周期标签（v0.13.0）：键值即 Repeat 类型，文案走 i18n（v0.19.0） */
+const REPEAT_KEYS = { daily: "repeat.daily", weekdays: "repeat.weekdays", weekly: "repeat.weekly" } as const;
 
 export function RemindersTab() {
+  const { t } = useT();
   const [active, setActive] = useState<Reminder[]>([]);
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -48,7 +51,7 @@ export function RemindersTab() {
       rowsRead.current = PAGE_SIZE; // 服务端 offset 恒按行推进
       setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "提醒数据读取失败，请稍后重试");
+      setError(e instanceof Error ? e.message : t("rem.errorLoad"));
     } finally {
       setPending(false);
     }
@@ -64,7 +67,7 @@ export function RemindersTab() {
       rowsRead.current += PAGE_SIZE;
       setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "更多历史读取失败");
+      setError(e instanceof Error ? e.message : t("rem.errorMore"));
     } finally {
       setLoadingMore(false);
     }
@@ -89,14 +92,14 @@ export function RemindersTab() {
   }, [refresh]);
 
   const cancel = useCallback((id: number) => {
-    void reminderStore.cancel(id).catch(() => setError("取消失败，请重试"));
+    void reminderStore.cancel(id).catch(() => setError(t("rem.errorCancel")));
   }, []);
 
   const snooze = useCallback(async (text: string, target: number) => {
     try {
       await reminderStore.create(text, target);
     } catch {
-      setError("创建提醒失败，请重试");
+      setError(t("rem.errorCreate"));
     }
   }, []);
 
@@ -105,12 +108,12 @@ export function RemindersTab() {
   return (
     <div className="rem-panel">
       <section className="rem-section">
-        <span className="rem-section__title">进行中（{active.length}）</span>
+        <span className="rem-section__title">{t("rem.activeTitle", { count: active.length })}</span>
         {pending ? (
-          <p className="rem-hint">读取中…</p>
+          <p className="rem-hint">{t("rem.loading")}</p>
         ) : (
           active.length === 0 && (
-            <p className="rem-hint">还没有进行中的提醒。对麻薯说「帮我明天九点提醒交周报」试试</p>
+            <p className="rem-hint">{t("rem.activeEmpty")}</p>
           )
         )}
         {active.map(r => (
@@ -118,7 +121,7 @@ export function RemindersTab() {
             <div className="rem-item__main">
               <span className="rem-item__text">{r.text}</span>
               <span className="rem-item__time">
-                {r.repeat !== "none" && <span className="rem-chip">{REPEAT_LABEL[r.repeat]}</span>}
+                {r.repeat !== "none" && <span className="rem-chip">{t(REPEAT_KEYS[r.repeat])}</span>}
                 {Number.isFinite(r.fireAt)
                   ? new Date(r.fireAt).toLocaleString("zh-CN", {
                       month: "numeric",
@@ -129,7 +132,7 @@ export function RemindersTab() {
                   : ""}
               </span>
             </div>
-            <button onClick={() => cancel(r.id)} aria-label="取消提醒">
+            <button onClick={() => cancel(r.id)} aria-label={t("rem.cancel")}>
               ×
             </button>
           </div>
@@ -137,25 +140,25 @@ export function RemindersTab() {
       </section>
 
       <section className="rem-section">
-        <span className="rem-section__title">历史</span>
+        <span className="rem-section__title">{t("rem.historyTitle")}</span>
         {error && (
           <p className="rem-hint rem-hint--error" role="alert">
             {error}
           </p>
         )}
         {!pending && entries.length === 0 && !error && (
-          <p className="rem-hint">还没有提醒历史。触发或取消的提醒会留在这里</p>
+          <p className="rem-hint">{t("rem.historyEmpty")}</p>
         )}
         {entries.map((entry, index) =>
           entry.kind === "single" ? (
-            <HistorySingle key={`s${entry.reminder.id}`} reminder={entry.reminder} now={now} onSnooze={snooze} />
+            <HistorySingle key={`s${entry.reminder.id}`} reminder={entry.reminder} now={now} onSnooze={snooze} t={t} />
           ) : (
-            <HistoryBatch key={`b${entry.items[0]?.id ?? index}`} fireAt={entry.fireAt} items={entry.items} now={now} onSnooze={snooze} />
+            <HistoryBatch key={`b${entry.items[0]?.id ?? index}`} fireAt={entry.fireAt} items={entry.items} now={now} onSnooze={snooze} t={t} />
           ),
         )}
         {hasMore && (
           <button className="rem-more" disabled={loadingMore} onClick={() => void loadMore()}>
-            {loadingMore ? "加载中…" : "加载更多"}
+            {loadingMore ? t("rem.moreLoading") : t("rem.more")}
           </button>
         )}
       </section>
@@ -168,19 +171,21 @@ function HistorySingle({
   reminder: r,
   now,
   onSnooze,
+  t,
 }: {
   reminder: Reminder;
   now: number;
   onSnooze: (text: string, target: number) => Promise<void>;
+  t: Translate;
 }) {
   const tomorrow = tomorrowSameTime(now, r.fireAt);
   return (
     <div className="rem-item">
-      <StatusChip reminder={r} />
+      <StatusChip reminder={r} t={t} />
       <div className="rem-item__main">
         <span className="rem-item__text">{r.text}</span>
         <span className="rem-item__time">
-          {r.repeat !== "none" && <span className="rem-chip">{REPEAT_LABEL[r.repeat]}</span>}
+          {r.repeat !== "none" && <span className="rem-chip">{t(REPEAT_KEYS[r.repeat])}</span>}
           {Number.isFinite(historyTime(r))
             ? new Date(historyTime(r)).toLocaleString("zh-CN", {
                 month: "numeric",
@@ -195,9 +200,9 @@ function HistorySingle({
           再手动补一条会出现同一时段两条——按钮少比数据错好 */}
       {r.repeat === "none" && (
         <div className="rem-item__actions">
-          <button onClick={() => void onSnooze(r.text, snoozePlus30(now))}>+30 分钟</button>
+          <button onClick={() => void onSnooze(r.text, snoozePlus30(now))}>{t("rem.snooze30")}</button>
           {tomorrow !== null && (
-            <button onClick={() => void onSnooze(r.text, tomorrow)}>明天同一时间</button>
+            <button onClick={() => void onSnooze(r.text, tomorrow)}>{t("rem.snoozeTomorrow")}</button>
           )}
         </div>
       )}
@@ -211,18 +216,20 @@ function HistoryBatch({
   items,
   now,
   onSnooze,
+  t,
 }: {
   fireAt: number;
   items: Reminder[];
   now: number;
   onSnooze: (text: string, target: number) => Promise<void>;
+  t: Translate;
 }) {
   return (
     <details className="rem-batch">
       <summary>
-        <span className="rem-chip rem-chip--muted">合并交付</span>
+        <span className="rem-chip rem-chip--muted">{t("rem.batchChip")}</span>
         <div className="rem-item__main">
-          <span className="rem-item__text">⏰ {items.length} 条提醒到点了</span>
+          <span className="rem-item__text">{t("rem.batchTitle", { count: items.length })}</span>
           <span className="rem-item__time">
             {Number.isFinite(fireAt)
               ? new Date(fireAt).toLocaleString("zh-CN", {
@@ -242,9 +249,9 @@ function HistoryBatch({
             <span className="rem-batch__text">{item.text}</span>
             {item.repeat === "none" && (
               <div className="rem-item__actions">
-                <button onClick={() => void onSnooze(item.text, snoozePlus30(now))}>+30 分钟</button>
+                <button onClick={() => void onSnooze(item.text, snoozePlus30(now))}>{t("rem.snooze30")}</button>
                 {tomorrow !== null && (
-                  <button onClick={() => void onSnooze(item.text, tomorrow)}>明天同一时间</button>
+                  <button onClick={() => void onSnooze(item.text, tomorrow)}>{t("rem.snoozeTomorrow")}</button>
                 )}
               </div>
             )}
@@ -256,8 +263,8 @@ function HistoryBatch({
 }
 
 /** 状态徽标：已取消 / 待确认（触发后没点过弹窗）/ 已触发 */
-function StatusChip({ reminder: r }: { reminder: Reminder }) {
-  const label = r.status === "cancelled" ? "已取消" : r.acknowledgedAt == null ? "待确认" : "已触发";
+function StatusChip({ reminder: r, t }: { reminder: Reminder; t: Translate }) {
+  const label = r.status === "cancelled" ? t("rem.chipCancelled") : r.acknowledgedAt == null ? t("rem.chipPending") : t("rem.chipFired");
   const tone = r.status === "cancelled" ? "muted" : r.acknowledgedAt == null ? "warn" : "ok";
   return <span className={`rem-chip rem-chip--${tone}`}>{label}</span>;
 }

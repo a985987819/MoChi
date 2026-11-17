@@ -1,3 +1,4 @@
+import { useT } from "@/shared/i18n/react";
 /**
  * Mochi 占位形象（内置 SVG 兜底）。
  *
@@ -9,13 +10,14 @@
  * 纯 SVG 内联渲染，无外部资源依赖。
  */
 export function MochiPlaceholder({ size = 168 }: { size?: number }) {
+  const { t } = useT();
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 200 200"
       role="img"
-      aria-label="Mochi 占位形象"
+      aria-label={t("common.petPlaceholder")}
       style={{ display: "block", filter: "drop-shadow(0 10px 14px rgba(190, 120, 140, 0.25))" }}
     >
       <defs>

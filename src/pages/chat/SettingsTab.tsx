@@ -27,7 +27,8 @@ import {
 } from "@/services/settings";
 import { listTtsVoices, speak, subscribeVoices } from "@/services/tts";
 import { logError } from "@/services/log";
-import type { ThemeMode } from "@/services/settings";
+import type { LocaleSetting, ThemeMode } from "@/services/settings";
+import { useT } from "@/shared/i18n/react";
 import { backupsDir, exportBackup, formatBytes, importBackup, listBackups, type BackupInfo } from "@/services/backup";
 
 /**
@@ -276,6 +277,8 @@ export function SettingsTab() {
       <SoundSection settings={settings} update={update} updateDebounced={updateDebounced} />
 
       <ThemeSection settings={settings} update={update} />
+
+      <LanguageSection settings={settings} update={update} />
 
       <TtsSection settings={settings} update={update} updateDebounced={updateDebounced} />
 
@@ -657,6 +660,43 @@ function ThemeSection({
         ))}
       </div>
       <p className="settings-note">宠物形象与素材不受主题影响；提醒弹窗、右键菜单会一起切换。</p>
+    </div>
+  );
+}
+
+/**
+ * 语言（v0.19.0 P2-03B）：跟随系统 / 简体中文 / English。
+ * 本分区自身走 t() —— 它是 i18n 的示范位；切换后 useSyncExternalStore 立即
+ * 重渲染所有已迁移界面（任务单验收：不需要重启）。
+ */
+function LanguageSection({
+  settings,
+  update,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+}) {
+  const { t } = useT();
+  const options: Array<{ value: LocaleSetting; label: string }> = [
+    { value: "system", label: t("locale.system") },
+    { value: "zh-CN", label: t("locale.zhCN") },
+    { value: "en", label: t("locale.en") },
+  ];
+  return (
+    <div className="settings-sound">
+      <span className="settings-field-label">{t("settings.language")}</span>
+      <div className="settings-segment">
+        {options.map(option => (
+          <button
+            key={option.value}
+            className={settings.locale === option.value ? "settings-segment__btn settings-segment__btn--active" : "settings-segment__btn"}
+            onClick={() => update({ locale: option.value })}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="settings-note">{t("settings.languageNote")}</p>
     </div>
   );
 }

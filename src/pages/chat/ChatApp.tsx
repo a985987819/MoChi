@@ -12,6 +12,7 @@ import { playShowTransition, onWindowShown } from "@/shared/show-transition";
 import { loadSettings, saveSettings } from "@/services/settings";
 import { reminderStore } from "@/services/reminders";
 import { stopSpeaking } from "@/services/tts";
+import { useT } from "@/shared/i18n/react";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import "./chat.css";
 
@@ -37,6 +38,7 @@ function asTabId(v: unknown): TabId {
 }
 
 export function ChatApp() {
+  const { t } = useT();
   const [tab, setTab] = useState<TabId>("chat");
   const [welcome, setWelcome] = useState(false);
   const shellRef = useRef<HTMLElement>(null);
@@ -137,26 +139,26 @@ export function ChatApp() {
         {!welcome && (
           <nav className="chat-tabs" onClick={e => e.stopPropagation()}>
             <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
-              聊天
+              {t("tab.chat")}
             </TabButton>
             <TabButton active={tab === "todos"} onClick={() => setTab("todos")}>
-              待办
+              {t("tab.todos")}
             </TabButton>
             <TabButton active={tab === "reminders"} onClick={() => setTab("reminders")} badge={unacked}>
-              提醒
+              {t("tab.reminders")}
             </TabButton>
             <TabButton active={tab === "pomodoro"} onClick={() => setTab("pomodoro")}>
-              番茄钟
+              {t("tab.pomodoro")}
             </TabButton>
             <TabButton active={tab === "assets"} onClick={() => setTab("assets")}>
-              素材
+              {t("tab.assets")}
             </TabButton>
             <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
-              设置
+              {t("tab.settings")}
             </TabButton>
           </nav>
         )}
-        <button className="chat-titlebar__close" onClick={handleClose} aria-label="关闭窗口">
+        <button className="chat-titlebar__close" onClick={handleClose} aria-label={t("tab.closeWindow")}>
           ×
         </button>
       </header>

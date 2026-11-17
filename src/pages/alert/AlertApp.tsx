@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import alertImg from "@/assets/pet/alert.svg";
 import { acknowledgeAppAlert, dismissAppAlert, subscribeAppAlerts, type AppAlert } from "@/services/alerts";
 import { sendStateEvent, STATE_EVENTS } from "@/shared/events";
+import { useT } from "@/shared/i18n/react";
 import { AlertActionGate, type AlertAction } from "./action-gate";
 import "./alert.css";
 
@@ -16,6 +17,7 @@ import "./alert.css";
  *   「稍后」≠「确认」：宠物不播 stretch、站立计时从 now+5min 重新起算。
  */
 export function AlertApp() {
+  const { t } = useT();
   const [alert, setAlert] = useState<AppAlert | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -28,8 +30,8 @@ export function AlertApp() {
       setAlert(current);
       setError("");
       setPending(false);
-    }, () => { if (!disposed) setError("提醒加载失败，请稍后重试"); });
-    void listening.catch(() => { if (!disposed) setError("提醒监听失败，请重新打开应用"); });
+    }, () => { if (!disposed) setError(t("alert.errorLoad")); });
+    void listening.catch(() => { if (!disposed) setError(t("alert.errorListen")); });
     return () => { disposed = true; void listening.then(off => off()).catch(() => undefined); };
   }, []);
 
@@ -40,7 +42,7 @@ export function AlertApp() {
     try {
       await acknowledgeAppAlert(alert.id);
     } catch {
-      setError("暂时无法关闭，请重试");
+      setError(t("alert.errorClose"));
     } finally {
       actionGate.current.finish();
       setPending(false);
@@ -56,7 +58,7 @@ export function AlertApp() {
       void sendStateEvent(STATE_EVENTS.standupSnooze, { minutes: 5 });
       await dismissAppAlert(alert.id);
     } catch {
-      setError("暂时无法收起，请重试");
+      setError(t("alert.errorSnooze"));
     } finally {
       actionGate.current.finish();
       setPending(false);
@@ -65,7 +67,7 @@ export function AlertApp() {
 
   return (
     <main className="alert-shell" onClick={event => void handleAck({ clickCount: event.detail })} role="button" tabIndex={0}
-      aria-label={alert ? `确认提醒：${alert.title}` : "提醒"} aria-disabled={pending}
+      aria-label={alert ? t("alert.ariaAck", { title: alert.title }) : t("alert.titleFallback")} aria-disabled={pending}
       onKeyDown={event => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -76,8 +78,8 @@ export function AlertApp() {
           按 id 重挂卡片让每条新提醒都重播 pop（卡片节点极小，重挂零成本） */}
       <div key={alert?.id ?? "empty"} className="alert-card">
         <img className="alert-card__img" src={alertImg} alt="" draggable={false} />
-        <h1>{alert?.title ?? "提醒"}</h1>
-        <p className="alert-card__body">{alert?.body ?? "正在读取提醒…"}</p>
+        <h1>{alert?.title ?? t("alert.titleFallback")}</h1>
+        <p className="alert-card__body">{alert?.body ?? t("alert.bodyLoading")}</p>
         {alert?.kind === "standup" && (
           <div className="alert-card__actions" onClick={e => e.stopPropagation()}>
             <button
@@ -85,14 +87,14 @@ export function AlertApp() {
               disabled={pending}
               onClick={() => void handleAck({})}
             >
-              起来活动
+              {t("alert.standupAck")}
             </button>
             <button className="alert-card__btn" disabled={pending} onClick={() => void handleSnooze()}>
-              稍后 5 分钟
+              {t("alert.standupSnooze")}
             </button>
           </div>
         )}
-        <p className="alert-card__hint">{pending ? "正在处理…" : alert?.kind === "standup" ? "点击卡片任意处 = 立即重置计时" : "点击或按 Enter 确认"}</p>
+        <p className="alert-card__hint">{pending ? t("alert.hintProcessing") : alert?.kind === "standup" ? t("alert.hintStandupClick") : t("alert.hintClickToAck")}</p>
         {error && <p role="alert">{error}</p>}
       </div>
     </main>

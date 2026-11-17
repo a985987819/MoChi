@@ -13,6 +13,7 @@ import { startSystemEvents } from "@/services/system-events";
 import { configureSound, playAlert } from "@/services/sound";
 import { subscribeHeartbeat } from "@/services/heartbeat";
 import { installGlobalErrorLogging } from "@/services/log";
+import { installLocaleWatcher } from "@/shared/i18n/core";
 import { installThemeWatcher } from "@/shared/theme";
 import "@/shared/theme.css";
 
@@ -21,6 +22,8 @@ installGlobalErrorLogging("pet");
 
 // 主题监听（v0.18.0）：设置/系统深浅变化时切换本窗口的 data-theme
 installThemeWatcher();
+// 语言监听（v0.19.0）：右键菜单文案即时切换，不重启
+installLocaleWatcher();
 
 // 跨窗口遥控监听（state://set-mood 等）只装一次：宠物窗是宠物状态的宿主窗口
 void petState.installRemoteListeners().catch(() => undefined);
