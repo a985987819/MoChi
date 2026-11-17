@@ -73,7 +73,7 @@ export const PRESETS: ProviderPreset[] = [
     defaultModel: "qwen2.5:7b",
     models: [], // 本机模型动态变化，设置页允许手填
     requiresKey: false,
-    notes: "需本机已运行 Ollama；模型名按 ollama list 填写",
+    notes: "需本机已运行 Ollama（默认端口 11434）。模型名按 ollama list 填写，可用「测试连通性」一键检测",
   },
   {
     id: "mock",
