@@ -45,6 +45,9 @@ serde_json = "1"
 # （Cargo.lock 早已存在），声明为直接依赖零新增编译成本；手写民用历换算
 # （UTC→本地日期）是新的出错面，不如用久经考验的实现。
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# zip：备份导出/导入（v0.17.0）。只开 deflate（settings/db 收益大；图片素材本就是
+# 压缩格式），关默认特性避免拖入 AES/zstd/lzma 等无关编解码。
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 # user-idle 0.2.1 的 macOS quartz 模块是 edition-2015 遗留写法，无法通过

@@ -444,6 +444,24 @@
 
 ---
 
+## v0.17.0 — 数据备份 / 导入 / 迁移（P2-02）
+
+**定位**：换机/重装/误删有恢复路径。细节见 `docs/versions/v0.17.0-数据备份.md`。
+
+**范围**：
+- 导出 zip（settings + mochi.db + pet-assets + manifest）到 `{appData}/backups/`，默认不含 API Key。
+- 导入：备份列表 + 两步确认 + 覆盖前 pre-restore（恒含密钥）+ 重启生效。
+- 安全：条目白名单（zip slip 防护）、512MB 总量上限、schema 倒灌拦截、导入路径限定 backups 目录。
+- 未加 dialog 插件（列表式导入替代文件对话框）；DB 替换走改名腾位策略（Windows 句柄占用）。
+
+**验收标准**：
+- [x] `strip_api_keys` / `classify_entry` Rust 单测；`cargo test` 22/22；
+      `pnpm test` 403/403。
+- [x] 文档写清备份文件的密钥策略（默认不含 / 勾选含 / pre-restore 恒含）。
+- [ ] 导出→导入全链路 + pre-restore 真机验证。
+
+---
+
 ## 后续候选（Backlog，不在当前承诺内）
 
 - ~~`{state}_001.png` 帧序列动画支持~~（✅ 已于 v0.10.0 实现）；鼠标点击物理反馈；~~宠物拖拽惯性~~（✅ 已于 v0.12.0 实现）

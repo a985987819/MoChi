@@ -1414,3 +1414,54 @@ body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ── 备份与恢复（v0.17.0）── */
+.settings-backup__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #f0e4e8;
+}
+
+.settings-backup__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.settings-backup__meta {
+  flex: 0 0 auto;
+  color: #a39690;
+  font-size: 11px;
+}
+
+.settings-backup__row > button {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 6px;
+  background: #fdf3f5;
+  color: #c0556d;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.settings-backup__row > button:hover {
+  background: #ffe1e6;
+  color: #c94a5a;
+}
+
+.settings-backup__row > button:disabled {
+  color: #c4b6bd;
+  cursor: default;
+}
+
+.settings-backup__confirm {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}

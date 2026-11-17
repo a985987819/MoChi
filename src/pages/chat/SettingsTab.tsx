@@ -27,6 +27,7 @@ import {
 } from "@/services/settings";
 import { listTtsVoices, speak, subscribeVoices } from "@/services/tts";
 import { logError } from "@/services/log";
+import { backupsDir, exportBackup, formatBytes, importBackup, listBackups, type BackupInfo } from "@/services/backup";
 
 /**
  * 设置 Tab —— v0.3.0：提供商/Key/模型 + 连通性测试。
@@ -280,6 +281,8 @@ export function SettingsTab() {
       <MemoriesSection />
 
       <OnboardingSection update={update} />
+
+      <BackupsSection />
 
       <DangerZone />
 
@@ -916,6 +919,157 @@ function AboutSection() {
         </button>
       </div>
       <p className="settings-note">运行日志在数据目录的 logs\ 文件夹（按天一个文件，保留 7 天）。</p>
+    </div>
+  );
+}
+
+/**
+ * 备份与恢复（v0.17.0 P2-02）：一键 zip（settings + mochi.db + pet-assets + manifest）
+ * 到固定目录 {appData}/backups/，导入从备份列表选择。
+ *
+ * # 为什么没有文件选择对话框
+ *
+ * tauri-plugin-dialog 是为一次低频操作加插件 + capability（任务单明确要先确认），
+ * 退化方案更收敛：导出到固定目录（reveal 一键可达），外部备份文件拖进 backups
+ * 目录即可出现在列表里；导入路径只接受列表里的文件，Rust 侧再校验路径必须落在
+ * 备份目录内——防 IPC 任意路径写。
+ *
+ * # 密钥说明（任务单验收要求写清）
+ *
+ * 导出默认**不含** API Key（备份文件容易被拷去网盘/U盘）；勾选「包含密钥」才会
+ * 写入。pre-restore 自动备份恒含密钥——它是覆盖前的退路，退路不能比现场贫瘠。
+ */
+function BackupsSection() {
+  const [backups, setBackups] = useState<BackupInfo[] | null>(null);
+  const [listError, setListError] = useState("");
+  const [includeKeys, setIncludeKeys] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportedPath, setExportedPath] = useState("");
+  const [pendingImport, setPendingImport] = useState<BackupInfo | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
+  const [importError, setImportError] = useState("");
+  const [dir, setDir] = useState("");
+
+  const refresh = useCallback(() => {
+    setListError("");
+    void listBackups()
+      .then(setBackups)
+      .catch(() => setListError("备份列表读取失败，请稍后重试"));
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    void backupsDir().then(setDir).catch(() => undefined);
+  }, [refresh]);
+
+  const runExport = useCallback(() => {
+    setExporting(true);
+    setExportedPath("");
+    void exportBackup(includeKeys)
+      .then(path => {
+        setExportedPath(path);
+        refresh();
+      })
+      .catch(e => setImportError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setExporting(false));
+  }, [includeKeys, refresh]);
+
+  const revealExport = useCallback(() => {
+    if (exportedPath) void revealItemInDir(exportedPath).catch(() => undefined);
+  }, [exportedPath]);
+
+  const runImport = useCallback((backup: BackupInfo) => {
+    setImporting(true);
+    setImportError("");
+    setImportMessage("");
+    const path = dir ? `${dir}${dir.includes("\\") ? "\\" : "/"}${backup.name}` : "";
+    void importBackup(path)
+      .then(message => {
+        setImportMessage(message);
+        setPendingImport(null);
+        refresh();
+      })
+      .catch(e => setImportError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setImporting(false));
+  }, [dir, refresh]);
+
+  return (
+    <div className="settings-sound">
+      <span className="settings-field-label">备份与恢复</span>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={includeKeys}
+          onChange={e => setIncludeKeys(e.target.checked)}
+        />
+        <span>备份包含 API Key（默认不包含——备份文件可能被拷到网盘/U盘）</span>
+      </label>
+      <div className="settings-test">
+        <button onClick={runExport} disabled={exporting}>
+          {exporting ? "导出中…" : "导出备份"}
+        </button>
+        {exportedPath && (
+          <>
+            <span className="settings-test__ok">✓ 已导出</span>
+            <button className="settings-ghost-btn" onClick={revealExport}>
+              打开位置
+            </button>
+          </>
+        )}
+      </div>
+      <p className="settings-note">
+        备份内容：设置（{includeKeys ? "含" : "不含"}密钥）+ 数据库 + 素材，存到 {dir || "数据目录\\backups"}。
+      </p>
+
+      <span className="settings-field-label">从备份恢复</span>
+      {listError && (
+        <p className="rem-hint rem-hint--error" role="alert">
+          {listError}
+        </p>
+      )}
+      {backups !== null && backups.length === 0 && !listError && (
+        <p className="rem-hint">还没有备份。导出一次，或把别的备份 zip 放进 backups 文件夹</p>
+      )}
+      {backups?.map(backup => (
+        <div key={backup.name} className="settings-backup__row">
+          <span className="settings-backup__name" title={backup.name}>
+            {backup.name}
+          </span>
+          <span className="settings-backup__meta">
+            {new Date(backup.modifiedMs).toLocaleString("zh-CN", {
+              month: "numeric",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+            · {formatBytes(backup.sizeBytes)}
+          </span>
+          {pendingImport?.name === backup.name ? (
+            <span className="settings-backup__confirm">
+              <button disabled={importing} onClick={() => runImport(backup)}>
+                {importing ? "恢复中…" : "确认覆盖"}
+              </button>
+              <button disabled={importing} onClick={() => setPendingImport(null)}>
+                取消
+              </button>
+            </span>
+          ) : (
+            <button onClick={() => setPendingImport(backup)}>导入</button>
+          )}
+        </div>
+      ))}
+      {pendingImport && (
+        <p className="settings-note settings-note--panic">
+          即将用「{pendingImport.name}」覆盖当前全部数据（会先自动备份现有数据）。确认无误再点「确认覆盖」。
+        </p>
+      )}
+      {importMessage && <p className="settings-test__ok">✓ {importMessage}</p>}
+      {importError && (
+        <p className="rem-hint rem-hint--error" role="alert">
+          {importError}
+        </p>
+      )}
     </div>
   );
 }

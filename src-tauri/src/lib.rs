@@ -362,6 +362,352 @@ fn get_last_panic(app: tauri::AppHandle) -> Option<String> {
     if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
 
+// ── 备份与还原（v0.17.0，P2-02）───────────────────────────────────────────
+//
+// # 数据源（Windows/macOS 上同目录；plugin-sql 用 appConfigDir、store/pet-assets
+// 用 appDataDir，两者在这两个平台指向同一个物理目录，见版本文档）
+//
+// | 文件            | 内容                                   |
+// |-----------------|----------------------------------------|
+// | settings.json   | 提供商/模型/Key/称呼/计时/免打扰等      |
+// | mochi.db        | 聊天历史、待办、长期记忆、提醒          |
+// | pet-assets/     | 用户自定义宠物素材（扁平目录）          |
+//
+// # 形态决策
+//
+// - **zip 放固定目录** `{appData}/backups/`，不用 tauri-plugin-dialog：
+//   为一次低频操作加插件 + capability 不值得；导入用 `list_backups` 列出可选，
+//   外部备份文件拖进 backups 目录即可被识别（revealItemInDir 已有）。
+// - **默认不含 API Key**：备份文件容易被拷来拷去（网盘/U盘），密钥不该跟着走；
+//   「包含密钥」是显式勾选项。pre-restore 自动备份恒含密钥——它是退路，退路
+//   不能比现场更贫瘠。
+// - **导入一律先 pre-restore**：覆盖是破坏性动作，没有退路就不许动手。
+
+/// 备份输出/导入来源目录名（appData 之下）
+const BACKUP_DIR: &str = "backups";
+/// manifest schema 版本：TS 侧 ensureSchema（db.ts）幂等补列，旧备份无需迁移脚本；
+/// 这个数字只用来拦"来自更新版本的倒灌"。
+const BACKUP_SCHEMA_VERSION: u32 = 1;
+/// zip 解压总量上限：pet-assets 可能几十 MB，512MB 是宽裕的滥用防线
+const BACKUP_MAX_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
+/// 单条目上限（防条目声明尺寸骗过总量检查的早期退出）
+const BACKUP_MAX_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
+
+/// 备份清单条目（list_backups 返回给 UI）
+#[derive(serde::Serialize)]
+struct BackupInfo {
+    name: String,
+    size_bytes: u64,
+    /// epoch ms（UI 转本地时间显示）
+    modified_ms: u64,
+}
+
+/// zip 内条目分类（白名单）。任何反斜杠、目录穿越、未知路径一律拒绝——
+/// zip slip 是还原功能的头号风险（任务单：解压前校验路径）。
+#[derive(Debug, PartialEq)]
+enum EntryKind {
+    Manifest,
+    Settings,
+    Database,
+    /// pet-assets/ 下的扁平文件名（不含目录分隔）
+    Asset(String),
+}
+
+/// 纯函数（可单测）：zip 条目名 → 白名单分类。
+/// 规则：已知三个根文件 + `pet-assets/<单层文件名>`；其余（`../x`、`C:\x`、
+/// `pet-assets/sub/x`、隐藏文件）全部拒绝。
+fn classify_entry(name: &str) -> Result<EntryKind, String> {
+    if name.contains('\\') {
+        return Err(format!("非法条目路径（反斜杠）: {name}"));
+    }
+    match name {
+        "manifest.json" => Ok(EntryKind::Manifest),
+        "settings.json" => Ok(EntryKind::Settings),
+        "mochi.db" => Ok(EntryKind::Database),
+        _ if name.starts_with("pet-assets/") => {
+            let rest = &name["pet-assets/".len()..];
+            if rest.is_empty() || rest.contains('/') || rest.starts_with('.') {
+                Err(format!("非法素材条目: {name}"))
+            } else {
+                Ok(EntryKind::Asset(rest.to_string()))
+            }
+        }
+        _ => Err(format!("未知条目: {name}")),
+    }
+}
+
+/// settings.json 的脱 Key 变换（纯函数，可单测）：不含密钥模式下 apiKeys 清空，
+/// 其余字段原样保留（结构由 TS 侧 normalize 兜底，导出不做字段白名单）。
+/// **解析失败返回空对象而不是原文**——宁可备份丢设置，不可把可能的明文 Key
+/// 写进一个会被拷走的文件。
+fn strip_api_keys(content: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(content) {
+        Ok(mut value) => {
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("apiKeys".to_string(), serde_json::json!({}));
+            }
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+        }
+        Err(_) => "{}".to_string(),
+    }
+}
+
+/// 读取 settings.json 原文（不存在视为空设置——首次导入场景）
+fn read_settings_file(data_dir: &std::path::Path) -> String {
+    std::fs::read_to_string(data_dir.join("settings.json")).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// 导出备份（导出命令与 pre-restore 共用实现）。
+/// 返回 zip 路径；调用方负责把路径透传给 UI（reveal/展示）。
+fn export_backup_impl(
+    app: &tauri::AppHandle,
+    include_keys: bool,
+    name_prefix: &str,
+) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager as _;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("找不到应用数据目录: {e}"))?;
+    let backups_dir = data_dir.join(BACKUP_DIR);
+    std::fs::create_dir_all(&backups_dir).map_err(|e| format!("创建备份目录失败: {e}"))?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let out_path = backups_dir.join(format!("{name_prefix}-{stamp}.zip"));
+
+    let file = std::fs::File::create(&out_path).map_err(|e| format!("创建备份文件失败: {e}"))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    // ① manifest：版本/时间/是否含密钥/schema——导入侧的准入校验数据
+    let manifest = serde_json::json!({
+        "appVersion": app.package_info().version.to_string(),
+        "exportedAt": chrono::Local::now().timestamp_millis(),
+        "includeKeys": include_keys,
+        "schemaVersion": BACKUP_SCHEMA_VERSION,
+    });
+    zip.start_file("manifest.json", options).map_err(|e| e.to_string())?;
+    std::io::Write::write_all(&mut zip, serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?.as_bytes())
+        .map_err(|e| e.to_string())?;
+
+    // ② settings.json（不含密钥模式走 strip_api_keys，见纯函数注释）
+    zip.start_file("settings.json", options).map_err(|e| e.to_string())?;
+    let settings = read_settings_file(&data_dir);
+    let settings = if include_keys { settings } else { strip_api_keys(&settings) };
+    std::io::Write::write_all(&mut zip, settings.as_bytes()).map_err(|e| e.to_string())?;
+
+    // ③ mochi.db：WAL checkpoint 由**前端**在导出前执行（它持有写连接，见服务层）；
+    //    这里直接拷文件。checkpoint 只是尽力而为——失败时导出的数据最多落后几秒，
+    //    属可接受降级（版本文档有记录）。
+    zip.start_file("mochi.db", options).map_err(|e| e.to_string())?;
+    let db_bytes = std::fs::read(data_dir.join("mochi.db"))
+        .map_err(|e| format!("读取数据库失败（应用可能尚未创建过数据）: {e}"))?;
+    std::io::Write::write_all(&mut zip, &db_bytes).map_err(|e| e.to_string())?;
+
+    // ④ pet-assets：扁平目录逐文件拷贝；目录不存在 = 用户没放素材，跳过
+    if let Ok(entries) = std::fs::read_dir(data_dir.join("pet-assets")) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            let mut source = std::fs::File::open(&path).map_err(|e| format!("读取素材 {name} 失败: {e}"))?;
+            zip.start_file(format!("pet-assets/{name}"), options)
+                .map_err(|e| format!("写入素材条目 {name} 失败: {e}"))?;
+            std::io::copy(&mut source, &mut zip).map_err(|e| format!("写入素材 {name} 失败: {e}"))?;
+        }
+    }
+
+    zip.finish().map_err(|e| format!("收尾备份失败: {e}"))?;
+    Ok(out_path)
+}
+
+/// 导出备份命令（v0.17.0）。async：zip 压缩可能上百毫秒到数秒，放 tokio 线程池。
+#[tauri::command]
+async fn export_backup(app: tauri::AppHandle, include_keys: bool) -> Result<String, String> {
+    let path = export_backup_impl(&app, include_keys, "mochi")?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// 列出备份目录里的 zip（UI 的导入列表）。按修改时间倒序；目录不存在 = 还没备份过。
+#[tauri::command]
+fn list_backups(app: tauri::AppHandle) -> Vec<BackupInfo> {
+    use tauri::Manager as _;
+    let mut result: Vec<BackupInfo> = Vec::new();
+    let Ok(data_dir) = app.path().app_data_dir() else { return result };
+    let Ok(entries) = std::fs::read_dir(data_dir.join(BACKUP_DIR)) else { return result };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        if !name.to_ascii_lowercase().ends_with(".zip") {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let modified_ms = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        result.push(BackupInfo {
+            name: name.to_string(),
+            size_bytes: meta.len(),
+            modified_ms,
+        });
+    }
+    result.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    result
+}
+
+/// 导入备份命令（v0.17.0）：校验 → pre-restore → 覆盖三数据源 → 要求重启。
+/// **数据库替换走"先改名腾位、再落新文件"**：应用运行时 SQLite 可能持有打开的
+/// 文件句柄，直接覆盖在 Windows 上会被拒绝；改名若也失败（无 share-delete），
+/// 在动任何数据之前就报错退出，提示先退出应用——没有退路不覆盖。
+#[tauri::command]
+async fn import_backup(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    import_backup_impl(&app, &path)
+}
+
+fn import_backup_impl(app: &tauri::AppHandle, path: &str) -> Result<String, String> {
+    use tauri::Manager as _;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("找不到应用数据目录: {e}"))?;
+    let backups_dir = data_dir.join(BACKUP_DIR);
+
+    // ① 传入路径必须落在备份目录内（canonicalize 化解 .. 与符号链接）
+    let requested = std::fs::canonicalize(path).map_err(|_| "备份文件不存在或不可读".to_string())?;
+    let canonical_root = std::fs::canonicalize(&backups_dir).map_err(|_| "备份目录不存在".to_string())?;
+    if !requested.starts_with(&canonical_root) {
+        return Err("只能导入备份目录里的文件".to_string());
+    }
+
+    // ② 先读 zip 并全量校验，**全部通过才动现有数据**——半途报错等于现场被毁
+    let reader = std::fs::File::open(&requested).map_err(|e| format!("打开备份失败: {e}"))?;
+    let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("备份文件不是有效的 zip: {e}"))?;
+
+    let mut manifest_seen = false;
+    let mut settings_seen = false;
+    let mut database_seen = false;
+    let mut total_bytes: u64 = 0;
+    for index in 0..archive.len() {
+        let entry = archive.by_index_raw(index).map_err(|e| format!("读取条目失败: {e}"))?;
+        if entry.is_dir() {
+            continue;
+        }
+        classify_entry(entry.name()).map_err(|e| format!("备份内容校验失败: {e}"))?;
+        total_bytes += entry.size();
+        if total_bytes > BACKUP_MAX_TOTAL_BYTES {
+            return Err("备份解压总量超过 512MB，已拒绝导入".to_string());
+        }
+        match entry.name() {
+            "manifest.json" => manifest_seen = true,
+            "settings.json" => settings_seen = true,
+            "mochi.db" => database_seen = true,
+            _ => {}
+        }
+    }
+    if !manifest_seen || !settings_seen || !database_seen {
+        return Err("备份缺少必要文件（manifest.json / settings.json / mochi.db），不是有效的 Mochi 备份".to_string());
+    }
+
+    // manifest 校验：schema 更新于当前版本 → 拒绝倒灌（旧备份无需迁移，见常量注释）
+    {
+        let mut entry = archive.by_name("manifest.json").map_err(|e| e.to_string())?;
+        let mut content = String::new();
+        std::io::Read::read_to_string(&mut entry, &mut content).map_err(|e| e.to_string())?;
+        let manifest: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|_| "manifest.json 不是合法 JSON".to_string())?;
+        let schema = manifest.get("schemaVersion").and_then(|v| v.as_u64()).unwrap_or(0);
+        if schema > BACKUP_SCHEMA_VERSION as u64 {
+            return Err(format!(
+                "备份来自更新的版本（schema {schema} > 当前 {BACKUP_SCHEMA_VERSION}），请先升级应用再导入"
+            ));
+        }
+    }
+
+    // ③ pre-restore：覆盖前的自动备份（恒含密钥——退路不能比现场贫瘠）。
+    //    失败即中止：没有退路不覆盖（任务单验收标准）。
+    let pre = export_backup_impl(app, true, "pre-restore")
+        .map_err(|e| format!("覆盖前自动备份失败，已中止导入: {e}"))?;
+
+    // ④ 覆盖三数据源。DB 用"改名腾位"策略（见命令注释）；素材目录清空重写。
+    let db_path = data_dir.join("mochi.db");
+    let retired = data_dir.join("mochi.db.import-retired");
+    let _ = std::fs::remove_file(&retired); // 上次导入的残留
+    if db_path.exists() {
+        std::fs::rename(&db_path, &retired).map_err(|_| {
+            "数据库正被应用占用，无法替换。请先从托盘完全退出 Mochi，再重新执行导入".to_string()
+        })?;
+    }
+    // 旧 WAL/SHM 必须删掉：它们属于被替换的旧库，留着会污染新库
+    let _ = std::fs::remove_file(data_dir.join("mochi.db-wal"));
+    let _ = std::fs::remove_file(data_dir.join("mochi.db-shm"));
+
+    let write_entry = |archive: &mut zip::ZipArchive<std::fs::File>, entry: &str, target: &std::path::Path| -> Result<(), String> {
+        let mut source = archive.by_name(entry).map_err(|e| format!("读取条目 {entry} 失败: {e}"))?;
+        if source.size() > BACKUP_MAX_ENTRY_BYTES {
+            return Err(format!("条目 {entry} 超过单文件上限"));
+        }
+        let mut out = std::fs::File::create(target).map_err(|e| format!("写入 {entry} 失败: {e}"))?;
+        std::io::copy(&mut source, &mut out).map_err(|e| format!("写入 {entry} 失败: {e}"))?;
+        Ok(())
+    };
+
+    // 数据库先写临时名再改名落位（写一半崩溃不会留下半截 mochi.db）
+    let staging = data_dir.join("mochi.db.importing");
+    write_entry(&mut archive, "mochi.db", &staging).map_err(|e| {
+        // 写入失败：把旧库还原回去，现场不毁
+        let _ = std::fs::remove_file(&staging);
+        if retired.exists() {
+            let _ = std::fs::rename(&retired, &db_path);
+        }
+        e
+    })?;
+    std::fs::rename(&staging, &db_path).map_err(|e| {
+        let _ = std::fs::remove_file(&staging);
+        if retired.exists() {
+            let _ = std::fs::rename(&retired, &db_path);
+        }
+        format!("数据库落位失败: {e}")
+    })?;
+    let _ = std::fs::remove_file(&retired);
+
+    write_entry(&mut archive, "settings.json", &data_dir.join("settings.json"))?;
+
+    // pet-assets：清空重写（覆盖语义；旧素材在 pre-restore 里有完整备份）
+    let assets_dir = data_dir.join("pet-assets");
+    std::fs::create_dir_all(&assets_dir).map_err(|e| format!("创建素材目录失败: {e}"))?;
+    if let Ok(entries) = std::fs::read_dir(&assets_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() {
+                let _ = std::fs::remove_file(&p);
+            }
+        }
+    }
+    for index in 0..archive.len() {
+        let (kind_ok, name) = {
+            let entry = archive.by_index_raw(index).map_err(|e| e.to_string())?;
+            (matches!(classify_entry(entry.name()), Ok(EntryKind::Asset(_))), entry.name().to_string())
+        };
+        if !kind_ok {
+            continue;
+        }
+        if let Ok(EntryKind::Asset(file_name)) = classify_entry(&name) {
+            write_entry(&mut archive, &name, &assets_dir.join(&file_name))
+                .map_err(|e| format!("恢复素材 {file_name} 失败: {e}"))?;
+        }
+    }
+
+    Ok(format!(
+        "导入完成，重启 Mochi 后生效。覆盖前的旧数据已备份为 {}",
+        pre.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    ))
+}
+
 /// 游戏模式状态（v0.9.0 自迭代）：设置开关（默认关）+ "被本功能隐藏"标记——
 /// 后者避免与用户手动 toggle_pet 打架：手动显示后游戏模式只在**新的**全屏事件
 /// 里才再次隐藏，退出全屏也只恢复自己隐藏的那次。
@@ -719,7 +1065,8 @@ pub fn run() {
             list_user_pet_assets, get_idle_seconds,
             show_app_alert, get_app_alert, ack_app_alert, dismiss_app_alert,
             set_pet_hit_test, get_autostart_enabled, save_pet_asset,
-            append_log, get_last_panic
+            append_log, get_last_panic,
+            export_backup, list_backups, import_backup
         ]);
 
     builder
@@ -2123,5 +2470,36 @@ mod alert_tests {
             .map_err(|_| ())?
             .set_modified(time)
             .map_err(|_| ())
+    }
+
+    /// 备份条目白名单（v0.17.0）：已知条目通过、zip slip 与越权路径全部拒绝。
+    #[test]
+    fn classify_entry_rejects_slip_and_unknown_paths() {
+        // 允许：三个根文件 + pet-assets 单层文件名
+        assert_eq!(classify_entry("manifest.json"), Ok(EntryKind::Manifest));
+        assert_eq!(classify_entry("settings.json"), Ok(EntryKind::Settings));
+        assert_eq!(classify_entry("mochi.db"), Ok(EntryKind::Database));
+        assert_eq!(classify_entry("pet-assets/happy.png"), Ok(EntryKind::Asset("happy.png".into())));
+        // 拒绝：目录穿越 / 绝对路径 / 反斜杠 / 子目录 / 隐藏文件 / 未知条目
+        assert!(classify_entry("../escape.txt").is_err());
+        assert!(classify_entry("pet-assets/../../etc/passwd").is_err());
+        assert!(classify_entry("pet-assets/.hidden").is_err());
+        assert!(classify_entry("pet-assets/sub/x.png").is_err());
+        assert!(classify_entry("C:\\Users\\x\\mochi.db").is_err());
+        assert!(classify_entry("/abs/path").is_err());
+        assert!(classify_entry("random.txt").is_err());
+    }
+
+    /// 脱 Key 导出（v0.17.0）：apiKeys 清空、其余字段保留、非法 JSON 返回空对象。
+    #[test]
+    fn strip_api_keys_clears_keys_and_preserves_rest() {
+        let input = r#"{"apiKeys":{"deepseek":"sk-secret"},"providerId":"deepseek","soundVolume":30}"#;
+        let out = strip_api_keys(input);
+        let value: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(value.get("apiKeys"), Some(&serde_json::json!({})));
+        assert_eq!(value.get("providerId"), Some(&serde_json::json!("deepseek")));
+        assert_eq!(value.get("soundVolume"), Some(&serde_json::json!(30)));
+        // 非 JSON 内容（文件损坏）：不把原文写进会被拷走的备份
+        assert_eq!(strip_api_keys("not json at all sk-secret"), "{}");
     }
 }
