@@ -21,6 +21,7 @@ import { loadSettings } from "@/services/settings";
 import { STATE_EVENTS } from "@/shared/events";
 import { subscribeHeartbeat } from "@/services/heartbeat";
 import { showAppAlert } from "@/services/alerts";
+import { formatBatchBody } from "@/services/system-events";
 
 export interface Reminder {
   id: number;
@@ -133,6 +134,11 @@ export class ReminderScheduler {
   private pendingRollbacks = new Map<number, number>();
   private pendingAcknowledgements = new Map<number, number>();
   private delivered = new Set<number>();
+  /**
+   * 刚从长休眠恢复（v0.11.0）：下次扫描要把过期提醒**合并成一条**交付，
+   * 而不是按原逻辑逐条弹——否则合盖一夜再打开会连弹一串。
+   */
+  private burstResume = false;
 
   /** 重复启动共用初始化；启动立即补扫，不让已过期提醒再等一个轮询周期。 */
   start(): Promise<void> {
@@ -185,6 +191,11 @@ export class ReminderScheduler {
     keep(await listen<{ presence: string }>(STATE_EVENTS.presenceChanged, e => {
       if (e.payload?.presence === "active") void this.scan();
     }));
+    // 长休眠恢复（v0.11.0）：标记"下次扫描合并交付"，并立即扫一次
+    keep(await listen<{ gapMs?: number; burst?: boolean }>(STATE_EVENTS.systemResumed, event => {
+      if (event.payload?.burst === true) this.burstResume = true;
+      void this.scan();
+    }));
     if (!this.isCurrent(generation)) return;
     keep(await subscribeHeartbeat(() => void this.scan()));
     if (this.isCurrent(generation)) await this.scan();
@@ -230,6 +241,13 @@ export class ReminderScheduler {
       this.pendingAcknowledgements.delete(id);
     }
     if (!this.isCurrent(generation) || this.isAway()) return;
+    // 刚从长休眠恢复：先把积压的过期提醒合并成一条，再走常规单条通道。
+    // 只有 >=2 条才合并；单条仍走下面的常规路径（保留原文与原文交互）。
+    if (this.burstResume) {
+      this.burstResume = false;
+      await this.coalesceOverdue(now, generation);
+      if (!this.isCurrent(generation) || this.isAway()) return;
+    }
     // fired 只代表交付；用户未确认前，进程重启也必须恢复。原生按同一个 id 去重，
     // delivered Set 防止每秒重发；恢复不重复发系统通知。
     const unacknowledged = await db.select<ReminderRow[]>(
@@ -290,6 +308,49 @@ export class ReminderScheduler {
       // "刚才提醒过什么"，模型下轮对话也能自然衔接（"我刚提醒过你喝水"）。
       // assistant 角色进模型上下文是信息而非污染；落库失败不影响提醒本身（append 内部吞错）。
       void historyStore.append([{ role: "assistant", content: `⏰ 到点提醒：${row.text}` }]);
+    }
+  }
+
+  /**
+   * 合并交付积压提醒（v0.11.0，长休眠恢复专用）。
+   *
+   * 合盖一夜再打开时，`active AND fire_at <= now` 可能有五条——常规通道会连弹五个
+   * 弹窗，这正是要修的问题。这里把它们认领并合成**一条**「N 条提醒到点了」，
+   * 正文按原顺序列出（最多 5 条，其余「等 N 条」），信息不丢、打扰只一次。
+   *
+   * 认领时一并写 `acknowledged_at`：这条合并提醒就是它们的交付凭证。不写的话，
+   * 下一拍会被"未确认提醒恢复"逻辑逐条重新弹出来——正好绕回要避免的轰炸。
+   * 少于两条不合并：单条走常规通道，保留原文与按钮交互。
+   */
+  private async coalesceOverdue(now: number, generation: number): Promise<void> {
+    const db = await getDb();
+    if (!this.isCurrent(generation)) return;
+    const rows = await db.select<ReminderRow[]>(
+      "SELECT * FROM reminders WHERE status = 'active' AND fire_at <= $1 ORDER BY fire_at ASC",
+      [now],
+    );
+    if (rows.length < 2) return;
+    const claimed: string[] = [];
+    for (const row of rows) {
+      const claim = await db.execute(
+        "UPDATE reminders SET status = 'fired', fired_at = $1, acknowledged_at = $1 WHERE id = $2 AND status = 'active'",
+        [now, row.id],
+      );
+      if ((claim.rowsAffected ?? 0) === 1) claimed.push(row.text);
+    }
+    if (claimed.length === 0) return;
+    try {
+      await showAppAlert({
+        id: `reminder:batch:${now}`,
+        kind: "reminder",
+        title: `${claimed.length} 条提醒到点了`,
+        body: formatBatchBody(claimed),
+      });
+      // 提醒历史同样留一条汇总，聊天窗里能看到"那晚错过什么"
+      void historyStore.append([{ role: "assistant", content: `⏰ 恢复后合并提醒：${formatBatchBody(claimed)}` }]);
+    } catch {
+      // 汇总弹窗失败就不再退回逐条补发（那正是要避免的轰炸），只留控制台痕迹。
+      console.error("[reminders] 合并提醒显示失败，已按已交付处理", claimed.length);
     }
   }
 }

@@ -820,13 +820,43 @@ fn dismiss_app_alert(app: tauri::AppHandle, id: String) -> Result<(), String> {
 
 /// 原生脉冲不依赖后台 WebView 的 setInterval；业务仍按 epoch 截止时间幂等判断。
 /// 顺带承担拖拽结束判定（DragMotion 静默窗口）：不加线程，零额外成本。
+/// 会话是否处于锁屏 / UAC 安全桌面（v0.11.0）。
+///
+/// 判据：`GetForegroundWindow()` 返回无效句柄——锁屏与安全桌面下系统不给前台窗口。
+/// 这是**启发式**，并且刻意只问"有没有前台窗口"，不读标题、进程名或内容
+/// （learning/08 §3 隐私红线的延续）。误判代价很小：把"在场"判成"离开"，
+/// 用户回来一有输入就自愈；把"离开"判成"在场"则会漏掉一次抑制，都不致命。
+#[cfg(windows)]
+fn session_locked() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    // SAFETY: 纯查询调用，无参数、无副作用、不持有资源。
+    unsafe { GetForegroundWindow().is_invalid() }
+}
+
+#[cfg(not(windows))]
+fn session_locked() -> bool {
+    false
+}
+
 fn start_native_tick(app: tauri::AppHandle) {
+    // 上一拍的时刻（v0.11.0）：线程 sleep 被系统挂起时 elapsed 会远大于 1s，
+    // 这是前端**唯一可靠的"刚从休眠恢复"信号**——JS 的 setInterval 在休眠期间
+    // 根本不执行，醒来也不会告诉你少跑了多久。
+    let mut last_tick = std::time::Instant::now();
     let _ = std::thread::Builder::new().name("mochi-clock".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_secs(1));
+        let gap_ms = last_tick.elapsed().as_millis() as u64;
+        last_tick = std::time::Instant::now();
         let handle = app.clone();
         // 窗口副作用统一调回 UI 线程，避免后台持锁等待窗口线程时与同步命令形成死锁。
         let _ = app.run_on_main_thread(move || {
-            let _ = handle.emit_to("pet", EVT_NATIVE_TICK, ());
+            // 载荷 { gap_ms, locked }：前端据此判定"恢复"与"锁屏"（见 services/system-events.ts）。
+            // 旧版载荷是 ()，两个订阅方（heartbeat / 首启兜底重放）都不读载荷，改动向后兼容。
+            let _ = handle.emit_to(
+                "pet",
+                EVT_NATIVE_TICK,
+                serde_json::json!({ "gap_ms": gap_ms, "locked": session_locked() }),
+            );
             let state = handle.state::<Mutex<AlertQueue>>();
             if let Ok(mut queue) = state.lock() {
                 if queue.needs_present { let _ = present_alert(&handle, &mut queue); }

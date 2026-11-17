@@ -12,7 +12,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { STATE_EVENTS } from "@/shared/events";
 import { petState } from "@/services/pet-state";
 import { subscribeHeartbeat } from "@/services/heartbeat";
@@ -24,7 +24,7 @@ const AWAY_AFTER_SEC = 300; // 迟滞：进入 away 阈值；退出阈值为 0�
 
 export class PresenceService {
   private presence: Presence = "active";
-  private cleanup: (() => void) | null = null;
+  private cleanup: Array<() => void> = [];
   private running = false;
   private generation = 0;
   private polling = false;
@@ -32,6 +32,8 @@ export class PresenceService {
   private activeSince = Date.now();
   private returnedAt: number | null = null;
   private lastObservedAt: number | null = null;
+  /** 立即重算的入口（start 里赋值的闭包）；锁屏解锁/休眠恢复用它跳过 10s 节流 */
+  private wake: (() => void) | null = null;
 
   get current(): Presence {
     return this.presence;
@@ -67,18 +69,78 @@ export class PresenceService {
       this.polling = true;
       void this.poll(generation).finally(() => { this.polling = false; });
     };
+    this.wake = check;
     check();
     void subscribeHeartbeat(check).then(off => {
       if (!this.running || generation !== this.generation) off();
-      else this.cleanup = off;
+      else this.cleanup.push(off);
     });
+    // 系统事件（v0.11.0）：锁屏立刻按离开处理；休眠恢复立刻重算活动段。
+    // 监听放在这里而不是页面里——presence 是这两个状态的唯一所有者。
+    void listen<{ locked: boolean }>(STATE_EVENTS.sessionLockChanged, event => {
+      if (!this.running || generation !== this.generation) return;
+      this.handleSessionLock(event.payload?.locked === true);
+    }).then(off => {
+      if (!this.running || generation !== this.generation) off();
+      else this.cleanup.push(off);
+    }).catch(() => undefined);
+    void listen(STATE_EVENTS.systemResumed, () => {
+      if (!this.running || generation !== this.generation) return;
+      this.handleResume();
+    }).then(off => {
+      if (!this.running || generation !== this.generation) off();
+      else this.cleanup.push(off);
+    }).catch(() => undefined);
   }
 
   stop(): void {
     this.running = false;
     this.generation += 1;
-    this.cleanup?.();
-    this.cleanup = null;
+    this.wake = null;
+    for (const off of this.cleanup.splice(0)) off();
+  }
+
+  /**
+   * 锁屏（v0.11.0）：立刻判为离开，不等 5 分钟空闲阈值——
+   * 否则锁屏后的头 5 分钟仍可能把提醒弹到锁屏界面上（用户看不见）。
+   * 解锁后的首次轮询会按真实空闲秒数自愈回 active。
+   */
+  handleSessionLock(locked: boolean): void {
+    if (!this.running) return;
+    if (locked) {
+      this.applyPresence("away");
+      return;
+    }
+    this.nextPoll = 0;
+    this.wake?.();
+  }
+
+  /**
+   * 休眠恢复（v0.11.0）：活动段从零开始算（睡眠不该算作连续陪伴），并立刻重算一次。
+   * 不这么做的话，`activeMinutes` 会把整晚睡眠算进去，点击文案会说出荒谬的陪伴时长。
+   */
+  handleResume(): void {
+    if (!this.running) return;
+    this.lastObservedAt = null;
+    this.activeSince = Date.now();
+    this.nextPoll = 0;
+    this.wake?.();
+  }
+
+  /** 在场状态迁移的唯一出口：宠物状态、订阅者、跨窗口广播三处必须同步 */
+  private applyPresence(next: Presence): void {
+    if (next === this.presence) return;
+    const now = Date.now();
+    this.presence = next;
+    if (next === "away") {
+      petState.setPresence("sleep"); // presence 槽（sticky），恢复由本服务清
+    } else {
+      this.activeSince = now;
+      this.returnedAt = now;
+      petState.clearPresence();
+    }
+    for (const fn of this.listeners) fn(next);
+    void emit(STATE_EVENTS.presenceChanged, { presence: next }).catch(() => undefined);
   }
 
   private async poll(generation: number): Promise<void> {
@@ -93,18 +155,7 @@ export class PresenceService {
     }
     this.lastObservedAt = now;
     const next: Presence = idleSec >= AWAY_AFTER_SEC ? "away" : "active";
-    if (next === this.presence) return;
-
-    this.presence = next;
-    if (next === "away") {
-      petState.setPresence("sleep"); // presence 槽（sticky），恢复由本服务清
-    } else {
-      this.activeSince = now;
-      this.returnedAt = now;
-      petState.clearPresence();
-    }
-    for (const fn of this.listeners) fn(next);
-    void emit(STATE_EVENTS.presenceChanged, { presence: next }).catch(() => undefined);
+    this.applyPresence(next);
   }
 }
 

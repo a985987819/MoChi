@@ -9,6 +9,7 @@ import { loadSettings, type AppSettings } from "@/services/settings";
 import { warmupNotificationPermission } from "@/services/notifications";
 import { sendStateEvent, sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { hostServices } from "@/services/host-services";
+import { startSystemEvents } from "@/services/system-events";
 import { subscribeHeartbeat } from "@/services/heartbeat";
 
 // 跨窗口遥控监听（state://set-mood 等）只装一次：宠物窗是宠物状态的宿主窗口
@@ -23,9 +24,26 @@ void warmupNotificationPermission();
 // 各服务经 hostServices 独立监督启动：设置/数据库暂时失败不拖垮其他功能，
 // 初始化失败每 5 秒重试；HMR 退出统一释放，避免多套旧监听并存。
 void presenceService.start(); // 在场检测 → sleep 状态 + 提醒推迟的依据
+/**
+ * 系统事件翻译器（v0.11.0）：把原生节拍的 `{ gap_ms, locked }` 翻成
+ * `state://system-resumed` / `state://session-lock-changed` 两个广播。
+ * 用监督器托管：监听注册失败每 5 秒重试，热更新时释放（否则一次节拍会喂给多套旧监听）。
+ */
+let disposeSystemEvents: (() => void) | null = null;
+const systemEventsService = {
+  start: async () => {
+    disposeSystemEvents = await startSystemEvents();
+  },
+  dispose: () => {
+    disposeSystemEvents?.();
+    disposeSystemEvents = null;
+  },
+};
+
 const hosted = hostServices([
   standupService,
   pomodoroService,
+  systemEventsService,
   { start: () => reminderScheduler.start(), dispose: () => reminderScheduler.stop() },
 ]);
 const stateHeartbeat = subscribeHeartbeat(() => petState.refresh());

@@ -113,6 +113,21 @@ export const STATE_EVENTS = {
    */
   autostartState: "state://autostart-state",
   /**
+   * 系统刚从上一次休眠/长时间卡顿中恢复（v0.11.0，宠物窗内部广播）。
+   * 载荷：{ gapMs: number; burst: boolean }。
+   *
+   * 为什么需要：原生节拍每秒一拍，休眠时线程被冻结，醒来第一拍的间隔就是"睡了多久"。
+   * `burst=true` 表示间隔 ≥5 分钟——这种恢复最容易出现"一次补发一串提醒"，
+   * 提醒调度据此**合并交付**（见 services/reminders.ts 的 coalesce）。
+   */
+  systemResumed: "state://system-resumed",
+  /**
+   * 锁屏状态变化（v0.11.0）。载荷：{ locked: boolean }。
+   * 判据是 Windows 的"有没有前台窗口"启发式（见 lib.rs `session_locked`）；
+   * 锁屏视为离开，避免把提醒弹在锁屏界面上。
+   */
+  sessionLockChanged: "state://session-lock-changed",
+  /**
    * 游戏模式开关（v0.9.0 自迭代，前端 → Rust）。载荷：{ enabled: boolean }。
    * Rust 收到后启停"前台全屏检测"（只读窗口矩形几何，不读应用名——learning/08
    * §3 红线的兑现形态：默认关 + 明示开关 + 只做几何判断）。
