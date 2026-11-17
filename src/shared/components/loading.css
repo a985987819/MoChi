@@ -6,7 +6,7 @@
   justify-content: center;
   gap: 8px;
   min-height: 64px;
-  color: #b5a9a2;
+  color: var(--text-faint2);
   font-size: 13px;
 }
 
@@ -15,8 +15,8 @@
   width: 16px;
   height: 16px;
   box-sizing: border-box;
-  border: 2px solid #f0e4e8;
-  border-top-color: #c9a0ab;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent-muted);
   border-radius: 50%;
   animation: loading-spin 0.8s linear infinite;
 }
@@ -40,7 +40,7 @@
 .skeleton__line {
   height: 13px;
   border-radius: 6px;
-  background: linear-gradient(90deg, #f3ebe8 25%, #faf5f3 45%, #f3ebe8 65%) no-repeat;
+  background: linear-gradient(90deg, var(--bg-muted) 25%, var(--bg-subtle) 45%, var(--bg-muted) 65%) no-repeat;
   background-size: 220% 100%;
   animation: skeleton-sweep 1.2s ease-in-out infinite;
 }

@@ -1,5 +1,5 @@
 /* 素材 Tab（v0.9.2）—— 双语导入页样式。
-   色彩沿用设置/待办页的浅粉体系（#ff8fab 主色 / #f0e4e8 分隔 / #a39690 次要文字），
+   色彩沿用设置/待办页的浅粉体系（var(--accent-fill) 主色 / var(--border) 分隔 / var(--text-faint) 次要文字），
    不自造第二套视觉语言。整页自身滚动：状态说明有 10 条，内容一定会超过窗口高度。 */
 
 .assets-page {
@@ -25,27 +25,27 @@
   align-items: baseline;
   gap: 8px;
   font-size: 15px;
-  color: #3d3733;
+  color: var(--text-strong);
 }
 
 /* 英文副标题：比中文小一号、灰一档——双语并列但不抢主语言 */
 .assets-en {
   font-size: 11px;
   font-weight: 400;
-  color: #b3a49e;
+  color: var(--text-faint);
 }
 
 .assets-lead {
   margin: 0;
   font-size: 12px;
   line-height: 1.65;
-  color: #6f625d;
+  color: var(--text);
 }
 
 .assets-lead--en {
   margin-top: -6px;
   font-size: 12px;
-  color: #a39690;
+  color: var(--text-faint);
 }
 
 .assets-lead code,
@@ -53,8 +53,8 @@
 .assets-state__code {
   padding: 1px 5px;
   border-radius: 5px;
-  background: #fdf3f5;
-  color: #c0556d;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
@@ -63,7 +63,7 @@
   padding: 0;
   border: none;
   background: none;
-  color: #e2708a;
+  color: var(--accent-text);
   font-family: inherit;
   font-size: 12px;
   text-decoration: underline;
@@ -94,8 +94,8 @@
   padding: 8px 14px;
   border: none;
   border-radius: 9px;
-  background: #ff8fab;
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--bg-surface);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -114,7 +114,7 @@
 
 .assets-import__hint {
   font-size: 11px;
-  color: #a39690;
+  color: var(--text-faint);
 }
 
 /* ── 待确认列表 ── */
@@ -124,9 +124,9 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px;
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fffdfd;
+  background: var(--bg-surface);
 }
 
 .assets-pending__head {
@@ -134,7 +134,7 @@
   align-items: center;
   justify-content: space-between;
   font-size: 13px;
-  color: #3d3733;
+  color: var(--text-strong);
 }
 
 .assets-pending__list {
@@ -168,12 +168,12 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: #8a7f7a;
+  color: var(--text-muted);
 }
 
 .assets-pending__arrow {
   flex: 0 0 auto;
-  color: #c9b8b2;
+  color: var(--text-faint2);
 }
 
 .assets-pending__to {
@@ -183,10 +183,10 @@
 
 .assets-pending__item select {
   padding: 5px 6px;
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
-  color: #3d3733;
+  background: var(--bg-surface);
+  color: var(--text-strong);
   font-family: inherit;
   font-size: 12px;
   outline: none;
@@ -194,7 +194,7 @@
 }
 
 .assets-pending__item select:focus {
-  border-color: #ffc4d0;
+  border-color: var(--border-accent);
 }
 
 .assets-pending__remove {
@@ -203,15 +203,15 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #b3a49e;
+  color: var(--text-faint);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
 }
 
 .assets-pending__remove:hover {
-  background: #ffe1e6;
-  color: #c94a5a;
+  background: var(--bg-hover-strong);
+  color: var(--accent-text);
 }
 
 /* 帧序号角标（v0.10.0）：与变体序号在不同色系，提醒"这是动画的一帧，不是另一张图" */
@@ -219,8 +219,8 @@
   flex: 0 0 auto;
   padding: 1px 5px;
   border-radius: 5px;
-  background: #eaf1fb;
-  color: #3d6fa8;
+  background: var(--bg-info-tint);
+  color: var(--info-text);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -229,8 +229,8 @@
   margin: 0;
   padding: 6px 8px;
   border-radius: 8px;
-  background: #f1f6fd;
-  color: #3f6690;
+  background: var(--bg-info-tint);
+  color: var(--info-text);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -240,7 +240,7 @@
   grid-column: 1 / -1;
   margin: 0;
   font-size: 11px;
-  color: #c0722c;
+  color: var(--warn-text);
 }
 
 /* ── 结果提示 ── */
@@ -254,13 +254,13 @@
 }
 
 .assets-notice--ok {
-  background: #f0f8f3;
-  color: #3f7a5a;
+  background: var(--bg-success-tint);
+  color: var(--success-text);
 }
 
 .assets-notice--error {
-  background: #fdf1f2;
-  color: #b5445a;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
 }
 
 /* ── 状态说明 ── */
@@ -277,7 +277,7 @@
   align-items: baseline;
   gap: 8px;
   font-size: 13px;
-  color: #3d3733;
+  color: var(--text-strong);
 }
 
 .assets-states__list {
@@ -291,9 +291,9 @@
 
 .assets-state {
   padding: 8px 10px;
-  border: 1px solid #f3e8ec;
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
-  background: #fff;
+  background: var(--bg-surface);
 }
 
 .assets-state__title {
@@ -305,38 +305,38 @@
 
 .assets-state__title strong {
   font-size: 13px;
-  color: #3d3733;
+  color: var(--text-strong);
 }
 
 .assets-state__en {
   font-size: 11px;
-  color: #b3a49e;
+  color: var(--text-faint);
 }
 
 /* 已有素材计数靠右：一眼看出"这个状态我配没配过图" */
 .assets-state__count {
   margin-left: auto;
   font-size: 11px;
-  color: #b3a49e;
+  color: var(--text-faint);
 }
 
 .assets-state__when {
   margin: 3px 0 0;
   font-size: 12px;
   line-height: 1.5;
-  color: #3d3733;
+  color: var(--text-strong);
 }
 
 .assets-state__when-en {
   margin: 1px 0 0;
   font-size: 11px;
   line-height: 1.5;
-  color: #a39690;
+  color: var(--text-faint);
 }
 
 .assets-foot {
   margin: 2px 0 0;
   font-size: 11px;
   line-height: 1.6;
-  color: #a39690;
+  color: var(--text-faint);
 }

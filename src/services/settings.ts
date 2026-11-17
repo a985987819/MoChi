@@ -101,7 +101,19 @@ export interface AppSettings extends AddressingPreferences {
    * clamp）；宠物窗把同值写进 CSS 变量 --pet-scale 缩放形象。
    */
   petScale: number;
+  /**
+   * 主题模式（v0.18.0 P2-03A）：system 跟随系统（默认）/ light / dark。
+   * 每个窗口的 installThemeWatcher 据此写 documentElement[data-theme]，
+   * CSS 变量（shared/theme.css）据此切换浅/深。宠物窗背景始终透明——
+   * 主题只影响聊天窗/提醒窗/气泡/菜单等 UI 元素，不碰素材。
+   */
+  themeMode: ThemeMode;
 }
+
+export type ThemeMode = "system" | "light" | "dark";
+
+/** 主题模式的合法取值（normalize 与设置页下拉共用，避免三处各写一份） */
+export const THEME_MODES: readonly ThemeMode[] = ["system", "light", "dark"];
 
 const STORE_FILE = "settings.json";
 const KEY = "app";
@@ -129,6 +141,7 @@ export function defaultSettings(): AppSettings {
     autostartEnabled: false,
     gameModeEnabled: false,
     petScale: 1,
+    themeMode: "system",
   };
 }
 
@@ -182,6 +195,8 @@ export function normalize(raw: unknown): AppSettings {
     gameModeEnabled: typeof r.gameModeEnabled === "boolean" ? r.gameModeEnabled : d.gameModeEnabled,
     // 浮点档位比较：容差 1e-6（0.8+0.1 之类的浮点误差不至于把合法值打成非法）
     petScale: PET_SCALES.find(s => Math.abs((typeof r.petScale === "number" ? r.petScale : 1) - s) < 1e-6) ?? d.petScale,
+    // 主题模式白名单（脏值回落 system——跟随系统是唯一不会"错得离谱"的选择）
+    themeMode: THEME_MODES.includes(r.themeMode as ThemeMode) ? (r.themeMode as ThemeMode) : d.themeMode,
   };
 }
 

@@ -13,9 +13,14 @@ import { startSystemEvents } from "@/services/system-events";
 import { configureSound, playAlert } from "@/services/sound";
 import { subscribeHeartbeat } from "@/services/heartbeat";
 import { installGlobalErrorLogging } from "@/services/log";
+import { installThemeWatcher } from "@/shared/theme";
+import "@/shared/theme.css";
 
 // 全局异常落盘（v0.16.0）：未捕获错误/拒绝进日志文件（release 无控制台）
 installGlobalErrorLogging("pet");
+
+// 主题监听（v0.18.0）：设置/系统深浅变化时切换本窗口的 data-theme
+installThemeWatcher();
 
 // 跨窗口遥控监听（state://set-mood 等）只装一次：宠物窗是宠物状态的宿主窗口
 void petState.installRemoteListeners().catch(() => undefined);

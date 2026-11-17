@@ -27,6 +27,7 @@ import {
 } from "@/services/settings";
 import { listTtsVoices, speak, subscribeVoices } from "@/services/tts";
 import { logError } from "@/services/log";
+import type { ThemeMode } from "@/services/settings";
 import { backupsDir, exportBackup, formatBytes, importBackup, listBackups, type BackupInfo } from "@/services/backup";
 
 /**
@@ -273,6 +274,8 @@ export function SettingsTab() {
       <AutostartSection settings={settings} update={update} />
 
       <SoundSection settings={settings} update={update} updateDebounced={updateDebounced} />
+
+      <ThemeSection settings={settings} update={update} />
 
       <TtsSection settings={settings} update={update} updateDebounced={updateDebounced} />
 
@@ -616,6 +619,44 @@ function SoundSection({
       <p className="settings-note">
         免打扰时段内提醒不出声；点击音仍然保留——那是你主动点的，静默它只会让人以为卡住了。
       </p>
+    </div>
+  );
+}
+
+/**
+ * 主题（v0.18.0 P2-03A）：跟随系统 / 浅色 / 深色。
+ *
+ * 离散控件直存（update）；每个 WebView 各自监听 settingsChanged 应用 data-theme
+ * （shared/theme.ts）——主题是外观，切换即时生效、无需重启。深色是**暖棕灰**
+ * 底不是反色（theme.css 取舍注释）；素材图片任何主题下都不加滤镜。
+ */
+function ThemeSection({
+  settings,
+  update,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+}) {
+  const options: Array<{ value: ThemeMode; label: string }> = [
+    { value: "system", label: "跟随系统" },
+    { value: "light", label: "浅色" },
+    { value: "dark", label: "深色" },
+  ];
+  return (
+    <div className="settings-sound">
+      <span className="settings-field-label">主题</span>
+      <div className="settings-segment">
+        {options.map(option => (
+          <button
+            key={option.value}
+            className={settings.themeMode === option.value ? "settings-segment__btn settings-segment__btn--active" : "settings-segment__btn"}
+            onClick={() => update({ themeMode: option.value })}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="settings-note">宠物形象与素材不受主题影响；提醒弹窗、右键菜单会一起切换。</p>
     </div>
   );
 }

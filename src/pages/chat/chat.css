@@ -3,7 +3,7 @@
 /* v0.9.0 P1-04：窗口透明化，圆角由 .chat-shell 承担——decorations:false 的
    窗口在 Win11 上是硬直角，贴桌面像一块补丁。
    回退预案（若实测出现黑边/拖影/GPU 飙升）：tauri.conf.json 去掉 transparent，
-   本文件 html/body 背景改回 #faf7f5、去掉 .chat-shell 的圆角阴影即可。 */
+   本文件 html/body 背景改回 var(--bg-window)、去掉 .chat-shell 的圆角阴影即可。 */
 html,
 body {
   margin: 0;
@@ -28,10 +28,10 @@ body {
     "Microsoft YaHei",
     "PingFang SC",
     sans-serif;
-  color: #3d3733;
+  color: var(--text-strong);
   overflow: hidden;
   border-radius: 12px;
-  background: #faf7f5;
+  background: var(--bg-window);
   box-shadow: 0 12px 32px rgba(80, 50, 60, 0.18);
 }
 
@@ -41,8 +41,8 @@ body {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: #ffffff;
-  border-bottom: 1px solid #f0e4e8;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .chat-titlebar__title {
@@ -68,15 +68,15 @@ body {
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: #8a7f7a;
+  color: var(--text-muted);
   font-size: 13px;
   cursor: pointer;
 }
 
 .chat-tab--active,
 .chat-tab:hover {
-  background: #f7ecef;
-  color: #3d3733;
+  background: var(--bg-hover);
+  color: var(--text-strong);
 }
 
 .chat-titlebar__close {
@@ -86,15 +86,15 @@ body {
   border: none;
   border-radius: 7px;
   background: transparent;
-  color: #8a7f7a;
+  color: var(--text-muted);
   font-size: 15px;
   line-height: 1;
   cursor: pointer;
 }
 
 .chat-titlebar__close:hover {
-  background: #ffe1e6;
-  color: #c94a5a;
+  background: var(--bg-hover-strong);
+  color: var(--accent-text);
 }
 
 /* ── 消息流 ── */
@@ -141,7 +141,7 @@ body {
 .chat-empty {
   margin: auto;
   text-align: center;
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 13px;
   line-height: 2;
 }
@@ -155,10 +155,10 @@ body {
 .chat-history-error {
   margin: 12px 14px;
   padding: 10px 12px;
-  border: 1px solid #f0dfe6;
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
-  background: #fff5f7;
-  color: #b3455a;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
   font-size: 13px;
   text-align: center;
 }
@@ -179,19 +179,19 @@ body {
 
 .chat-chip {
   padding: 5px 12px;
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #fff;
-  color: #6f6560;
+  background: var(--bg-surface);
+  color: var(--text);
   font-size: 12px;
   line-height: 1.5;
   cursor: pointer;
 }
 
 .chat-chip:hover {
-  border-color: #ffd3d8;
-  color: #3d3733;
-  background: #fdf7f9;
+  border-color: var(--border-accent);
+  color: var(--text-strong);
+  background: var(--bg-accent-soft);
 }
 
 .chat-msg {
@@ -216,14 +216,14 @@ body {
 }
 
 .chat-msg--user .chat-msg__bubble {
-  background: #ff8fab;
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--bg-surface);
   border-bottom-right-radius: 4px;
 }
 
 .chat-msg--assistant .chat-msg__bubble {
-  background: #ffffff;
-  border: 1px solid #f0e4e8;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
 }
 
@@ -238,7 +238,7 @@ body {
   height: 14px;
   margin-left: 2px;
   vertical-align: -2px;
-  background: #ff8fab;
+  background: var(--accent-fill);
   animation: chat-cursor-blink 0.9s steps(1) infinite;
 }
 
@@ -251,7 +251,7 @@ body {
   height: 14px;
   margin-left: 2px;
   vertical-align: -2px;
-  background: #ff8fab;
+  background: var(--accent-fill);
   animation: chat-cursor-blink 0.9s steps(1) infinite;
 }
 
@@ -275,7 +275,7 @@ body {
 }
 
 .chat-md pre {
-  background: #f6f1f3;
+  background: var(--bg-muted);
   padding: 8px 10px;
   border-radius: 8px;
   overflow-x: auto;
@@ -283,7 +283,7 @@ body {
 }
 
 .chat-md code {
-  background: #f6f1f3;
+  background: var(--bg-muted);
   padding: 1px 4px;
   border-radius: 4px;
   font-size: 12px;
@@ -300,7 +300,7 @@ body {
 
 .chat-md th,
 .chat-md td {
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   padding: 3px 8px;
 }
 
@@ -309,9 +309,9 @@ body {
   margin: 0 14px 6px;
   padding: 7px 10px;
   border-radius: 10px;
-  background: #ffeef0;
-  border: 1px solid #ffd3d8;
-  color: #b3455a;
+  background: var(--bg-accent-tint);
+  border: 1px solid var(--border-accent);
+  color: var(--accent-text);
   font-size: 13px;
   user-select: text;
 }
@@ -331,22 +331,22 @@ body {
 .chat-error__action {
   flex-shrink: 0;
   padding: 3px 10px;
-  border: 1px solid #f3b8c2;
+  border: 1px solid var(--border-accent);
   border-radius: 8px;
-  background: #fff;
-  color: #b3455a;
+  background: var(--bg-surface);
+  color: var(--accent-text);
   font-size: 12px;
   cursor: pointer;
 }
 
 .chat-error__action:hover {
-  background: #fff5f7;
+  background: var(--bg-accent-soft);
 }
 
 .chat-error__details {
   margin-top: 4px;
   font-size: 11px;
-  color: #c17d8b;
+  color: var(--accent-text);
 }
 
 .chat-error__details summary {
@@ -359,7 +359,7 @@ body {
   margin-top: 3px;
   padding: 5px 7px;
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg-surface);
   word-break: break-all;
   user-select: text;
 }
@@ -374,10 +374,10 @@ body {
   top: -10px;
   right: 8px;
   padding: 2px 8px;
-  border: 1px solid #f0dfe6;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
-  color: #8a7e76;
+  background: var(--bg-surface);
+  color: var(--text-muted);
   font-size: 11px;
   cursor: pointer;
   opacity: 0;
@@ -392,17 +392,17 @@ body {
   align-self: flex-start;
   margin: 3px 0 0 46px;
   padding: 3px 12px;
-  border: 1px solid #f0dfe6;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
-  color: #6f6560;
+  background: var(--bg-surface);
+  color: var(--text);
   font-size: 12px;
   cursor: pointer;
 }
 
 .chat-retry-btn:hover {
-  border-color: #ffd3d8;
-  color: #b3455a;
+  border-color: var(--border-accent);
+  color: var(--accent-text);
 }
 
 /* ── 输入区 ── */
@@ -417,26 +417,26 @@ body {
   flex: 1;
   resize: none;
   padding: 9px 12px;
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--bg-surface);
   font-family: inherit;
   font-size: 14px;
   line-height: 1.5;
-  color: #3d3733;
+  color: var(--text-strong);
   outline: none;
 }
 
 .chat-composer textarea:focus {
-  border-color: #ffc4d0;
+  border-color: var(--border-accent);
 }
 
 .chat-send {
   padding: 9px 16px;
   border: none;
   border-radius: 12px;
-  background: #ff8fab;
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--bg-surface);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -448,7 +448,7 @@ body {
 }
 
 .chat-send--stop {
-  background: #f0b6c0;
+  background: var(--bg-accent-tint);
 }
 
 /* ── 设置面板 ── */
@@ -469,25 +469,25 @@ body {
 }
 
 .settings-field span {
-  color: #8a7f7a;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
 .settings-field select,
 .settings-field input {
   padding: 8px 10px;
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   border-radius: 9px;
-  background: #fff;
+  background: var(--bg-surface);
   font-family: inherit;
   font-size: 13px;
-  color: #3d3733;
+  color: var(--text-strong);
   outline: none;
 }
 
 .settings-field select:focus,
 .settings-field input:focus {
-  border-color: #ffc4d0;
+  border-color: var(--border-accent);
 }
 
 /* 音量滑杆（v0.12.0）：复用字段容器，但滑块不需要内边距与边框 */
@@ -495,7 +495,7 @@ body {
   padding: 0;
   border: none;
   background: transparent;
-  accent-color: #ff8fab;
+  accent-color: var(--accent-fill);
   cursor: pointer;
 }
 
@@ -513,13 +513,13 @@ body {
 
 .settings-hours__sep {
   flex: 0 0 auto;
-  color: #8a7f7a;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
 .settings-note {
   margin: 0;
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -530,7 +530,7 @@ body {
   padding: 0;
   border: none;
   background: none;
-  color: #e2708a;
+  color: var(--accent-text);
   font-family: inherit;
   font-size: inherit;
   text-decoration: underline;
@@ -540,22 +540,22 @@ body {
 .settings-note--foot {
   margin-top: auto;
   padding-top: 10px;
-  border-top: 1px dashed #f0e4e8;
+  border-top: 1px dashed var(--border);
 }
 
 /* 自启真值回显（v0.9.1）：ok = 系统已登记；warn = 设置与系统不一致/被拦截。
    只做轻微色差，不抢主内容——提示语气要"告知"，不是"报警"。 */
 .settings-note--ok {
-  color: #5f9e7a;
+  color: var(--success-text);
 }
 
 .settings-note--warn {
-  color: #c0722c;
+  color: var(--warn-text);
 }
 
 .settings-note--warn .settings-link {
   margin-left: 4px;
-  color: #c0722c;
+  color: var(--warn-text);
 }
 
 .settings-test {
@@ -568,8 +568,8 @@ body {
   padding: 8px 14px;
   border: none;
   border-radius: 9px;
-  background: #ff8fab;
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--bg-surface);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -580,12 +580,12 @@ body {
 }
 
 .settings-test__ok {
-  color: #3d9a6a;
+  color: var(--success-text);
   font-size: 13px;
 }
 
 .settings-test__fail {
-  color: #b3455a;
+  color: var(--accent-text);
   font-size: 13px;
   user-select: text;
 }
@@ -595,8 +595,8 @@ body {
   align-self: center;
   padding: 3px 10px;
   border-radius: 8px;
-  background: #f6f1f3;
-  color: #a39690;
+  background: var(--bg-muted);
+  color: var(--text-faint);
   font-size: 11px;
 }
 
@@ -618,25 +618,25 @@ body {
 .todos-add input {
   flex: 1;
   padding: 8px 10px;
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   border-radius: 9px;
-  background: #fff;
+  background: var(--bg-surface);
   font-family: inherit;
   font-size: 13px;
-  color: #3d3733;
+  color: var(--text-strong);
   outline: none;
 }
 
 .todos-add input:focus {
-  border-color: #ffc4d0;
+  border-color: var(--border-accent);
 }
 
 .todos-add button {
   padding: 8px 14px;
   border: none;
   border-radius: 9px;
-  background: #ff8fab;
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--bg-surface);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -650,13 +650,13 @@ body {
 .todos-empty {
   margin: 24px auto;
   text-align: center;
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 13px;
   line-height: 2;
 }
 
 .todos-section {
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 12px;
   margin-top: 6px;
 }
@@ -667,8 +667,8 @@ body {
   gap: 10px;
   padding: 9px 12px;
   border-radius: 11px;
-  background: #fff;
-  border: 1px solid #f0e4e8;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .todo-row--done {
@@ -679,18 +679,18 @@ body {
   width: 20px;
   height: 20px;
   flex: 0 0 auto;
-  border: 1.5px solid #ffc4d0;
+  border: 1.5px solid var(--border-accent);
   border-radius: 6px;
-  background: #fff;
-  color: #e2708a;
+  background: var(--bg-surface);
+  color: var(--accent-text);
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
 }
 
 .todo-row__check:disabled {
-  background: #ffc4d0;
-  color: #fff;
+  background: var(--border-accent);
+  color: var(--bg-surface);
   cursor: default;
 }
 
@@ -712,13 +712,13 @@ body {
 }
 
 .todo-row__due {
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 11px;
 }
 
 /* 逾期（v0.13.0）：用主色提示"已经过点了"，不改整行颜色——待办本身还有别的主次 */
 .todo-row__due--overdue {
-  color: #c05a72;
+  color: var(--accent-text);
 }
 
 /* 到期时间输入（v0.13.0）：可选，视觉上弱于添加行 */
@@ -727,23 +727,23 @@ body {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #a39690;
+  color: var(--text-faint);
 }
 
 .todos-due input {
   flex: 1;
   padding: 6px 8px;
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
-  color: #3d3733;
+  background: var(--bg-surface);
+  color: var(--text-strong);
   font-family: inherit;
   font-size: 12px;
   outline: none;
 }
 
 .todos-due input:focus {
-  border-color: #ffc4d0;
+  border-color: var(--border-accent);
 }
 
 .todo-row__del {
@@ -753,19 +753,19 @@ body {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #c4b6bd;
+  color: var(--text-faint2);
   font-size: 14px;
   cursor: pointer;
 }
 
 .todo-row__del:hover {
-  background: #ffe1e6;
-  color: #c94a5a;
+  background: var(--bg-hover-strong);
+  color: var(--accent-text);
 }
 
 /* ── 设置：记忆管理与危险区 ── */
 .settings-field-label {
-  color: #8a7f7a;
+  color: var(--text-muted);
   font-size: 12px;
   margin-bottom: 2px;
   display: block;
@@ -784,8 +784,8 @@ body {
   gap: 8px;
   padding: 7px 10px;
   border-radius: 9px;
-  background: #fff;
-  border: 1px solid #f0e4e8;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .settings-memory__fact {
@@ -796,7 +796,7 @@ body {
 }
 
 .settings-memory__src {
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 11px;
   flex: 0 0 auto;
 }
@@ -808,17 +808,17 @@ body {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #c4b6bd;
+  color: var(--text-faint2);
   cursor: pointer;
 }
 
 .settings-memory button:hover {
-  background: #ffe1e6;
-  color: #c94a5a;
+  background: var(--bg-hover-strong);
+  color: var(--accent-text);
 }
 
 .settings-danger {
-  border-top: 1px dashed #f0dfe6;
+  border-top: 1px dashed var(--border-strong);
   padding-top: 10px;
 }
 
@@ -827,7 +827,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  border-top: 1px dashed #f0dfe6;
+  border-top: 1px dashed var(--border-strong);
   padding-top: 10px;
 }
 
@@ -841,40 +841,40 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  border-top: 1px dashed #f0dfe6;
+  border-top: 1px dashed var(--border-strong);
   padding-top: 10px;
 }
 
 .settings-ghost-btn {
   align-self: flex-start;
   padding: 7px 12px;
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   border-radius: 9px;
-  background: #fff;
-  color: #6f6560;
+  background: var(--bg-surface);
+  color: var(--text);
   font-family: inherit;
   font-size: 13px;
   cursor: pointer;
 }
 
 .settings-ghost-btn:hover {
-  background: #fdf7f9;
-  border-color: #ffd3d8;
+  background: var(--bg-accent-soft);
+  border-color: var(--border-accent);
 }
 
 .settings-danger button {
   align-self: flex-start;
   padding: 7px 12px;
-  border: 1px solid #ffd3d8;
+  border: 1px solid var(--border-accent);
   border-radius: 9px;
-  background: #fff5f6;
-  color: #b3455a;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
   font-size: 13px;
   cursor: pointer;
 }
 
 .settings-danger button:hover {
-  background: #ffeef0;
+  background: var(--bg-accent-tint);
 }
 
 /* ── 设置：计时配置 ── */
@@ -898,12 +898,12 @@ body {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #6f6560;
+  color: var(--text);
   cursor: pointer;
 }
 
 .settings-toggle input {
-  accent-color: #ff8fab;
+  accent-color: var(--accent-fill);
   width: 15px;
   height: 15px;
 }
@@ -925,22 +925,22 @@ body {
   gap: 8px;
   padding: 22px;
   border-radius: 16px;
-  background: #fff;
-  border: 1px solid #f0e4e8;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .pomo-card--focus {
-  border-color: #ffb1c4;
-  background: #fff5f8;
+  border-color: var(--border-accent);
+  background: var(--bg-accent-soft);
 }
 
 .pomo-card--break {
-  border-color: #b9e2c9;
-  background: #f4fbf6;
+  border-color: var(--border-success);
+  background: var(--bg-success-tint);
 }
 
 .pomo-phase {
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 13px;
   letter-spacing: 2px;
 }
@@ -949,12 +949,12 @@ body {
   font-size: 44px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #3d3733;
+  color: var(--text-strong);
   line-height: 1.1;
 }
 
 .pomo-card--focus .pomo-time {
-  color: #e2708a;
+  color: var(--accent-text);
 }
 
 .pomo-btn {
@@ -962,19 +962,19 @@ body {
   padding: 9px 26px;
   border: none;
   border-radius: 11px;
-  background: #ff8fab;
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--bg-surface);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .pomo-btn--stop {
-  background: #f0b6c0;
+  background: var(--bg-accent-tint);
 }
 
 .pomo-hint {
-  color: #c4b6bd;
+  color: var(--text-faint2);
   font-size: 12px;
   margin: 4px 0 0;
   text-align: center;
@@ -987,7 +987,7 @@ body {
 }
 
 .pomo-reminders__title {
-  color: #8a7f7a;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -997,8 +997,8 @@ body {
   gap: 8px;
   padding: 8px 11px;
   border-radius: 10px;
-  background: #fff;
-  border: 1px solid #f0e4e8;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .pomo-reminder__text {
@@ -1008,7 +1008,7 @@ body {
 }
 
 .pomo-reminder__time {
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 11px;
   flex: 0 0 auto;
 }
@@ -1018,8 +1018,8 @@ body {
   margin-right: 4px;
   padding: 1px 4px;
   border-radius: 4px;
-  background: #fdf3f5;
-  color: #c0556d;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
 }
 
 .pomo-reminder button {
@@ -1029,13 +1029,13 @@ body {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #c4b6bd;
+  color: var(--text-faint2);
   cursor: pointer;
 }
 
 .pomo-reminder button:hover {
-  background: #ffe1e6;
-  color: #c94a5a;
+  background: var(--bg-hover-strong);
+  color: var(--accent-text);
 }
 
 /* ── 新手引导（v0.9.0）：覆盖内容区的「第一课」 ──
@@ -1068,14 +1068,14 @@ body {
 .welcome__hello h1 {
   margin: 0 0 4px;
   font-size: 16px;
-  color: #3d3733;
+  color: var(--text-strong);
 }
 
 .welcome__hello p {
   margin: 0;
   font-size: 13px;
   line-height: 1.6;
-  color: #8a7f7a;
+  color: var(--text-muted);
 }
 
 .welcome__steps {
@@ -1092,8 +1092,8 @@ body {
   gap: 10px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #fff;
-  border: 1px solid #f0e4e8;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .welcome-step__no {
@@ -1102,8 +1102,8 @@ body {
   height: 20px;
   margin-top: 1px;
   border-radius: 50%;
-  background: #ffe4ec;
-  color: #e2708a;
+  background: var(--bg-accent-tint);
+  color: var(--accent-text);
   font-size: 12px;
   font-weight: 700;
   display: flex;
@@ -1121,13 +1121,13 @@ body {
 .welcome-step__title {
   font-size: 13px;
   font-weight: 600;
-  color: #3d3733;
+  color: var(--text-strong);
 }
 
 .welcome-step__desc {
   font-size: 12px;
   line-height: 1.6;
-  color: #8a7f7a;
+  color: var(--text-muted);
 }
 
 .welcome__actions {
@@ -1141,9 +1141,9 @@ body {
   flex: 1;
   padding: 10px 0;
   border-radius: 11px;
-  border: 1px solid #f0e4e8;
-  background: #fff;
-  color: #6f6560;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -1151,24 +1151,24 @@ body {
 }
 
 .welcome__btn:hover {
-  background: #fdf7f9;
+  background: var(--bg-accent-soft);
 }
 
 .welcome__btn--primary {
-  background: #ff8fab;
-  border-color: #ff8fab;
-  color: #fff;
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--bg-surface);
 }
 
 .welcome__btn--primary:hover {
-  background: #fb7f9d;
+  background: var(--accent-fill);
 }
 
 .welcome__foot {
   margin: 0;
   font-size: 12px;
   line-height: 1.7;
-  color: #c4b6bd;
+  color: var(--text-faint2);
   text-align: center;
 }
 
@@ -1179,7 +1179,7 @@ body {
   padding: 0;
   border: none;
   background: none;
-  color: #d5c9cf;
+  color: var(--text-faint2);
   font-family: inherit;
   font-size: 11px;
   text-decoration: underline;
@@ -1187,7 +1187,7 @@ body {
 }
 
 .welcome__skip:hover {
-  color: #b3a0aa;
+  color: var(--text-faint2);
 }
 
 /* ── 提醒中心（v0.14.0，P1-02）──
@@ -1207,8 +1207,8 @@ body {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: #ff8fab;
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--bg-surface);
   font-size: 10px;
   font-weight: 600;
   line-height: 16px;
@@ -1232,18 +1232,18 @@ body {
 }
 
 .rem-section__title {
-  color: #8a7f7a;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
 .rem-hint {
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 12px;
   margin: 4px 0 0;
 }
 
 .rem-hint--error {
-  color: #b3455a;
+  color: var(--accent-text);
 }
 
 /* 行卡片：与 .pomo-reminder 同构（v0.7.0 的既有视觉语言） */
@@ -1253,8 +1253,8 @@ body {
   gap: 8px;
   padding: 8px 11px;
   border-radius: 10px;
-  background: #fff;
-  border: 1px solid #f0e4e8;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .rem-item > button {
@@ -1264,13 +1264,13 @@ body {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #c4b6bd;
+  color: var(--text-faint2);
   cursor: pointer;
 }
 
 .rem-item > button:hover {
-  background: #ffe1e6;
-  color: #c94a5a;
+  background: var(--bg-hover-strong);
+  color: var(--accent-text);
 }
 
 .rem-item__main {
@@ -1292,7 +1292,7 @@ body {
 }
 
 .rem-item__time {
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 11px;
   display: flex;
   align-items: center;
@@ -1309,8 +1309,8 @@ body {
 .rem-item__actions button {
   border: none;
   border-radius: 6px;
-  background: #fdf3f5;
-  color: #c0556d;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
   font-size: 11px;
   padding: 3px 8px;
   cursor: pointer;
@@ -1318,40 +1318,40 @@ body {
 }
 
 .rem-item__actions button:hover {
-  background: #ffe1e6;
-  color: #c94a5a;
+  background: var(--bg-hover-strong);
+  color: var(--accent-text);
 }
 
 /* 状态徽标 */
 .rem-chip {
   padding: 1px 6px;
   border-radius: 4px;
-  background: #fdf3f5;
-  color: #c0556d;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
   font-size: 11px;
   white-space: nowrap;
 }
 
 .rem-chip--ok {
-  background: #f6f1f3;
-  color: #6f6560;
+  background: var(--bg-muted);
+  color: var(--text);
 }
 
 .rem-chip--warn {
-  background: #ffeef0;
-  color: #b3455a;
+  background: var(--bg-accent-tint);
+  color: var(--accent-text);
 }
 
 .rem-chip--muted {
-  background: #f6f1f3;
-  color: #a39690;
+  background: var(--bg-muted);
+  color: var(--text-faint);
 }
 
 /* 合并交付批次（v0.11.0 长休眠恢复）：默认一行收起，details 原生展开零 JS */
 .rem-batch {
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--bg-surface);
   overflow: hidden;
 }
 
@@ -1373,14 +1373,14 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 11px;
-  border-top: 1px solid #f7ecef;
+  border-top: 1px solid var(--bg-hover);
 }
 
 .rem-batch__text {
   flex: 1;
   min-width: 0;
   font-size: 12px;
-  color: #6f6560;
+  color: var(--text);
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1392,7 +1392,7 @@ body {
   align-self: center;
   border: none;
   background: transparent;
-  color: #c0556d;
+  color: var(--accent-text);
   font-size: 12px;
   padding: 6px 12px;
   border-radius: 8px;
@@ -1400,17 +1400,17 @@ body {
 }
 
 .rem-more:hover {
-  background: #f7ecef;
+  background: var(--bg-hover);
 }
 
 .rem-more:disabled {
-  color: #c4b6bd;
+  color: var(--text-faint2);
   cursor: default;
 }
 
 /* 崩溃摘要（v0.16.0）：多行原文展示，pre-wrap 保留换行 */
 .settings-note--panic {
-  color: #b3455a;
+  color: var(--accent-text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1422,8 +1422,8 @@ body {
   gap: 8px;
   padding: 7px 11px;
   border-radius: 10px;
-  background: #fff;
-  border: 1px solid #f0e4e8;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .settings-backup__name {
@@ -1435,7 +1435,7 @@ body {
 
 .settings-backup__meta {
   flex: 0 0 auto;
-  color: #a39690;
+  color: var(--text-faint);
   font-size: 11px;
 }
 
@@ -1443,20 +1443,20 @@ body {
   flex: 0 0 auto;
   border: none;
   border-radius: 6px;
-  background: #fdf3f5;
-  color: #c0556d;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
   font-size: 11px;
   padding: 3px 8px;
   cursor: pointer;
 }
 
 .settings-backup__row > button:hover {
-  background: #ffe1e6;
-  color: #c94a5a;
+  background: var(--bg-hover-strong);
+  color: var(--accent-text);
 }
 
 .settings-backup__row > button:disabled {
-  color: #c4b6bd;
+  color: var(--text-faint2);
   cursor: default;
 }
 
@@ -1464,4 +1464,32 @@ body {
   display: flex;
   gap: 4px;
   flex: 0 0 auto;
+}
+
+/* ── 主题分段选择（v0.18.0 P2-03A）── */
+.settings-segment {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--bg-muted);
+}
+
+.settings-segment__btn {
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.settings-segment__btn:hover {
+  color: var(--text-strong);
+}
+
+.settings-segment__btn--active {
+  background: var(--bg-surface);
+  color: var(--text-strong);
 }

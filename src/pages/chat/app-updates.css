@@ -3,9 +3,9 @@
   flex-shrink: 0;
   min-width: 0;
   padding: 14px;
-  border: 1px solid #eedde1;
+  border: 1px solid var(--border-strong);
   border-radius: 14px;
-  background: #fffaf8;
+  background: var(--bg-subtle);
 }
 
 .settings-update__header {
@@ -20,19 +20,19 @@
   margin: 0 0 5px;
   font-size: 13px;
   font-weight: 600;
-  color: #65524d;
+  color: var(--text-strong);
 }
 
 .settings-update__version {
   margin: 0;
-  color: #8a7f7a;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
 .settings-update__version span {
   margin-left: 4px;
   font-variant-numeric: tabular-nums;
-  color: #ad6174;
+  color: var(--accent-text);
 }
 
 .settings-update__header .settings-ghost-btn {
@@ -46,25 +46,25 @@
 
 .settings-update button:focus-visible,
 .settings-update summary:focus-visible {
-  outline: 2px solid #ad6174;
+  outline: 2px solid var(--accent-text);
   outline-offset: 3px;
 }
 
 .settings-update__notes:focus-visible,
 .settings-update__fallback input:focus-visible {
-  outline: 2px solid #ad6174;
+  outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
 
 .settings-update__status {
   margin: 12px 0;
   line-height: 1.65;
-  color: #786862;
+  color: var(--text);
   font-size: 12px;
 }
 
 .settings-update__status--error {
-  color: #b3455a;
+  color: var(--accent-text);
 }
 
 .settings-update__available {
@@ -76,10 +76,10 @@
 .settings-update__download {
   justify-self: start;
   padding: 9px 12px;
-  border: 1px solid #d47e95;
+  border: 1px solid var(--accent-text);
   border-radius: 9px;
-  background: #a94e68;
-  color: #fff;
+  background: var(--accent-fill-deep);
+  color: var(--bg-surface);
   font: inherit;
   font-size: 12px;
   line-height: 1.5;
@@ -87,21 +87,21 @@
 }
 
 .settings-update__download:hover {
-  background: #963e57;
+  background: var(--accent-fill-deeper);
 }
 
 .settings-update__feedback {
   margin: 0;
-  color: #54785b;
+  color: var(--success-text);
   font-size: 12px;
   line-height: 1.6;
 }
 
 .settings-update__details {
-  border-top: 1px dashed #eedde1;
+  border-top: 1px dashed var(--border-strong);
   padding-top: 10px;
   margin-top: 10px;
-  color: #786862;
+  color: var(--text);
   font-size: 12px;
 }
 
@@ -116,7 +116,7 @@
   margin-top: 8px;
   padding: 10px;
   border-radius: 8px;
-  background: #f7efec;
+  background: var(--bg-subtle);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.7;
@@ -140,13 +140,13 @@
   gap: 6px;
   margin-top: 10px;
   font-size: 12px;
-  color: #b3455a;
+  color: var(--accent-text);
 }
 
 .settings-update__fallback input {
   min-width: 0;
   padding: 8px;
-  border: 1px solid #eedde1;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   font: inherit;
   user-select: text;

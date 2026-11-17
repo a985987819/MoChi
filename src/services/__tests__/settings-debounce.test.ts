@@ -55,6 +55,7 @@ const base: AppSettings = {
   autostartEnabled: false,
   gameModeEnabled: false,
   petScale: 1,
+  themeMode: "system" as const,
 };
 
 describe("createSettingsSaveQueue", () => {

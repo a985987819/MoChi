@@ -1,0 +1,113 @@
+/**
+ * 主题令牌（P2-03A / v0.18.0）—— 全站颜色的唯一事实源。
+ *
+ * # 结构
+ *
+ * `:root` 定义浅色（奶油粉体系原值）；`[data-theme="dark"]` 定义深色。
+ * 深色不是反色：项目是"奶油粉"，深色给的是**暖棕灰**底（#2a2426 系）——
+ * 冷灰会让整个应用变"硬"，任务单明确要求暖色对应。
+ *
+ * # 令牌语义分层（改色前先对号入座）
+ *
+ * - 底色五档：window（窗底）→ surface（卡片）→ muted（次级面板）→
+ *   subtle（更浅的段落底）→ hover（交互悬停，accent-strong 是粉色悬停）；
+ * - 粉色体系拆**填充**与**文字**两族：fill 类是"色块上放白字"，深色下保持饱和
+ *   （白字对比度不能塌）；text 类是"浅底上的粉字"，深色下提亮到 ≥4.5:1；
+ * - 正文文字三档：text-strong / text / text-muted，浅深两套都 ≥4.5:1（有对比度
+ *   单测钉死，见 theme-contrast.test.ts）；text-faint/faint2 是时间戳/占位符等
+ *   元数据档（浅色 3.1:1 / 2.2:1，刻意维持原设计层次，深色反而更高）；
+ * - 语义色（success/info/warn）文字档浅色做了加深（原值在白底 <4.5）。
+ *
+ * # 不变式
+ *
+ * - 宠物窗背景透明，本文件不给宠物窗加底色（html/body 透明是 v0.1.0 的约定）；
+ * - 素材图片一律不加滤镜——用户素材在两种主题下都照原样显示（任务单要求）。
+ */
+
+:root {
+  /* 底色 */
+  --bg-window: #faf7f5;
+  --bg-surface: #ffffff;
+  --bg-muted: #f6f1f3;
+  --bg-subtle: #faf5f3;
+  --bg-hover: #f7ecef;
+  --bg-hover-strong: #ffe1e6;
+  /* 粉色：填充族（色块上放白字，深色保持饱和） */
+  --accent-fill: #ff8fab;
+  --accent-fill-deep: #a94e68;
+  --accent-fill-deeper: #963e57;
+  /* 粉色：底纹族 */
+  --bg-accent-soft: #fdf3f5;
+  --bg-accent-tint: #ffeef0;
+  /* 粉色：文字族（浅底上的粉字，深色提亮保对比；浅色取原调色板里最深的
+     #b3455a——粉字在白底要 ≥4.5，#c94a5a 只有 4.2） */
+  --accent-text: #b3455a;
+  --accent-muted: #c9a0ab;
+  /* 边框 */
+  --border: #f0e4e8;
+  --border-strong: #f0dfe6;
+  --border-accent: #ffd3d8;
+  --border-success: #b9e2c9;
+  --border-bubble: #dfc8b4;
+  /* 文字（faint/faint2 相比原 #a39690/#c4b6bd 加深过：时间戳 ≥3、占位图标 ≥3——
+     占位图标是可点的 × 按钮，2.2:1 的旧值过不了 WCAG 次要信息档） */
+  --text-strong: #3d3733;
+  --text: #6f6560;
+  --text-muted: #7d716c;
+  --text-faint: #8f817b;
+  --text-faint2: #8f8491;
+  --text-bubble: #654c3f;
+  /* 语义色（浅色文字档加深过：白底 ≥4.5） */
+  --success-text: #2f7d54;
+  --info-text: #3f6690;
+  --warn-text: #a35f1e;
+  --bg-success-tint: #f4fbf6;
+  --bg-info-tint: #f1f6fd;
+  --bg-warn-tint: #fffaf0;
+  /* 阴影与高光 */
+  --shadow-color: rgba(114, 80, 57, 0.11);
+  --highlight: #ffffff;
+}
+
+:root[data-theme="dark"] {
+  /* 底色：暖棕灰（不是冷灰） */
+  --bg-window: #2a2426;
+  --bg-surface: #332c30;
+  --bg-muted: #3a3236;
+  --bg-subtle: #362f33;
+  --bg-hover: #3f363a;
+  --bg-hover-strong: #4d383f;
+  /* 粉色填充族：保持饱和，白字对比不塌 */
+  --accent-fill: #ff8fab;
+  --accent-fill-deep: #a94e68;
+  --accent-fill-deeper: #963e57;
+  /* 粉色底纹族：翻成深粉底 */
+  --bg-accent-soft: #453239;
+  --bg-accent-tint: #463039;
+  /* 粉色文字族：提亮到 ≥4.5:1 */
+  --accent-text: #ef8598;
+  --accent-muted: #a8606f;
+  /* 边框 */
+  --border: #453b40;
+  --border-strong: #52444b;
+  --border-accent: #5c4048;
+  --border-success: #33503f;
+  --border-bubble: #57483a;
+  /* 文字：暖亮灰 */
+  --text-strong: #ece4e1;
+  --text: #d6cdc7;
+  --text-muted: #b0a3a0;
+  --text-faint: #a89a95;
+  --text-faint2: #857a7e;
+  --text-bubble: #d8c3ae;
+  /* 语义色：提亮 */
+  --success-text: #7ccba2;
+  --info-text: #8fb3d9;
+  --warn-text: #d9a35b;
+  --bg-success-tint: #2b3a31;
+  --bg-info-tint: #2c3442;
+  --bg-warn-tint: #3b3427;
+  /* 阴影与高光：暗底用深阴影，高光换成极淡的白 */
+  --shadow-color: rgba(0, 0, 0, 0.5);
+  --highlight: rgba(255, 255, 255, 0.08);
+}

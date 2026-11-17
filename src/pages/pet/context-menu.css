@@ -11,8 +11,8 @@
   overflow-y: auto; /* 展开演示或系统字体放大时仍能滚动到“退出” */
   padding: 4px;
   box-sizing: border-box;
-  background: #fffdfa;
-  border: 1px solid #f0dfe6;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(120, 70, 90, 0.18);
   font-family:
@@ -44,26 +44,26 @@
   border: none;
   border-radius: 7px;
   background: transparent;
-  color: #3d3733;
+  color: var(--text-strong);
   font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
 
 .ctx-item:hover {
-  background: #f7ecef;
+  background: var(--bg-hover);
 }
 
 .ctx-divider {
   height: 1px;
   margin: 3px 6px;
-  background: #f0e4e8;
+  background: var(--border);
 }
 
 /* 手势备忘行（v0.9.0 P1-10）：纯展示，无 hover 无手型 */
 .ctx-hint {
   padding: 4px 10px 5px;
-  color: #b5a9a2;
+  color: var(--text-faint2);
   font-size: 10px;
   line-height: 1.5;
   text-align: center;
@@ -80,15 +80,15 @@
 
 .ctx-demo-btn {
   padding: 4px 2px;
-  border: 1px solid #f0e4e8;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
-  color: #6f6560;
+  background: var(--bg-surface);
+  color: var(--text);
   font-size: 11px;
   cursor: pointer;
 }
 
 .ctx-demo-btn:hover {
-  border-color: #ffc4d0;
-  color: #3d3733;
+  border-color: var(--border-accent);
+  color: var(--text-strong);
 }
