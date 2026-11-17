@@ -45,6 +45,8 @@ const base: AppSettings = {
   quietHoursEnabled: false,
   quietStartHour: 22,
   quietEndHour: 8,
+  soundEnabled: true,
+  soundVolume: 30,
   onboardingDone: false,
   shortcutEnabled: true,
   autostartEnabled: false,

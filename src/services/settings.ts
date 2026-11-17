@@ -46,6 +46,13 @@ export interface AppSettings extends AddressingPreferences {
   /** 静默结束的小时（0~23，本地时间，整点恢复） */
   quietEndHour: number;
   /**
+   * 音效开关（v0.12.0，**默认开**）。声音是桌宠"在场感"的一半：点击没反馈音、
+   * 提醒只有画面，用户不看屏幕时等于没提醒。关掉后连 `AudioContext` 都不创建。
+   */
+  soundEnabled: boolean;
+  /** 音效音量（0~100，默认 30）：这是**相对**音量，乘在每个音符的基准增益上 */
+  soundVolume: number;
+  /**
    * 是否已完成首次启动引导（v0.9.0）。
    *
    * 为什么把「引导是否看过」放在设置里而不是 localStorage：
@@ -101,6 +108,8 @@ export function defaultSettings(): AppSettings {
     quietHoursEnabled: false,
     quietStartHour: 22,
     quietEndHour: 8,
+    soundEnabled: true,
+    soundVolume: 30,
     onboardingDone: false,
     shortcutEnabled: true,
     autostartEnabled: false,
@@ -139,6 +148,8 @@ export function normalize(raw: unknown): AppSettings {
     // 小时越界即夹紧：0~23 是"整点"语义，越界值（如 24）会让静默时段变成全天或永不生效
     quietStartHour: clampInt(r.quietStartHour, 0, 23, d.quietStartHour),
     quietEndHour: clampInt(r.quietEndHour, 0, 23, d.quietEndHour),
+    soundEnabled: typeof r.soundEnabled === "boolean" ? r.soundEnabled : d.soundEnabled,
+    soundVolume: clampInt(r.soundVolume, 0, 100, d.soundVolume),
     // 老版本 settings.json 没有这个字段：undefined → false（当作没看过引导）。
     // 这正是「升级用户也会看到一次引导」的期望行为——v0.9.0 之前没有引导。
     onboardingDone: typeof r.onboardingDone === "boolean" ? r.onboardingDone : d.onboardingDone,

@@ -25,7 +25,7 @@
 //! Agent 回复气泡由宠物窗内的 PetBubble 组件直接监听 `ui://show-bubble` 实现，
 //! Rust 不再持有第四窗口与 `bubble://text` 转发链。
 
-use std::{collections::{BTreeMap, VecDeque}, sync::Mutex, time::Duration};
+use std::{collections::{BTreeMap, VecDeque}, sync::{atomic::{AtomicU64, Ordering}, Mutex}, time::Duration};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -195,7 +195,174 @@ fn is_fullscreen_cover(win: (i32, i32, i32, i32), monitor: (i32, i32, i32, i32))
 struct DragMotion {
     dragging: bool,
     last_move_at: Option<std::time::Instant>,
+    /// 松手前的位移采样（v0.12.0）：只保留最近 ~150ms，用来算"甩出去的速度"。
+    /// 存时间戳而不是逐帧算速度，是因为速度要看整段位移/时长，单帧差值噪声太大。
+    samples: VecDeque<(i32, i32, std::time::Instant)>,
+    /// 惯性滑行中（v0.12.0）：这期间窗口会被我们自己 `set_position` 移动，
+    /// 那些 `Moved` 事件必须忽略——否则会被当成"用户又抓住了"，把惯性打断成拖拽。
+    inertia: bool,
 }
+
+/// 惯性世代号：每次开始新惯性 +1。滑行线程持有自己的世代号，发现不匹配就立刻停下
+/// （用户重新抓起宠物 = 世代号被 +1，比给线程发信号简单且无锁竞争）。
+static INERTIA_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// 达到这个速度（px/s）才会滑行。低于它直接吸附落地——轻放不该滑。
+const INERTIA_MIN_SPEED: f64 = 250.0;
+/// 每帧摩擦衰减（约 60fps）。0.88 下 250px/s 的初速滑行约 0.25 秒、60px。
+const INERTIA_FRICTION: f64 = 0.88;
+/// 速度低于这个值就停（px/s）：再滑就是"飘"，不是"滑"。
+const INERTIA_STOP_SPEED: f64 = 40.0;
+/// 单帧位移上限（px）：速度采样异常（跨屏跳变）时不让窗口瞬移。
+const INERTIA_MAX_STEP: f64 = 120.0;
+/// 滑行总时长上限：再长就失控了。
+const INERTIA_MAX_MS: u64 = 600;
+/// 惯性积分步长（ms）：16ms ≈ 60fps，与显示器刷新同步的常见值。
+const INERTIA_STEP_MS: f64 = 16.0;
+
+/// 从采样序列估算松手速度（px/s）。
+///
+/// 少于 2 个样本、或首尾时间差 <16ms 时返回 None——单点或极短窗口算出来的"速度"
+/// 是抖动，据此滑行会变成随机弹射。
+fn drag_velocity(samples: &VecDeque<(i32, i32, std::time::Instant)>) -> Option<(f64, f64)> {
+    let first = samples.front()?;
+    let last = samples.back()?;
+    let seconds = last.2.duration_since(first.2).as_secs_f64();
+    if seconds < 0.016 {
+        return None;
+    }
+    Some((
+        (last.0 - first.0) as f64 / seconds,
+        (last.1 - first.1) as f64 / seconds,
+    ))
+}
+
+/// 单帧惯性积分：返回 (新位置, 新速度, 是否结束)。纯函数，可单测。
+///
+/// 模型是**干摩擦 + 撞墙即停**，不是弹簧：
+/// - 弹簧会有"回头"动作，桌宠被扔到边上还往回弹很离谱；
+/// - 撞到工作区边缘直接把该轴速度清零，符合"放在边上就该停在那"的直觉；
+/// - 位置同时被 clamp 在 work area 内，避免高速时穿出屏幕。
+fn inertia_step(
+    pos: (i32, i32),
+    vel: (f64, f64),
+    dt_ms: f64,
+    size: (u32, u32),
+    area: (i32, i32, u32, u32),
+) -> ((i32, i32), (f64, f64), bool) {
+    if !dt_ms.is_finite() || dt_ms <= 0.0 {
+        return (pos, (0.0, 0.0), true);
+    }
+    let (ax, ay, aw, ah) = (area.0, area.1, area.2 as i32, area.3 as i32);
+    let (w, h) = (size.0 as i32, size.1 as i32);
+    // 工作区比窗口还小时，min == max，窗口会被钉在左上角（防御除零/负范围）
+    let max_x = (ax + aw - w).max(ax);
+    let max_y = (ay + ah - h).max(ay);
+
+    let mut dx = vel.0 * dt_ms / 1000.0;
+    let mut dy = vel.1 * dt_ms / 1000.0;
+    let step = (dx * dx + dy * dy).sqrt();
+    if step > INERTIA_MAX_STEP {
+        let scale = INERTIA_MAX_STEP / step;
+        dx *= scale;
+        dy *= scale;
+    }
+
+    let mut next_x = pos.0 + dx.round() as i32;
+    let mut next_y = pos.1 + dy.round() as i32;
+    let mut next_vel = (vel.0 * INERTIA_FRICTION, vel.1 * INERTIA_FRICTION);
+
+    if next_x <= ax {
+        next_x = ax;
+        next_vel.0 = 0.0;
+    } else if next_x >= max_x {
+        next_x = max_x;
+        next_vel.0 = 0.0;
+    }
+    if next_y <= ay {
+        next_y = ay;
+        next_vel.1 = 0.0;
+    } else if next_y >= max_y {
+        next_y = max_y;
+        next_vel.1 = 0.0;
+    }
+
+    let speed = (next_vel.0 * next_vel.0 + next_vel.1 * next_vel.1).sqrt();
+    let moved = (next_x - pos.0).abs() + (next_y - pos.1).abs();
+    ((next_x, next_y), next_vel, speed < INERTIA_STOP_SPEED || moved == 0)
+}
+
+/// 启动惯性滑行（v0.12.0）：后台线程按 60fps 积分，位置变更调回 UI 线程执行。
+///
+/// 为什么自己开线程而不是用现有 1s 原生节拍：1s 粒度做不出滑行，需要 ~16ms。
+/// 线程只在"甩出去"的几百毫秒里存活，结束即退出，不做常驻。
+fn start_inertia(app: tauri::AppHandle, velocity: (f64, f64)) {
+    let token = INERTIA_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    if let Some(state) = app.try_state::<Mutex<DragMotion>>() {
+        if let Ok(mut motion) = state.lock() {
+            motion.inertia = true;
+        }
+    }
+    let handle = app.clone();
+    let _ = std::thread::Builder::new().name("mochi-inertia".into()).spawn(move || {
+        let Some(pet) = handle.get_webview_window("pet") else { finish_inertia(&handle); return };
+        let (Ok(position), Ok(size)) = (pet.outer_position(), pet.outer_size()) else {
+            finish_inertia(&handle);
+            return;
+        };
+        let monitor = match pet.current_monitor() {
+            Ok(Some(monitor)) => monitor,
+            _ => match pet.primary_monitor() {
+                Ok(Some(monitor)) => monitor,
+                _ => {
+                    finish_inertia(&handle);
+                    return;
+                }
+            },
+        };
+        let area = monitor.work_area();
+        let area_tuple = (area.position.x, area.position.y, area.size.width, area.size.height);
+        let mut pos = (position.x, position.y);
+        let mut vel = velocity;
+        let started = std::time::Instant::now();
+
+        loop {
+            std::thread::sleep(Duration::from_millis(INERTIA_STEP_MS as u64));
+            // 用户重新抓起（世代号变了）/ 应用退出：立刻停，不再动窗口
+            if INERTIA_GENERATION.load(Ordering::SeqCst) != token {
+                break;
+            }
+            let (next, next_vel, done) =
+                inertia_step(pos, vel, INERTIA_STEP_MS, (size.width, size.height), area_tuple);
+            pos = next;
+            vel = next_vel;
+            let mover = handle.clone();
+            let _ = handle.run_on_main_thread(move || {
+                if let Some(pet) = mover.get_webview_window("pet") {
+                    let _ = pet.set_position(tauri::PhysicalPosition::new(next.0, next.1));
+                }
+            });
+            if done || started.elapsed() > Duration::from_millis(INERTIA_MAX_MS) {
+                break;
+            }
+        }
+        // 收尾也调回 UI 线程：保证它排在最后一批 set_position 之后，读到的位置才是最终位置
+        let finisher = handle.clone();
+        let _ = handle.run_on_main_thread(move || finish_inertia(&finisher));
+    });
+}
+
+/// 惯性收尾：清标记与采样，再做一次贴边吸附（滑到边上正好对齐）。
+fn finish_inertia(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<Mutex<DragMotion>>() {
+        if let Ok(mut motion) = state.lock() {
+            motion.inertia = false;
+            motion.samples.clear();
+        }
+    }
+    snap_pet_to_edges(app);
+}
+
 
 /// 拖拽状态机（纯函数，可单测）：由「当前状态 + 距上次移动的毫秒数」决定广播。
 /// 返回 Some(新的 dragging 值) = 需要广播；None = 无事发生。
@@ -381,17 +548,38 @@ pub fn run() {
                 }
                 // 宠物窗被拖动（原生 start_dragging 中 Moved 连续到达）：只在边界广播
                 // 「开始拖拽」，结束由 native tick 的静默窗口判定（见 DragMotion 注释）。
-                WindowEvent::Moved(_) if window.label() == "pet" => {
+                WindowEvent::Moved(position) if window.label() == "pet" => {
                     let app = window.app_handle().clone();
                     let state = app.state::<Mutex<DragMotion>>();
                     let mut motion = match state.lock() {
                         Ok(m) => m,
                         Err(_) => return, // 锁中毒：拖拽反馈是锦上添花，静默跳过
                     };
-                    motion.last_move_at = Some(std::time::Instant::now());
+                    // 惯性滑行期间窗口是我们自己在移动（set_position 也会产生 Moved）：
+                    // 这些事件既不该刷新"拖拽静默窗口"，也不该被当成新一趟拖拽。
+                    if motion.inertia {
+                        return;
+                    }
+                    let now = std::time::Instant::now();
+                    motion.last_move_at = Some(now);
                     if let Some(next) = drag_transition(motion.dragging, Some(0)) {
                         motion.dragging = next;
+                        if next {
+                            motion.samples.clear(); // 新一趟拖拽：丢掉上一趟的采样
+                        }
                         let _ = app.emit_to("pet", EVT_PET_DRAG_CHANGED, serde_json::json!({ "dragging": next }));
+                    }
+                    // 采样只在拖拽中收集；保留最近 8 个且不超过 150ms——够算速度，又不吃内存
+                    motion.samples.push_back((position.x, position.y, now));
+                    while motion.samples.len() > 8 {
+                        motion.samples.pop_front();
+                    }
+                    while let Some(front) = motion.samples.front() {
+                        if now.duration_since(front.2).as_millis() > 150 {
+                            motion.samples.pop_front();
+                        } else {
+                            break;
+                        }
                     }
                 }
                 _ => {}
@@ -553,8 +741,15 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
     app.listen_any(EVT_TOGGLE_PET, move |_| toggle_pet(&handle));
 
     // 只有前端手势已越过移动阈值才进原生拖动，单击/双击不再被 mousedown 抢走。
+    // v0.12.0：抓住宠物立即取消进行中的惯性（世代号 +1，滑行线程下一帧自行退出）。
     let handle = app.clone();
     app.listen_any(EVT_DRAG_PET, move |_| {
+        INERTIA_GENERATION.fetch_add(1, Ordering::SeqCst);
+        let state = handle.state::<Mutex<DragMotion>>();
+        if let Ok(mut motion) = state.lock() {
+            motion.inertia = false;
+            motion.samples.clear();
+        }
         if let Some(pet) = handle.get_webview_window("pet") {
             let _ = pet.start_dragging();
         }
@@ -864,28 +1059,40 @@ fn start_native_tick(app: tauri::AppHandle) {
             // 拖拽收尾：上次 Moved 静默超窗 → 广播「放下」+ 贴边吸附（v0.10.0）。
             // 锁的作用域收紧到"只算状态"：窗口 API（get/set_position）在锁外调用——
             // 持锁调 UI 线程是本文件开头警告过的死锁形态。
-            let dropped = {
+            // 松手：算出"甩出去"的速度，决定滑行还是直接落地（v0.12.0）。
+            // 外层 Option = 这一拍是否发生"放手"；内层 Option = 是否采到可用速度。
+            let dropped_velocity = {
                 let drag_state = handle.state::<Mutex<DragMotion>>();
                 match drag_state.lock() {
                     Ok(mut motion) => {
                         let age = motion.last_move_at.map(|t| t.elapsed().as_millis() as u64);
                         match drag_transition(motion.dragging, age) {
-                            Some(next) => {
-                                motion.dragging = next;
-                                if !next {
-                                    motion.last_move_at = None;
-                                }
-                                !next
+                            Some(false) => {
+                                motion.dragging = false;
+                                motion.last_move_at = None;
+                                let velocity = drag_velocity(&motion.samples);
+                                motion.samples.clear(); // 采样只服务于这一次松手
+                                Some(velocity)
                             }
-                            None => false,
+                            Some(true) => {
+                                motion.dragging = true;
+                                None
+                            }
+                            None => None,
                         }
                     }
-                    Err(_) => false, // 锁中毒：拖拽反馈是锦上添花，静默跳过
+                    Err(_) => None, // 锁中毒：拖拽反馈是锦上添花，静默跳过
                 }
             };
-            if dropped {
-                snap_pet_to_edges(&handle);
+            if let Some(velocity) = dropped_velocity {
                 let _ = handle.emit_to("pet", EVT_PET_DRAG_CHANGED, serde_json::json!({ "dragging": false }));
+                match velocity {
+                    Some((vx, vy)) if (vx * vx + vy * vy).sqrt() >= INERTIA_MIN_SPEED => {
+                        // 甩得够快：先滑行，滑完由 finish_inertia 贴边
+                        start_inertia(handle.clone(), (vx, vy));
+                    }
+                    _ => snap_pet_to_edges(&handle), // 轻放：直接吸附落地
+                }
             }
             // 游戏模式（v0.9.0 自迭代）：默认关；开启时 1s 节奏检测前台全屏。
             // 只在"遮挡宠物所在屏"时隐藏，退出全屏恢复——不碰用户手动 toggle 的状态
@@ -1553,5 +1760,64 @@ mod alert_tests {
             snap_to_work_area((-1910, 300), size, (-1920, 0, 1920, 1040), 24),
             (-1920, 300)
         );
+    }
+
+    /// 松手速度估算（v0.12.0）：样本不足、时间窗过短都不能给速度——
+    /// 否则手抖一下就会被判成"甩出去"，窗口自己弹走。
+    #[test]
+    fn drag_velocity_requires_real_samples() {
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        let mut empty: VecDeque<(i32, i32, Instant)> = VecDeque::new();
+        assert!(drag_velocity(&empty).is_none());
+        empty.push_back((0, 0, now));
+        assert!(drag_velocity(&empty).is_none()); // 只有一个点
+
+        let mut jitter: VecDeque<(i32, i32, Instant)> = VecDeque::new();
+        jitter.push_back((0, 0, now));
+        jitter.push_back((5, 0, now + Duration::from_millis(8)));
+        assert!(drag_velocity(&jitter).is_none()); // 时间窗 < 16ms，算出来是噪声
+
+        let mut fast: VecDeque<(i32, i32, Instant)> = VecDeque::new();
+        fast.push_back((0, 0, now));
+        fast.push_back((100, 0, now + Duration::from_millis(100)));
+        let (vx, vy) = drag_velocity(&fast).expect("100px/100ms 应有速度");
+        assert!((vx - 1000.0).abs() < 1.0);
+        assert!(vy.abs() < 1e-9);
+    }
+
+    /// 惯性积分（v0.12.0）：摩擦衰减、撞边清零、慢速立即停、异常速度限幅。
+    #[test]
+    fn inertia_slides_and_stops_at_edges() {
+        let area = (0, 0, 1920, 1040);
+        let size = (220, 260);
+
+        // 1000px/s × 16ms = 16px；速度按摩擦衰减
+        let (pos, vel, done) = inertia_step((600, 400), (1000.0, 0.0), 16.0, size, area);
+        assert_eq!(pos, (616, 400));
+        assert!(!done);
+        assert!((vel.0 - 880.0).abs() < 1e-6);
+
+        // 撞右边界：max_x = 1920 - 220 = 1700，横向速度清零并结束
+        let (pos, vel, done) = inertia_step((1700, 400), (2000.0, 0.0), 16.0, size, area);
+        assert_eq!(pos, (1700, 400));
+        assert_eq!(vel.0, 0.0);
+        assert!(done);
+
+        // 慢速（30px/s → 衰减后 26.4px/s，低于 40 阈值，且位移取整为 0）：一步即停
+        let (pos, vel, done) = inertia_step((600, 400), (30.0, 0.0), 16.0, size, area);
+        assert_eq!(pos, (600, 400));
+        assert!((vel.0 - 26.4).abs() < 1e-9);
+        assert!(done);
+
+        // 异常速度（跨屏跳变等）：单帧位移被限幅到 120px，不瞬移
+        let (pos, _, _) = inertia_step((100, 400), (100_000.0, 0.0), 16.0, size, area);
+        assert_eq!(pos, (220, 400));
+
+        // 非法 dt：不动、速度归零、直接结束（防御）
+        let (pos, vel, done) = inertia_step((300, 300), (500.0, 500.0), 0.0, size, area);
+        assert_eq!(pos, (300, 300));
+        assert_eq!(vel, (0.0, 0.0));
+        assert!(done);
     }
 }

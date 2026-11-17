@@ -10,6 +10,7 @@ import { warmupNotificationPermission } from "@/services/notifications";
 import { sendStateEvent, sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { hostServices } from "@/services/host-services";
 import { startSystemEvents } from "@/services/system-events";
+import { configureSound, playAlert } from "@/services/sound";
 import { subscribeHeartbeat } from "@/services/heartbeat";
 
 // 跨窗口遥控监听（state://set-mood 等）只装一次：宠物窗是宠物状态的宿主窗口
@@ -73,6 +74,17 @@ function syncStartupSettings(settings: AppSettings): void {
   void sendStateEvent(STATE_EVENTS.autostartChanged, { enabled: settings.autostartEnabled }).catch(() => undefined);
   void sendStateEvent(STATE_EVENTS.gameModeChanged, { enabled: settings.gameModeEnabled }).catch(() => undefined);
   void sendStateEvent(STATE_EVENTS.petScaleChanged, { scale: settings.petScale }).catch(() => undefined);
+  // 声音（v0.12.0）：开关/音量/免打扰一起下发；关掉开关时 sound 模块会释放已建的 AudioContext。
+  // 放在这里而不是各个播放点：播放点只关心"响哪种声音"，不关心用户配置。
+  configureSound({
+    enabled: settings.soundEnabled,
+    volumePercent: settings.soundVolume,
+    quietHours: {
+      enabled: settings.quietHoursEnabled,
+      start: settings.quietStartHour,
+      end: settings.quietEndHour,
+    },
+  });
 }
 
 /** 首启引导只叫一次（首次读取与兜底重放都可能走到这里） */
@@ -86,6 +98,26 @@ function maybeOpenOnboarding(settings: AppSettings): void {
 void loadSettings().then(settings => {
   syncStartupSettings(settings);
   maybeOpenOnboarding(settings);
+}).catch(() => undefined);
+
+/**
+ * 设置变更（v0.12.0）：设置页拨动声音开关/音量后立刻生效，不用重启。
+ * 只重放"随设置变化的东西"（快捷键/自启/游戏模式/缩放/声音）——都是幂等的。
+ */
+void listen(STATE_EVENTS.settingsChanged, () => {
+  void loadSettings().then(syncStartupSettings).catch(() => undefined);
+}).catch(() => undefined);
+
+/**
+ * 提醒音（v0.12.0）：监听原生提醒队列的队头变化，**同一个 id 只响一次**。
+ * 队列里换下一条时 id 会变，所以"连续多条提醒"会各响一声，而重试/重播不会重复响。
+ */
+let lastAlertSoundId: string | null = null;
+void listen<{ id: string; kind: string } | null>(STATE_EVENTS.appAlertChanged, event => {
+  const alert = event.payload;
+  if (!alert || alert.id === lastAlertSoundId) return;
+  lastAlertSoundId = alert.id;
+  playAlert(alert.kind === "standup" || alert.kind === "pomodoro" ? alert.kind : "reminder");
 }).catch(() => undefined);
 
 /**

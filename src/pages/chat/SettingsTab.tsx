@@ -267,6 +267,8 @@ export function SettingsTab() {
 
       <AutostartSection settings={settings} update={update} />
 
+      <SoundSection settings={settings} update={update} updateDebounced={updateDebounced} />
+
       <GameModeSection settings={settings} update={update} />
 
       <MemoriesSection />
@@ -556,6 +558,54 @@ function AutostartSection({
         {settings.autostartEnabled
           ? "关掉这个开关就会取消；也可以在任务管理器的「启动应用」里管理。"
           : "不开也能用：随时双击桌面上的麻薯，或用托盘图标打开。"}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * 声音（v0.12.0）：点击反馈音 + 提醒音，全部用 Web Audio 合成，仓库里没有音频文件。
+ *
+ * 为什么默认开：声音是"不看屏幕也知道发生了什么"的唯一通道——桌宠的提醒本来就
+ * 假设用户没盯着它。关掉开关会连 `AudioContext` 一起释放，而不是留着空转。
+ * 音量是相对值（乘在每个音符的基准增益上），0% 等价静音。
+ */
+function SoundSection({
+  settings,
+  update,
+  updateDebounced,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+  updateDebounced: (patch: Partial<AppSettings>) => void;
+}) {
+  return (
+    <div className="settings-sound">
+      <span className="settings-field-label">声音</span>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={settings.soundEnabled}
+          onChange={e => update({ soundEnabled: e.target.checked })}
+        />
+        <span>点击与提醒音效（合成音，可随时关掉）</span>
+      </label>
+      {settings.soundEnabled && (
+        <label className="settings-field">
+          <span>音量 {settings.soundVolume}%</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={settings.soundVolume}
+            onChange={e => updateDebounced({ soundVolume: Number(e.target.value) })}
+            onBlur={flushSettingsSave}
+          />
+        </label>
+      )}
+      <p className="settings-note">
+        免打扰时段内提醒不出声；点击音仍然保留——那是你主动点的，静默它只会让人以为卡住了。
       </p>
     </div>
   );

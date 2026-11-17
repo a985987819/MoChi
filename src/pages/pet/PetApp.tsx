@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { petState, type PetState } from "@/services/pet-state";
 import { listVariants, pickRandom, type PetVariant } from "@/services/pet-assets";
 import { loadSettings } from "@/services/settings";
+import { playClick } from "@/services/sound";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import { playShowTransition, onWindowShown } from "@/shared/show-transition";
 import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
@@ -215,7 +216,9 @@ export function PetApp() {
   const gestures = useMemo(() => new PetGestureController({
     // 即时视觉反馈（抬指即弹）：0 延迟的"按下去了"确认——感知流畅度的关键。
     // 弹跳零副作用，双击时多弹一次无碍；语义动作仍在 singleClick 等判定。
+    // 音效（v0.12.0）与弹跳同属"即时反馈"，不等 500ms 双击判定：听着就该是按下即有。
     clickFeedback: () => {
+      playClick();
       setBouncing(false);
       requestAnimationFrame(() => setBouncing(true));
     },
