@@ -79,7 +79,7 @@
   border: 1px solid var(--accent-text);
   border-radius: 9px;
   background: var(--accent-fill-deep);
-  color: var(--bg-surface);
+  color: var(--text-on-accent);
   font: inherit;
   font-size: 12px;
   line-height: 1.5;

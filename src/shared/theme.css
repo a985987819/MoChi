@@ -36,6 +36,8 @@
   --accent-fill: #ff8fab;
   --accent-fill-deep: #a94e68;
   --accent-fill-deeper: #963e57;
+  /* 填充上的文字：两套主题恒白——fill 类深色不翻转，白字对比不塌 */
+  --text-on-accent: #ffffff;
   /* 粉色：底纹族 */
   --bg-accent-soft: #fdf3f5;
   --bg-accent-tint: #ffeef0;
@@ -81,6 +83,7 @@
   --accent-fill: #ff8fab;
   --accent-fill-deep: #a94e68;
   --accent-fill-deeper: #963e57;
+  --text-on-accent: #ffffff;
   /* 粉色底纹族：翻成深粉底 */
   --bg-accent-soft: #453239;
   --bg-accent-tint: #463039;

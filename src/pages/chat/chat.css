@@ -217,7 +217,7 @@ body {
 
 .chat-msg--user .chat-msg__bubble {
   background: var(--accent-fill);
-  color: var(--bg-surface);
+  color: var(--text-on-accent);
   border-bottom-right-radius: 4px;
 }
 
@@ -436,7 +436,7 @@ body {
   border: none;
   border-radius: 12px;
   background: var(--accent-fill);
-  color: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -569,7 +569,7 @@ body {
   border: none;
   border-radius: 9px;
   background: var(--accent-fill);
-  color: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -636,7 +636,7 @@ body {
   border: none;
   border-radius: 9px;
   background: var(--accent-fill);
-  color: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -690,7 +690,7 @@ body {
 
 .todo-row__check:disabled {
   background: var(--border-accent);
-  color: var(--bg-surface);
+  color: var(--text-on-accent);
   cursor: default;
 }
 
@@ -963,7 +963,7 @@ body {
   border: none;
   border-radius: 11px;
   background: var(--accent-fill);
-  color: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -1157,7 +1157,7 @@ body {
 .welcome__btn--primary {
   background: var(--accent-fill);
   border-color: var(--accent-fill);
-  color: var(--bg-surface);
+  color: var(--text-on-accent);
 }
 
 .welcome__btn--primary:hover {
@@ -1208,7 +1208,7 @@ body {
   padding: 0 4px;
   border-radius: 8px;
   background: var(--accent-fill);
-  color: var(--bg-surface);
+  color: var(--text-on-accent);
   font-size: 10px;
   font-weight: 600;
   line-height: 16px;

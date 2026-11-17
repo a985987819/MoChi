@@ -95,7 +95,7 @@
   border: none;
   border-radius: 9px;
   background: var(--accent-fill);
-  color: var(--bg-surface);
+  color: var(--text-on-accent);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
