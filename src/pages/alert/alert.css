@@ -35,9 +35,11 @@ body {
   background: #ffffff;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
   font-family:
+    "Segoe UI Variable Text",
     "Segoe UI",
-    "PingFang SC",
+    "Microsoft YaHei UI",
     "Microsoft YaHei",
+    "PingFang SC",
     sans-serif;
   animation: alert-pop 0.35s cubic-bezier(0.28, 0.84, 0.42, 1);
 }
@@ -70,7 +72,7 @@ body {
 }
 
 .alert-card p {
-  font-size: 12.5px;
+  font-size: 13px;
   color: #6f6560;
   margin: 3px 0 0;
 }
@@ -95,7 +97,7 @@ body {
   background: #fff;
   color: #6f6560;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   cursor: pointer;
 }
 

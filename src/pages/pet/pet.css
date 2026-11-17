@@ -43,11 +43,22 @@ body {
   background: #fffaf0;
   color: #654c3f;
   box-shadow: 0 4px 12px #7250391c, inset 0 1px 0 #ffffff;
-  font-family: "STKaiti", "KaiTi", "Microsoft YaHei", sans-serif;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 17px;
-  letter-spacing: 0.15px;
+  /* v0.13.1 字体：原先是 "STKaiti","KaiTi"（楷体）——12px 下笔画细、发虚，
+     用户反馈"看不清、不够凌厉"。改成系统无衬线（Segoe UI 优先，中文回落雅黑 UI）：
+     笔画直、边缘实，小字号下清晰度是楷体比不了的。中文名必须排在 sans-serif 之前，
+     否则 Windows 会落到字体链接的默认宋体上。 */
+  font-family:
+    "Segoe UI Variable Text",
+    "Segoe UI",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
+    "PingFang SC",
+    sans-serif;
+  /* 整数像素 + 整数行高：小数会让字形落在半像素上，抗锯齿后边缘发灰（"糊"的主因之一） */
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 19px;
+  letter-spacing: normal;
   text-align: left;
   pointer-events: none;
   transform-origin: 46px 100%;
