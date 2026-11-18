@@ -36,3 +36,30 @@ export function truncateForBubble(text: string): string {
   }
   return clipped + "…";
 }
+
+/** 流式气泡的尾部展示上限（码点）：比完成摘要长一点，流式观感更像"在写" */
+export const BUBBLE_STREAM_TAIL_MAX = 80;
+
+/** 轻量 Markdown 符号剥离（流式中间态用）：不去代码块（流式截断态没法保证配对），只去明显符号 */
+function stripMarkdownLite(text: string): string {
+  return text
+    .replace(/```[\s\S]*/g, " ") // 未闭合的代码块：从 ``` 到末尾都藏掉
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * 流式气泡文本（v0.27.0）：取**尾部**——流式展示看的是"最新写到哪里"，
+ * 不是开头。先剥 Markdown 符号再按码点截尾，开头加省略号表示"接上文"。
+ */
+export function tailForBubble(text: string, max = BUBBLE_STREAM_TAIL_MAX): string {
+  const normalized = stripMarkdownLite(text);
+  if (!normalized) return "";
+  const chars = [...normalized];
+  if (chars.length <= max) return normalized;
+  return "…" + chars.slice(chars.length - max).join("");
+}

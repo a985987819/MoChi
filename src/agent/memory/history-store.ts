@@ -68,6 +68,23 @@ export class HistoryStore {
     }
   }
 
+  /**
+   * 追加用户消息，**与末尾相同的重复输入跳过**（v0.27.0 会话丢失修复 + 重试兼容）。
+   *
+   * 背景：runAgent 只持久化 assistant/tool——用户输入从不落库，重启后对话只剩
+   * 麻薯的单口相声（会话丢失的直接根因）。去重是给重试路径兜底：失败重试会
+   * 重发同一输入，末尾相同则跳过，避免历史里出现两条一模一样的用户消息。
+   */
+  async appendUserDeduped(content: string): Promise<void> {
+    const db = await getDb();
+    const last = await db.select<Array<{ role: string; content: string | null }>>(
+      "SELECT role, content FROM messages WHERE session_id = $1 ORDER BY id DESC LIMIT 1",
+      [MAIN_SESSION_ID],
+    );
+    if (last[0]?.role === "user" && last[0]?.content === content) return;
+    await this.append([{ role: "user", content }]);
+  }
+
   /** 最近 N 个块（默认 12）——ChatTab 挂载/Facade 组上下文共用 */
   async loadRecent(blockCount = 12): Promise<ChatMessage[]> {
     const db = await getDb();

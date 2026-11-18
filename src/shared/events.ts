@@ -45,6 +45,12 @@ export const UI_EVENTS = {
    * 用头顶 PetBubble 展示（7 秒淡出）。
    */
   showBubble: "ui://show-bubble",
+  /**
+   * 流式气泡（v0.27.0）：回复**流式期间**把已生成的部分推到宠物头顶逐字展示。
+   * 载荷：{ text: string; done: boolean }——done=true 表示回复完成（气泡进入
+   * 收尾倒计时）。文本是气泡尾部截断（bubble-text.ts 的 tailForBubble）。
+   */
+  bubbleStream: "ui://bubble-stream",
 } as const;
 
 /** 状态层广播事件（纯前端：任意窗口 emit/listen，驱动 PetStateManager 等服务） */

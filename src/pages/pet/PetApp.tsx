@@ -200,11 +200,14 @@ export function PetApp() {
     return () => off?.();
   }, []);
 
-  // Agent 回复气泡（P1-01）：聊天窗在「回复完成且用户没看着聊天窗」时 emit
-  // ui://show-bubble（载荷=截断后的摘要文本），宠物窗在此消费。
-  // show() 的竞态保护保证：晚到的旧回复不能覆盖更新的气泡/点击。
+  // Agent 回复气泡（P1-01 / v0.27.0 流式）：
+  // - ui://show-bubble：完成的摘要文本（旧路径，兼容保留）；
+  // - ui://bubble-stream：回复流式期间的**尾部增量**——气泡文本随回复增长实时更新
+  //   （showLive 不排收尾定时器），done=true 后 finishLive 进入收尾淡出。
+  // show/showLive 的竞态保护保证：晚到的旧回复不能覆盖更新的气泡/点击。
   useEffect(() => {
     let off: (() => void) | undefined;
+    let lastStreamed = "";
     void listen<unknown>(UI_EVENTS.showBubble, e => {
       const text = typeof e.payload === "string" ? e.payload.trim() : "";
       if (!text) return;
@@ -212,7 +215,25 @@ export function PetApp() {
     }).then(unlisten => {
       off = unlisten;
     });
-    return () => off?.();
+    void listen<{ text?: unknown; done?: unknown }>(UI_EVENTS.bubbleStream, e => {
+      const text = typeof e.payload?.text === "string" ? e.payload.text : "";
+      if (e.payload?.done === true) {
+        if (text) {
+          lastStreamed = text;
+          bubbleDisplay.finishLive({ text });
+        }
+        return;
+      }
+      if (!text || text === lastStreamed) return;
+      lastStreamed = text;
+      bubbleDisplay.showLive({ text });
+    }).then(unlisten => {
+      off = unlisten;
+    });
+    return () => {
+      off?.();
+      lastStreamed = "";
+    };
   }, [bubbleDisplay]);
 
   const gestures = useMemo(() => new PetGestureController({

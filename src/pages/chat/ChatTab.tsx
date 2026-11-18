@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { agentFacade } from "@/agent/facade";
 import { historyStore } from "@/agent/memory/history-store";
 import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
-import { truncateForBubble } from "@/shared/bubble-text";
+import { tailForBubble, truncateForBubble } from "@/shared/bubble-text";
 import { SkeletonLines } from "@/shared/components/Loading";
 import { answerLocally, isLocalAnswer, localKnowledgeSize } from "@/rag/local-qa";
 import { useT } from "@/shared/i18n/react";
@@ -40,6 +40,9 @@ let nextId = 1;
 /** 流式增量冲刷间隔（ms）：~12fps 的重解析频率，肉眼仍是"逐字"（P1-05） */
 const STREAM_THROTTLE_MS = 80;
 
+/** 流式气泡广播节流（v0.27.0）：80ms 冲刷比气泡更新需要的频率高，300ms 一拍足够顺滑 */
+const BUBBLE_STREAM_THROTTLE_MS = 300;
+
 /**
  * 空态指令 chips（P1-12）：点一下填入输入框（**不自动发送**——自动发送会让
  * 用户觉得失去控制权，施工单附录 B 交互约定），聚焦输入框等用户改改再发。
@@ -54,7 +57,9 @@ const EMPTY_CHIPS: MessageKey[] = [
 
 /** SQLite 协议消息 → UI 条目（tool 明细并入 assistant 的 note，不单气泡展示） */
 async function loadEntries(): Promise<ChatEntry[]> {
-  const msgs = await historyStore.loadRecent(24);
+  // 展示窗口（v0.27.0）：24 → 50 块——「保留历史会话」的 UI 侧；发给模型的上下文
+  // 仍由 trimWindow 预算裁剪（展示与上下文控制解耦，用户要求历史不丢）
+  const msgs = await historyStore.loadRecent(50);
   const out: ChatEntry[] = [];
   for (const m of msgs) {
     if (m.role === "user") {
@@ -145,17 +150,21 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
         const local = answerLocally(text);
         setInput("");
         if (isLocalAnswer(local)) {
-          // 查证型对话不进情景记忆（持久化是 Facade 的单一所有者，learning/04），
-          // 重载后不保留——本地回答的价值在"当场可查"。
+          // 离线路径同样落库（v0.27.0 会话丢失修复）：原来的"当场可查"设计让重启后
+          // 这些对话凭空消失，正是「会话丢失」观感的来源之一。用户诉求历史保留。
           setEntries(prev => [
             ...(prev ?? []),
             { id: nextId++, role: "user", content: text },
             { id: nextId++, role: "note", content: t("chat.localNote", { count: local.count }) },
             { id: nextId++, role: "assistant", content: local.text },
           ]);
+          void historyStore.appendUserDeduped(text);
+          void historyStore.append([{ role: "assistant", content: local.text }]);
           speak(local.text); // 本地回答也是"麻薯说的话"（v0.15.0 TTS；开关/免打扰内部判断）
           return;
         }
+        // 未连接大模型的引导话术不落库（静态模板，落库只会污染上下文）；
+        // 用户消息本身由下方在线路径的语义覆盖——这里只做 UI 提示。
         setEntries(prev => [
           ...(prev ?? []),
           { id: nextId++, role: "user", content: text },
@@ -184,6 +193,9 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
     // 重解析几十次——攒进缓冲，80ms 冲刷一次（~12fps，肉眼即"逐字"）
     let streamBuffer = "";
     let lastFlush = 0;
+    let lastBubbleFlush = 0;
+    // 已生成的全文（流式气泡尾部截取用）：声明在 flushStream 之前——闭包引用它
+    let finalText = "";
     const flushStream = (force = false) => {
       const now = performance.now();
       if (!force && now - lastFlush < STREAM_THROTTLE_MS) return;
@@ -192,11 +204,15 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
       streamBuffer = "";
       lastFlush = now;
       setEntries(prev => (prev ?? []).map(e => (e.id === assistantEntry.id ? { ...e, content: e.content + chunk } : e)));
+      // 流式气泡（v0.27.0）：300ms 节流推送尾部——宠物头顶随回复增长逐字展示
+      if (now - lastBubbleFlush >= BUBBLE_STREAM_THROTTLE_MS) {
+        lastBubbleFlush = now;
+        void sendUIEvent(UI_EVENTS.bubbleStream, { text: tailForBubble(finalText), done: false }).catch(() => undefined);
+      }
     };
 
     try {
       // 历史与持久化都在 Facade 内部闭环（v0.5.0 起 runTurn 不再接收 history）
-      let finalText = "";
       for await (const ev of agentFacade.runTurn({ userInput: text, signal: controller.signal })) {
         if (ev.type === "text-delta") {
           finalText += ev.text;
@@ -213,14 +229,10 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
           patchAssistant({ content: ev.text });
         }
       }
-      // 气泡（P1-01）：回复完成但用户没看着聊天窗（关窗=隐藏，进程常驻），
-      // 把终答摘要浮到宠物头顶。看着的时候不发——用户正在聊天窗里，气泡是打扰。
-      // 直接查本窗 document.visibilityState：WebView 隐藏窗口会触发 visibility
-      // 变化，无需跨窗口维护 chatVisible 状态（比施工单建议的方案少一条事件）
-      if (document.visibilityState === "hidden") {
-        const summary = truncateForBubble(finalText);
-        if (summary) void sendUIEvent(UI_EVENTS.showBubble, summary);
-      }
+      // 流式气泡收尾（v0.27.0）：推最终摘要 + done=true——宠物气泡进入收尾淡出。
+      // 替代 P1-01 的「仅隐藏窗口时发摘要」：流式期间气泡已全程展示，完成后统一
+      // 收尾（聊天窗可见与否不再影响宠物的表现——用户要求宠物流式展示回复）。
+      void sendUIEvent(UI_EVENTS.bubbleStream, { text: truncateForBubble(finalText), done: true }).catch(() => undefined);
       // 朗读（v0.15.0 P1-03）：回复**完整结束后**才读（流式中读会结巴）。
       // 开关关闭/免打扰/纯代码块都在 speak 内部静默处理；出错路径不读（catch）。
       speak(finalText);

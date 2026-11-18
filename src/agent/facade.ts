@@ -102,6 +102,12 @@ export class AgentFacade {
       memoryService.searchForContext(opts.userInput, MEMORY_TOP_K),
     ]);
 
+    // ⓪ 用户消息落库（v0.27.0 会话丢失修复）：runAgent 只持久化 assistant/tool，
+    // 用户输入从不落库——重启后对话只剩麻薯的单口相声。**必须在 loadRecent 之后
+    // 追加**：否则本轮上下文会把当前输入包含两遍（历史尾 + 当前输入）。
+    // appendUserDeduped 兼容失败重试（重发同一输入，末尾相同则跳过）。
+    await historyStore.appendUserDeduped(opts.userInput);
+
     // ③ 五层上下文组装（03 §2.1）：system → 记忆 → 历史 → 当前时间锚点 → 当前输入
     // now 注入是 v0.7.0 NL 提醒的时间解析锚点（learning/08 §5.2）
     const messages = buildMessages({

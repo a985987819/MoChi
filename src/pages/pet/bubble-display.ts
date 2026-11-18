@@ -54,6 +54,36 @@ export class TimedBubble<T> {
     if (this.active) this.onChange(null);
   }
 
+  /**
+   * 流式展示（v0.27.0）：文本随回复增长**实时更新**，不排收尾定时器——
+   * 收尾由流结束方的 finishLive 决定（回复完成后气泡再停留数秒淡出）。
+   * 期间来的普通 show/showContext 仍按"最新覆盖"竞争（last-wins）。
+   */
+  showLive(line: T): void {
+    this.clearTimers();
+    const sequence = ++this.sequence;
+    if (!this.active) return;
+    this.onChange({ sequence, line, leaving: false });
+  }
+
+  /**
+   * 流结束：为**当前展示中的内容**排收尾淡出（默认 4 秒——比完整摘要的 7 秒短，
+   * 因为文本已经看过增长过程）。line 由调用方传入（即最后流式的文本），
+   * 本方法不增量 sequence——它收尾的是正在显示的这一条。
+   */
+  finishLive(line: T, afterMs = 4000): void {
+    this.clearTimers();
+    const sequence = this.sequence;
+    if (!this.active) return;
+    this.timers.push(setTimeout(() => {
+      if (!this.active || sequence !== this.sequence) return;
+      this.onChange({ sequence, line, leaving: true });
+      this.timers.push(setTimeout(() => {
+        if (this.active && sequence === this.sequence) this.onChange(null);
+      }, 200));
+    }, afterMs));
+  }
+
   /** 卸载时不再写 React state，晚到的 Promise 也只能被忽略。 */
   dispose(): void {
     this.sequence += 1;
