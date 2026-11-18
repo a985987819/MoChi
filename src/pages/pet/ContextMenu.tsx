@@ -44,7 +44,10 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
   const rootRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 4, top: 4 });
 
-  // 点击菜单外 / Escape 关闭：document 级监听（菜单打开期间）
+  // 点击菜单外 / Escape / **窗口失焦** 关闭（菜单打开期间）。
+  // v0.24.1 补失焦：document 级 mousedown 收不到**别的窗口**里的点击——用户点开
+  // 聊天窗或任何其他应用后，菜单会悬在失去焦点的宠物窗上不走。window blur
+  // 在本 WebView 失去 OS 焦点的瞬间触发，跨窗口点击/Alt-Tab 都能关干净。
   useEffect(() => {
     const onPointerDown = (e: MouseEvent) => {
       if (!rootRef.current?.contains(e.target as Node)) onClose();
@@ -52,11 +55,14 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
+    const onBlur = () => onClose();
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("blur", onBlur);
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", onBlur);
     };
   }, [onClose]);
 
