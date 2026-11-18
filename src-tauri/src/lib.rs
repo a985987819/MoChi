@@ -1064,7 +1064,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_user_pet_assets, get_idle_seconds,
             show_app_alert, get_app_alert, ack_app_alert, dismiss_app_alert,
-            set_pet_hit_test, get_autostart_enabled, save_pet_asset,
+            set_pet_hit_test, get_autostart_enabled, save_pet_asset, delete_user_pet_asset,
             append_log, get_last_panic,
             export_backup, list_backups, import_backup
         ]);
@@ -1802,6 +1802,33 @@ fn list_user_pet_assets(app: tauri::AppHandle) -> BTreeMap<String, Vec<String>> 
     result
 }
 
+/// 删除一张用户素材（v0.24.0）：路径必须落在 pet-assets 目录内（防任意删除）。
+#[tauri::command]
+fn delete_user_pet_asset(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri::Manager as _;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("找不到应用数据目录: {e}"))?
+        .join("pet-assets");
+    let requested = std::fs::canonicalize(&path).map_err(|_| "素材文件不存在".to_string())?;
+    let root = std::fs::canonicalize(&dir).map_err(|e| format!("素材目录不可用: {e}"))?;
+    ensure_within_dir(&requested, &root, "只能删除素材目录里的文件")?;
+    if !requested.is_file() {
+        return Err("目标不是文件".into());
+    }
+    std::fs::remove_file(&requested).map_err(|e| format!("删除失败: {e}"))
+}
+
+/// 路径守卫（纯逻辑，可测）：requested 必须落在 root 之内。
+fn ensure_within_dir(requested: &std::path::Path, root: &std::path::Path, message: &str) -> Result<(), String> {
+    if requested.starts_with(root) {
+        Ok(())
+    } else {
+        Err(message.to_string())
+    }
+}
+
 // ── 宠物素材导入（v0.9.2） ─────────────────────────────────────────────────
 //
 // 为什么写文件放在 Rust：前端只拿到 core/store/sql/notification 这些插件权限，
@@ -2385,6 +2412,19 @@ mod alert_tests {
         assert_eq!(pos, (300, 300));
         assert_eq!(vel, (0.0, 0.0));
         assert!(done);
+    }
+
+    /// 素材删除的路径守卫（v0.24.0）：目录内的文件放行，目录外一律拒绝。
+    #[test]
+    fn ensure_within_dir_blocks_outside_paths() {
+        let root = std::path::Path::new("/data/app/pet-assets");
+        assert!(ensure_within_dir(
+            std::path::Path::new("/data/app/pet-assets/happy.png"),
+            root,
+            "deny"
+        ).is_ok());
+        assert!(ensure_within_dir(std::path::Path::new("/data/app/other.png"), root, "deny").is_err());
+        assert!(ensure_within_dir(std::path::Path::new("/data/app/pet-assets-secret/x.png"), root, "deny").is_err());
     }
 
     /// 脱敏（v0.16.0）：Key 形态打码、短前缀不误伤、Bearer 打码、正常文本不变。

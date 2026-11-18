@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   STATE_DOCS,
+  deleteUserPetAsset,
   extOfFileName,
   fileNameOf,
   frameOfFileName,
@@ -62,6 +64,11 @@ export function AssetsTab() {
   const [pending, setPending] = useState<PendingFile[]>([]);
   const [existing, setExisting] = useState<string[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  /** 用户素材完整路径（缩略图/删除用，v0.24.0） */
+  const [userPaths, setUserPaths] = useState<Record<string, string[]>>({});
+  /** 两步删除的待确认项（完整路径） */
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   /** 每状态独立上传（v0.23.0）：非 null 时本次选择的文件全部归入该状态 */
@@ -77,12 +84,28 @@ export function AssetsTab() {
       const names = Object.values(map).flat().map(fileNameOf);
       setExisting(names);
       setCounts(Object.fromEntries(Object.entries(map).map(([state, paths]) => [state, paths.length])));
+      setUserPaths(map); // 缩略图/删除（v0.24.0）
     });
   }, []);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  /** 删除一张素材（v0.24.0）：两步确认后调 Rust 删除并重扫；失败给可见提示 */
+  const removeAsset = useCallback(
+    (path: string) => {
+      setDeleting(true);
+      void deleteUserPetAsset(path)
+        .then(() => {
+          setPendingDelete(null);
+          refresh();
+        })
+        .catch(() => setNotice({ tone: "error", text: t("assets.deleteFail") }))
+        .finally(() => setDeleting(false));
+    },
+    [t, refresh],
+  );
 
   /** 选文件：只做识别与规划，不写盘（写盘在「导入」里，用户先确认状态）。
    *  v0.23.0：每状态独立上传——target 非 null 时全部文件归入该状态（帧号仍从
@@ -224,6 +247,13 @@ export function AssetsTab() {
         (<code>happy.png</code>, <code>happy_2.png</code>). Chinese file names are detected and translated for you.
       </p>
 
+      <p className="assets-lead">
+        同一状态可以放多张图片（自动命名 <code>happy_2.png</code>、<code>happy_3.png</code>…），
+        宠物每 <strong>5 分钟</strong>随机换一张静态图；点下方命名可复制。
+        <br />
+        Multiple images per state are auto-numbered (<code>happy_2.png</code>…) and a random static one is picked every 5 minutes.
+      </p>
+
       <section className="assets-import">
         <input
           ref={inputRef}
@@ -359,6 +389,36 @@ export function AssetsTab() {
                   {copiedName === frameName ? t("assets.copied") : frameName}
                 </button>
               </div>
+              {(userPaths[doc.state] ?? []).length > 0 && (
+                <div className="assets-state__thumbs">
+                  {(userPaths[doc.state] ?? []).map(path => {
+                    const name = fileNameOf(path);
+                    return (
+                      <div key={path} className="assets-thumb">
+                        <img className="assets-thumb__img" src={convertFileSrc(path)} alt={name} loading="lazy" draggable={false} />
+                        {pendingDelete === path ? (
+                          <button
+                            className="assets-thumb__del assets-thumb__del--confirm"
+                            disabled={deleting}
+                            onClick={() => removeAsset(path)}
+                          >
+                            {deleting ? "…" : t("assets.confirmDelete")}
+                          </button>
+                        ) : (
+                          <button
+                            className="assets-thumb__del"
+                            onClick={() => setPendingDelete(path)}
+                            aria-label={t("assets.delete") + " " + name}
+                            title={t("assets.delete")}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <p className="assets-state__when">{doc.zhWhen}</p>
               <p className="assets-state__when-en">{doc.enWhen}</p>
             </li>

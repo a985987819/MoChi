@@ -87,7 +87,8 @@ function useFrameUrl(asset: PetVariant | null): string | null {
 
 /**
  * 状态 → 素材展示：进入新状态时解析变体池并随机取一张；
- * 若取到静态图且池内有多张静态图，每 5~9 秒随机轮换；动画图（gif/webp）播到天荒地老不轮换。
+ * 若取到静态图且池内有多张静态图，每 5 分钟随机换一张（v0.24.0：用户反馈 5~9 秒太频繁）；
+ * 动画图（gif/webp）播到天荒地老不轮换。
  * 轮换定时器闭包内自递归；加载失败排除 URL 后重新解析，状态切换重新挂载并允许重试。
  */
 function usePetAsset(state: PetState): { asset: PetVariant | null; onError(): void } {
@@ -101,7 +102,8 @@ function usePetAsset(state: PetState): { asset: PetVariant | null; onError(): vo
     const scheduleRotate = (pool: PetVariant[], current: PetVariant) => {
       const statics = pool.filter(v => !v.animated && !(v.frames && v.frames.length > 1));
       if (statics.length <= 1) return; // 单一静态图 / 动画图 / 帧序列：都不轮换
-      const delay = 5000 + Math.random() * 4000;
+      // v0.24.0：轮换节奏 5~9 秒 → 5 分钟（+0~20s 抖动），静态多图是"换表情"不是"放幻灯片"
+      const delay = 300_000 + Math.random() * 20_000;
       rotateTimer.current = window.setTimeout(() => {
         if (cancelled) return;
         // 排除当前这张，保证轮换"看得见"

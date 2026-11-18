@@ -247,3 +247,8 @@ export async function listUserAssets(): Promise<Record<string, string[]>> {
 export function fileNameOf(path: string): string {
   return path.replaceAll("\\", "/").split("/").pop() ?? path;
 }
+
+/** 删除一张用户素材（v0.24.0）：Rust 侧校验路径必须落在 pet-assets 目录内。 */
+export async function deleteUserPetAsset(path: string): Promise<void> {
+  await invoke("delete_user_pet_asset", { path });
+}
