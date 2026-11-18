@@ -52,11 +52,13 @@ type TestState =
   | { phase: "fail"; error: ProviderError };
 
 export function SettingsTab() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [test, setTest] = useState<TestState>({ phase: "idle" });
   const [saveError, setSaveError] = useState("");
+  /** API Key 输入的落盘状态（v0.23.2）：saving → saved/error，saved 2.5s 后回落让位给验证提示 */
+  const [keyState, setKeyState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   // 加载失败不再"永远转圈"：给出重试入口（store 暂时不可读不该让设置页变砖）。
   const reload = useCallback(() => {
@@ -67,6 +69,18 @@ export function SettingsTab() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Key 落盘回执（v0.23.2）：「✓ 已保存」显示 2.5s 后回落，让位给验证状态提示
+  useEffect(() => {
+    if (keyState !== "saved") return;
+    const timer = window.setTimeout(() => setKeyState(prev => (prev === "saved" ? "idle" : prev)), 2500);
+    return () => window.clearTimeout(timer);
+  }, [keyState]);
+
+  // 切换提供商：上一个的保存状态不属于当前字段，立即归位
+  useEffect(() => {
+    setKeyState("idle");
+  }, [settings?.providerId]);
 
   // 设置面板卸载（切 Tab / 关窗）时冲刷防抖：最后一次输入不丢（P0-02）
   useEffect(() => () => flushSettingsSave(), []);
@@ -101,10 +115,11 @@ export function SettingsTab() {
 
   const updateKey = useCallback(
     (providerId: string, key: string) => {
+      setKeyState("saving"); // 350ms 防抖后落盘，回执翻「✓ 已保存」（v0.23.2）
       setSettings(prev => {
         if (!prev) return prev;
         const next = { ...prev, apiKeys: { ...prev.apiKeys, [providerId]: key } };
-        queueSettingsSave(next); // Key 逐字符输入：防抖（P0-02）
+        queueSettingsSave(next, ok => setKeyState(ok ? "saved" : "error")); // Key 逐字符输入：防抖（P0-02）+ 落盘回执
         return next;
       });
     },
@@ -135,6 +150,16 @@ export function SettingsTab() {
       )) {
         if (ev.type === "text-delta") {
           setTest({ phase: "ok", firstTokenMs: Math.round(performance.now() - started) });
+          // 验证记录（v0.23.2）：按提供商写入 { 时间, Key 指纹（末 4 位+长度） }，
+          // Key 字段据此显示「已验证可用」；指纹不含可还原的 Key 材料。
+          const key = settings.apiKeys[settings.providerId] ?? "";
+          persist({
+            ...settings,
+            verified: {
+              ...(settings.verified ?? {}),
+              [settings.providerId]: { at: Date.now(), tail: key.slice(-4), len: key.length },
+            },
+          });
           controller.abort(); // 首字到达即成功，不必等整条回完
           break;
         }
@@ -149,7 +174,7 @@ export function SettingsTab() {
     } finally {
       window.clearTimeout(timeout);
     }
-  }, [settings]);
+  }, [settings, persist, t]);
 
   if (loadError) {
     return (
@@ -172,6 +197,18 @@ export function SettingsTab() {
   const preset = getPreset(settings.providerId);
   const apiKey = settings.apiKeys[settings.providerId] ?? "";
   const model = settings.models[settings.providerId] ?? preset?.defaultModel ?? "";
+  // Key 验证状态（v0.23.2）：指纹（末 4 位+长度）匹配 = 当前输入的就是验证过的那把
+  const keyRecord = settings.verified?.[settings.providerId];
+  const keyVerified =
+    keyRecord != null && apiKey.length > 0 && keyRecord.len === apiKey.length && keyRecord.tail === apiKey.slice(-4);
+  const keyStatusDate = keyRecord
+    ? new Date(keyRecord.at).toLocaleString(locale === "en" ? "en-US" : "zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
 
   return (
     <div className="settings-panel">
@@ -220,10 +257,34 @@ export function SettingsTab() {
             value={apiKey}
             onChange={e => updateKey(preset.id, e.target.value)}
             onBlur={flushSettingsSave}
-            placeholder={apiKey ? t("settings.apiKeySaved") : "sk-…"}
+            placeholder="sk-…"
             autoComplete="off"
           />
         </label>
+      )}
+      {preset?.requiresKey && (
+        <p
+          className={`settings-note${
+            keyState === "saved" || (keyState === "idle" && keyVerified)
+              ? " settings-note--ok"
+              : keyState === "error" || (!keyVerified && keyRecord != null)
+                ? " settings-note--warn"
+                : ""
+          }`}
+          role="status"
+        >
+          {keyState === "saving"
+            ? t("settings.keySaving")
+            : keyState === "saved"
+              ? t("settings.keySavedOk")
+              : keyState === "error"
+                ? t("settings.keySaveFail")
+                : keyVerified && keyRecord
+                  ? t("settings.keyVerified", { date: keyStatusDate })
+                  : keyRecord
+                    ? t("settings.keyChanged")
+                    : t("settings.keyUnverified")}
+        </p>
       )}
       {preset?.keysUrl && <KeysUrlNote url={preset.keysUrl} />}
 

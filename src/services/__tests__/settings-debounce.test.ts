@@ -115,4 +115,38 @@ describe("createSettingsSaveQueue", () => {
     q.flush();
     expect(calls).toHaveLength(0);
   });
+
+  // ── 落盘回执（v0.23.2）：API Key 输入框「✓ 已保存」的数据来源 ──
+  it("落盘回执：最后落盘的 onSettled 以 ok=true 触发", async () => {
+    const clock = fakeScheduler();
+    const q = createSettingsSaveQueue(async () => undefined, 350, clock);
+    const receipts: boolean[] = [];
+    q.queue({ ...base, onboardingDone: true }, ok => receipts.push(ok));
+    clock.fire();
+    await Promise.resolve(); // onSettled 在 persist 的微任务里触发
+    expect(receipts).toEqual([true]);
+  });
+
+  it("写盘失败：onSettled 以 false 触发（UI 显示保存失败）", async () => {
+    const clock = fakeScheduler();
+    const q = createSettingsSaveQueue(async () => {
+      throw new Error("disk busy");
+    }, 350, clock);
+    const receipts: boolean[] = [];
+    q.queue(base, ok => receipts.push(ok));
+    clock.fire();
+    await Promise.resolve();
+    expect(receipts).toEqual([false]);
+  });
+
+  it("连续 queue：中间回调被丢弃，只有最终落盘触发一次", async () => {
+    const clock = fakeScheduler();
+    const q = createSettingsSaveQueue(async () => undefined, 350, clock);
+    const receipts: boolean[] = [];
+    q.queue({ ...base, onboardingDone: true }, ok => receipts.push(ok));
+    q.queue({ ...base, onboardingDone: false }, ok => receipts.push(ok));
+    clock.fire();
+    await Promise.resolve();
+    expect(receipts).toEqual([true]);
+  });
 });

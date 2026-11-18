@@ -310,4 +310,10 @@ export const en = {
   "assets.upload": "Upload",
   "assets.copied": "Copied",
   "assets.copyName": "Copy {name}",
+  "settings.keySaving": "Saving…",
+  "settings.keySavedOk": "✓ API Key saved",
+  "settings.keySaveFail": "Save failed, please retry",
+  "settings.keyVerified": "✓ Key verified working ({date})",
+  "settings.keyChanged": "⚠ Key changed — test again",
+  "settings.keyUnverified": "Not verified yet — use “Test connection” below to confirm",
 } satisfies Record<MessageKey, string>;

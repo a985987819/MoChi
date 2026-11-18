@@ -113,6 +113,13 @@ export interface AppSettings extends AddressingPreferences {
    * 主题只影响聊天窗/提醒窗/气泡/菜单等 UI 元素，不碰素材。
    */
   themeMode: ThemeMode;
+  /**
+   * 连通性验证记录（v0.23.2）：「测试连通性」成功时按提供商写入 { 时间, Key 指纹 }。
+   * 指纹 = Key 末 4 位 + 长度——只够判断「当前输入的 Key 是否就是验证过的那把」，
+   * **不含可还原的 Key 材料**（备份导出同样安全）。Key 一旦修改指纹失配，
+   * UI 提示重新测试，旧记录不清除（改回原 Key 恢复"已验证"）。
+   */
+  verified?: Record<string, { at: number; tail: string; len: number }>;
 }
 
 export type ThemeMode = "system" | "light" | "dark";
@@ -159,6 +166,7 @@ export function defaultSettings(): AppSettings {
     petScale: 1,
     themeMode: "system",
     locale: "system",
+    verified: {},
   };
 }
 
@@ -216,6 +224,18 @@ export function normalize(raw: unknown): AppSettings {
     themeMode: THEME_MODES.includes(r.themeMode as ThemeMode) ? (r.themeMode as ThemeMode) : d.themeMode,
     // 语言白名单（同上：system 是兜底）
     locale: LOCALE_SETTINGS.includes(r.locale as LocaleSetting) ? (r.locale as LocaleSetting) : d.locale,
+    // 验证记录：结构不对整体丢弃（默认 {} = 未验证），指纹字段由使用方比对
+    verified:
+      typeof r.verified === "object" && r.verified !== null
+        ? Object.fromEntries(
+            Object.entries(r.verified as Record<string, unknown>).flatMap(([id, v]) => {
+              const entry = v as { at?: unknown; tail?: unknown; len?: unknown };
+              return typeof entry.at === "number" && typeof entry.tail === "string" && typeof entry.len === "number"
+                ? [[id, { at: entry.at, tail: entry.tail, len: entry.len }]]
+                : [];
+            }),
+          )
+        : d.verified,
   };
 }
 
@@ -259,10 +279,11 @@ const saveQueue = createSettingsSaveQueue(settings => saveSettings(settings));
 
 /**
  * 字符级输入（API Key / 模型名 / 数字输入框）的落盘入口：350ms 防抖，最后一次为准。
- * 离散控件（下拉/开关）仍走 saveSettings 直存——单次事件无需防抖。
+ * `onSettled`（v0.23.2）：真正写盘成功/失败后触发——API Key 输入框据此显示
+ * 「✓ 已保存」。连续输入时中间回调被丢弃，只有最终落盘对应的回调触发。
  */
-export function queueSettingsSave(settings: AppSettings): void {
-  saveQueue.queue(settings);
+export function queueSettingsSave(settings: AppSettings, onSettled?: (ok: boolean) => void): void {
+  saveQueue.queue(settings, onSettled);
 }
 
 /** 立即落盘防抖队列（输入框 blur / 设置面板卸载时调用，最后一次输入不丢） */

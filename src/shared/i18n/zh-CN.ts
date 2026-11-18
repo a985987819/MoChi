@@ -323,6 +323,12 @@ export const zhCN = {
   "assets.upload": "上传",
   "assets.copied": "已复制",
   "assets.copyName": "复制 {name}",
+  "settings.keySaving": "保存中…",
+  "settings.keySavedOk": "✓ API Key 已保存",
+  "settings.keySaveFail": "保存失败，请重试",
+  "settings.keyVerified": "✓ 此 Key 已验证可用（{date}）",
+  "settings.keyChanged": "⚠ Key 已修改，请重新测试",
+  "settings.keyUnverified": "尚未验证可用性——点下方「测试连通性」确认",
 } as const;
 
 export type MessageKey = keyof typeof zhCN;
