@@ -1739,3 +1739,45 @@ body {
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
+
+/* ── 主题色调色盘（v0.26.0）── */
+.settings-swatch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 原生调色盘入口：色块化（默认 input[type=color] 的边框观感太系统） */
+.settings-color-input input {
+  width: 34px;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  cursor: pointer;
+}
+
+.settings-swatch {
+  width: 24px;
+  height: 24px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.settings-swatch:hover {
+  transform: scale(1.12);
+}
+
+.settings-swatch--active {
+  border-color: var(--text-strong);
+  transform: scale(1.12);
+}
+
+.settings-swatch-reset {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 12px;
+}

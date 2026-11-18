@@ -277,12 +277,10 @@ export const zhCN = {
   "settings.gameModeNote": "只检测前台窗口是否全屏（不看应用名和内容）；麻薯所在屏幕被全屏覆盖时隐藏，退出全屏恢复。",
   "settings.gameModeDefault": "默认关闭——任何形式的“看前台”都需要你明示开启。",
   "settings.petSize": "宠物大小",
-  "settings.petSizeValue": "{scale}×",
-  "settings.petSizeNote": "0.2×–2.0×，每 0.1 一档；按逻辑像素缩放，Retina / 4K+2K 混合双屏下跨屏移动都保持清晰不变形。",
   "settings.petSizeLabel": "麻薯的个头",
-
-
-
+  "settings.petSizeSmall": "小（0.8×）",
+  "settings.petSizeStandard": "标准",
+  "settings.petSizeLarge": "大（1.2×）",
   "settings.memories": "长期记忆（{count}）",
   "settings.memoriesLoading": "正在读取记忆…",
   "settings.memoriesError": "记忆读取失败（数据库暂不可用），功能重试稍后自动恢复。",
@@ -334,6 +332,11 @@ export const zhCN = {
   "settings.keyVerified": "✓ 此 Key 已验证可用（{date}）",
   "settings.keyChanged": "⚠ Key 已修改，请重新测试",
   "settings.keyUnverified": "尚未验证可用性——点下方「测试连通性」确认",
+  "settings.accentNote": "换色即时生效：按钮、徽标与各页面的粉色系随之改变；宠物形象与中性底色不变。",
+  "settings.accentReset": "恢复默认粉",
+  "settings.accent": "主题色",
+  "settings.petSizeNote": "0.2×–2.0×，每 0.1 一档；按逻辑像素缩放，Retina / 4K+2K 混合双屏下跨屏移动都保持清晰不变形。",
+  "settings.petSizeValue": "{scale}×",
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

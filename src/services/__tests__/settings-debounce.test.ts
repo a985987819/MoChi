@@ -57,6 +57,7 @@ const base: AppSettings = {
   petScale: 1,
   themeMode: "system" as const,
   locale: "system" as const,
+  accentColor: "#ff8fab" as const,
 };
 
 describe("createSettingsSaveQueue", () => {

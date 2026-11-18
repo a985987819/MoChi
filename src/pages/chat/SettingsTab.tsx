@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
@@ -28,6 +28,7 @@ import {
 import { listTtsVoices, speak, subscribeVoices } from "@/services/tts";
 import { logError } from "@/services/log";
 import { PET_SCALE_MAX, PET_SCALE_MIN, PET_SCALE_STEP, type LocaleSetting, type ThemeMode } from "@/services/settings";
+import { applyAccentColor, DEFAULT_ACCENT } from "@/shared/accent";
 import { useT } from "@/shared/i18n/react";
 import { backupsDir, exportBackup, formatBytes, importBackup, listBackups, type BackupInfo } from "@/services/backup";
 
@@ -337,6 +338,8 @@ export function SettingsTab() {
       <AutostartSection settings={settings} update={update} />
 
       <SoundSection settings={settings} update={update} updateDebounced={updateDebounced} />
+
+      <AccentSection settings={settings} update={update} updateDebounced={updateDebounced} />
 
       <ThemeSection settings={settings} update={update} />
 
@@ -689,6 +692,77 @@ function SoundSection({
       <p className="settings-note">
         {t("settings.soundNote")}
       </p>
+    </div>
+  );
+}
+
+/**
+ * 主题色（v0.26.0）：调色盘无级选色 + 预设色板 + 恢复默认粉。
+ *
+ * 交互：input[type=color] 的 onChange 拖动中连续触发——本窗 applyAccentColor
+ * 即时预览（令牌内联覆盖），持久化走 updateDebounced（350ms）→ settingsChanged
+ * 广播给其他窗口跟随。恢复默认 = 写回 #ff8fab（theme.css 静态值接管，移除内联
+ * 覆盖）。派生与对比度保证见 shared/accent.ts。
+ */
+function AccentSection({
+  settings,
+  update,
+  updateDebounced,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+  updateDebounced: (patch: Partial<AppSettings>) => void;
+}) {
+  const { t } = useT();
+  const isDark = useMemo(
+    () =>
+      settings.themeMode === "dark"
+        ? true
+        : settings.themeMode === "light"
+          ? false
+          : window.matchMedia("(prefers-color-scheme: dark)").matches,
+    [settings.themeMode],
+  );
+  const PRESETS = ["#ffab7e", "#9ec3ff", "#8fbf9f", "#b3a3ff"] as const;
+
+  /** 拖动调色盘：本窗即时预览 + 防抖落盘广播 */
+  const onPick = useCallback(
+    (color: string) => {
+      applyAccentColor(color, isDark);
+      updateDebounced({ accentColor: color });
+    },
+    [isDark, updateDebounced],
+  );
+
+  const commit = useCallback(
+    (color: string) => {
+      update({ accentColor: color });
+      applyAccentColor(color, isDark);
+    },
+    [isDark, update],
+  );
+
+  return (
+    <div className="settings-sound">
+      <span className="settings-field-label">{t("settings.accent")}</span>
+      <div className="settings-swatch-row">
+        <label className="settings-color-input" title={t("settings.accent")}>
+          <input type="color" value={settings.accentColor} onChange={e => onPick(e.target.value)} />
+        </label>
+        {PRESETS.map(color => (
+          <button
+            key={color}
+            className={settings.accentColor.toLowerCase() === color ? "settings-swatch settings-swatch--active" : "settings-swatch"}
+            style={{ background: color }}
+            onClick={() => commit(color)}
+            aria-label={color}
+          />
+        ))}
+        <button className="settings-ghost-btn settings-swatch-reset" onClick={() => commit(DEFAULT_ACCENT)}>
+          {t("settings.accentReset")}
+        </button>
+      </div>
+      <p className="settings-note">{t("settings.accentNote")}</p>
     </div>
   );
 }

@@ -120,6 +120,12 @@ export interface AppSettings extends AddressingPreferences {
    * UI 提示重新测试，旧记录不清除（改回原 Key 恢复"已验证"）。
    */
   verified?: Record<string, { at: number; tail: string; len: number }>;
+  /**
+   * 主题色（v0.26.0）：六位 hex（含 #），驱动全站 accent 家族（按钮/徽标/提示
+   * 底纹等）——派生逻辑见 shared/accent.ts。默认 #ff8fab（奶油粉）= 不覆盖
+   * theme.css 静态值。
+   */
+  accentColor: string;
 }
 
 export type ThemeMode = "system" | "light" | "dark";
@@ -167,8 +173,12 @@ export function defaultSettings(): AppSettings {
     themeMode: "system",
     locale: "system",
     verified: {},
+    accentColor: DEFAULT_ACCENT,
   };
 }
+
+/** 默认主题色（v0.26.0：奶油粉）——accentColor 缺省值与「恢复默认」共用 */
+export const DEFAULT_ACCENT = "#ff8fab";
 
 /** 宠物大小档位范围（v0.25.0：滑杆连续控制，0.1 一档；原三档 0.8/1/1.2） */
 export const PET_SCALE_MIN = 0.2;
@@ -243,6 +253,10 @@ export function normalize(raw: unknown): AppSettings {
             }),
           )
         : d.verified,
+    // 主题色：六位 hex 白名单（非法/缺失回落默认粉）
+    accentColor: typeof r.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(r.accentColor)
+      ? r.accentColor.toLowerCase()
+      : d.accentColor,
   };
 }
 

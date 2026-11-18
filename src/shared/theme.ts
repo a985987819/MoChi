@@ -17,6 +17,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { STATE_EVENTS } from "@/shared/events";
 import { loadSettings } from "@/services/settings";
+import { applyAccentColor } from "@/shared/accent";
 
 /** 模式 → 实际主题："system" 由系统偏好决定；非法值回落 system */
 export function resolveTheme(mode: string | undefined, systemPrefersDark: boolean): "light" | "dark" {
@@ -44,7 +45,12 @@ export function installThemeWatcher(): () => void {
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   const refresh = () => {
     void loadSettings()
-      .then(settings => applyResolvedTheme(resolveTheme(settings.themeMode, media.matches)))
+      .then(settings => {
+        const dark = resolveTheme(settings.themeMode, media.matches) === "dark";
+        applyResolvedTheme(dark ? "dark" : "light");
+        // 主题色随明暗分支派生（v0.26.0）：切主题/换色都即时生效
+        applyAccentColor(settings.accentColor, dark);
+      })
       .catch(() => undefined); // 读不到设置保持现状——主题是外观，不该报错打断功能
   };
   refresh();
