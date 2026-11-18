@@ -12,6 +12,7 @@ import { playShowTransition, onWindowShown } from "@/shared/show-transition";
 import { loadSettings, saveSettings } from "@/services/settings";
 import { reminderStore } from "@/services/reminders";
 import { stopSpeaking } from "@/services/tts";
+import { dragWindow } from "@/shared/window-drag";
 import { useT } from "@/shared/i18n/react";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import "./chat.css";
@@ -130,9 +131,11 @@ export function ChatApp() {
 
   return (
     <main ref={shellRef} className="chat-shell">
-      {/* 自绘标题栏：整体是拖动区，按钮 stopPropagation 保住点击 */}
-      <header className="chat-titlebar" data-tauri-drag-region>
-        <span className="chat-titlebar__title" data-tauri-drag-region>
+      {/* 自绘标题栏（v0.23.1）：**整行可抓**拖动——手动 mousedown + startDragging
+          （排除 Tab/关闭钮等交互控件），替代 data-tauri-drag-region 的"仅元素本身
+          生效"限制。Tab 之间的空隙、标题两侧都能抓，拖拽方便很多。 */}
+      <header className="chat-titlebar" onMouseDown={dragWindow}>
+        <span className="chat-titlebar__title">
           <MochiPlaceholder size={18} />
           Mochi
         </span>

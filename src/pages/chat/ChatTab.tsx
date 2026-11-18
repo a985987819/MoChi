@@ -10,6 +10,7 @@ import { SkeletonLines } from "@/shared/components/Loading";
 import { answerLocally, isLocalAnswer, localKnowledgeSize } from "@/rag/local-qa";
 import { useT } from "@/shared/i18n/react";
 import { t } from "@/shared/i18n/core";
+import { dragWindow } from "@/shared/window-drag";
 import type { MessageKey } from "@/shared/i18n/zh-CN";
 import type { ProviderError } from "@/agent/providers";
 import { isProviderReady, loadSettings, type AppSettings } from "@/services/settings";
@@ -285,7 +286,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
           </div>
         )}
         {entries !== null && entries.length === 0 && (
-          <div className="chat-empty">
+          <div className="chat-empty" onMouseDown={dragWindow}>
             <p>{t("chat.emptyHello")}</p>
             <div className="chat-empty__chips">
               {EMPTY_CHIPS.map(key => (
