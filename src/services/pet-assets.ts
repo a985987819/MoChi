@@ -144,8 +144,12 @@ export async function listVariants(state: PetState, failedUrls: ReadonlySet<stri
   };
 
   // ① 用户目录（Rust 扫描，返回 { 状态: [完整路径] }）
+  let userHasAny = false;
   try {
     const userMap = await invoke<Record<string, string[]>>("list_user_pet_assets");
+    // v0.23.0：用户目录里有**任何**素材 = 用户已经换形象了——所有状态都不再回落
+    // 内置（缺失状态显示占位 SVG），避免"换成猫的 happy + 默认麻薯的 idle"混搭。
+    userHasAny = Object.values(userMap).some(paths => paths.length > 0);
     for (const path of userMap[state] ?? []) {
       const name = path.replaceAll("\\", "/").split("/").pop() ?? "";
       collect(name, convertFileSrc(path), true);
@@ -154,18 +158,19 @@ export async function listVariants(state: PetState, failedUrls: ReadonlySet<stri
     // 扫描失败（目录不存在等）按"无用户素材"处理，静默走内置——回退链的意义
   }
 
-  // ② 内置素材
-  for (const [name, url] of bundledUrls) collect(name, url, false);
+  // ② 内置素材：只在用户目录完全为空时参与回退（v0.23.0 语义，见上方注释）
+  if (!userHasAny) {
+    for (const [name, url] of bundledUrls) collect(name, url, false);
+  }
 
-  // 用户在本次会话里加载失败的 URL 先剔除，再决定"用户优先还是内置兜底"——
-  // 顺序反了会导致"用户图坏了就显示空白"，而不是回退到内置形象。
+  // 用户在本次会话里加载失败的 URL 先剔除——用户图坏了不退回内置（角色一致性），
+  // 而是与"缺失状态"一样显示占位 SVG，提示用户修图或删图。
   const usable = entries.filter(entry => !failedUrls.has(entry.url));
 
-  // 用户图与内置图不能混在一个随机池：否则“放图替换形象”只会偶尔生效。
-  // img.onerror 由渲染层把失败 URL 回传；全部用户图失败时才退到内置图。
+  // 用户图与内置图不能混在一个随机池（v0.23.0 后内置只在空目录出现，此处保底）。
   const userEntries = usable.filter(entry => entry.fromUser);
-  const chosen = userEntries.length > 0 ? userEntries : usable;
-  return buildVariants(chosen);
+  if (userHasAny) return buildVariants(userEntries);
+  return buildVariants(usable);
 }
 
 /** 从变体池随机取一张 */

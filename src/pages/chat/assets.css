@@ -340,3 +340,50 @@
   line-height: 1.6;
   color: var(--text-faint);
 }
+
+
+/* ── 每状态上传 + 点击复制命名（v0.23.0）── */
+.assets-state__upload {
+  margin-left: auto;
+  border: none;
+  border-radius: 6px;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.assets-state__upload:hover {
+  background: var(--bg-accent-tint);
+}
+
+.assets-state__names {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 0;
+}
+
+.assets-state__name {
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 7px;
+  cursor: copy;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.assets-state__name:hover {
+  color: var(--text-strong);
+  border-color: var(--accent-muted);
+}
+
+/* 复制成功的即时反馈：整枚 chip 变成功态 1.2s */
+.assets-state__name--copied {
+  background: var(--bg-success-tint);
+  border-color: var(--border-success);
+  color: var(--success-text);
+}

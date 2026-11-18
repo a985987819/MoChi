@@ -64,6 +64,10 @@ export function AssetsTab() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  /** 每状态独立上传（v0.23.0）：非 null 时本次选择的文件全部归入该状态 */
+  const uploadTarget = useRef<PetState | null>(null);
+  /** 点击复制命名的反馈（state+形态 键，1.2s 后回落） */
+  const [copiedName, setCopiedName] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
 
@@ -80,9 +84,12 @@ export function AssetsTab() {
     refresh();
   }, [refresh]);
 
-  /** 选文件：只做识别与规划，不写盘（写盘在「导入」里，用户先确认状态） */
+  /** 选文件：只做识别与规划，不写盘（写盘在「导入」里，用户先确认状态）。
+   *  v0.23.0：每状态独立上传——target 非 null 时全部文件归入该状态（帧号仍从
+   *  文件名识别），猜名逻辑只在「选择图片」通用入口生效。 */
   const onFilesPicked = useCallback((list: FileList | null) => {
     if (!list || list.length === 0) return;
+    const target = uploadTarget.current;
     const accepted: PendingFile[] = [];
     const rejected: string[] = [];
     for (const file of Array.from(list)) {
@@ -97,8 +104,8 @@ export function AssetsTab() {
         file,
         from: file.name,
         ext,
-        state: guessedState ?? "idle",
-        guessed: guessedState !== null,
+        state: target ?? guessedState ?? "idle",
+        guessed: target !== null ? true : guessedState !== null,
         frame: frameOfFileName(file.name),
       });
     }
@@ -115,6 +122,23 @@ export function AssetsTab() {
         : null,
     );
   }, [t]);
+
+  /** 打开文件选择器：target 非 null = 为指定状态上传（v0.23.0 每状态独立上传） */
+  const pickFiles = useCallback((target: PetState | null) => {
+    uploadTarget.current = target;
+    inputRef.current?.click();
+  }, []);
+
+  /** 点击复制命名（v0.23.0）：把规范文件名写进剪贴板，1.2s 后反馈回落 */
+  const copyName = useCallback((name: string) => {
+    void navigator.clipboard
+      .writeText(name)
+      .then(() => {
+        setCopiedName(name);
+        window.setTimeout(() => setCopiedName(prev => (prev === name ? null : prev)), 1200);
+      })
+      .catch(() => undefined);
+  }, []);
 
   /** 目标文件名预览：与 Rust 同算法，且同批内递增，避免两张图抢同一个名字 */
   const planned = useMemo(() => {
@@ -213,7 +237,7 @@ export function AssetsTab() {
             event.target.value = "";
           }}
         />
-        <button className="assets-import__pick" onClick={() => inputRef.current?.click()} disabled={busy}>
+        <button className="assets-import__pick" onClick={() => pickFiles(null)} disabled={busy}>
           选择图片 / Choose images
         </button>
         <span className="assets-import__hint">PNG · JPG · GIF · WEBP · SVG，单张 ≤ 16MB</span>
@@ -299,7 +323,10 @@ export function AssetsTab() {
         </h3>
         <p className="assets-lead">文件名用左侧的英文代码；中文名也可以，导入时会自动翻成英文。</p>
         <ul className="assets-states__list">
-          {STATE_DOCS.map(doc => (
+          {STATE_DOCS.map(doc => {
+            const baseName = `${doc.state}.png`;
+            const frameName = `${doc.state}_001.png`;
+            return (
             <li key={doc.state} className="assets-state">
               <div className="assets-state__title">
                 <code className="assets-state__code">{doc.state}</code>
@@ -308,11 +335,35 @@ export function AssetsTab() {
                 <span className="assets-state__count">
                   {counts[doc.state] ? t("assets.count", { count: counts[doc.state] }) : t("assets.builtin")}
                 </span>
+                {/* 每状态独立上传（v0.23.0）：直接为该状态选图，免去通用入口的手动归位 */}
+                <button className="assets-state__upload" onClick={() => pickFiles(doc.state)}>
+                  {t("assets.upload")}
+                </button>
+              </div>
+              {/* 点击复制命名（v0.23.0）：基础名与帧序列名各一枚，方便用户给自有素材改名 */}
+              <div className="assets-state__names">
+                <button
+                  className={`assets-state__name${copiedName === baseName ? " assets-state__name--copied" : ""}`}
+                  onClick={() => copyName(baseName)}
+                  aria-label={t("assets.copyName", { name: baseName })}
+                  title={t("assets.copyName", { name: baseName })}
+                >
+                  {copiedName === baseName ? t("assets.copied") : baseName}
+                </button>
+                <button
+                  className={`assets-state__name${copiedName === frameName ? " assets-state__name--copied" : ""}`}
+                  onClick={() => copyName(frameName)}
+                  aria-label={t("assets.copyName", { name: frameName })}
+                  title={t("assets.copyName", { name: frameName })}
+                >
+                  {copiedName === frameName ? t("assets.copied") : frameName}
+                </button>
               </div>
               <p className="assets-state__when">{doc.zhWhen}</p>
               <p className="assets-state__when-en">{doc.enWhen}</p>
             </li>
-          ))}
+            );
+          })}
         </ul>
       </section>
 

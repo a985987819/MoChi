@@ -25,14 +25,26 @@ it("用户目录查询失败仍保留内置素材", async () => {
   expect(variants.every(v => !v.fromUser)).toBe(true);
 });
 
-it("用户图加载失败后回退内置，内置也失败时返回空池让界面显示占位", async () => {
+it("用户图加载失败不回退内置——显示占位（角色一致性，v0.23.0）", async () => {
   backend.assets = { alert: ["E:/pet-assets/alert.png"] };
   const failed = new Set(["asset://E:/pet-assets/alert.png"]);
-  const bundled = await listVariants("alert", failed);
-  expect(bundled.length).toBeGreaterThan(0);
-  expect(bundled.every(v => !v.fromUser)).toBe(true);
-  bundled.forEach(v => failed.add(v.url));
   expect(await listVariants("alert", failed)).toEqual([]);
+});
+
+it("用户有任何素材后：缺失状态不回落内置，返回空池显示占位（v0.23.0）", async () => {
+  backend.assets = { happy: ["E:/pet-assets/happy.png"] };
+  const idle = await listVariants("idle");
+  expect(idle).toEqual([]);
+  // 该状态本身仍用用户素材
+  const happy = await listVariants("happy");
+  expect(happy.length).toBe(1);
+  expect(happy[0]).toMatchObject({ fromUser: true });
+});
+
+it("用户目录为空（未导入过）时保持内置回退链", async () => {
+  const variants = await listVariants("idle");
+  expect(variants.length).toBeGreaterThan(0);
+  expect(variants.every(v => !v.fromUser)).toBe(true);
 });
 
 it("文件名只剥离数字变体后缀，统一大小写与 jpeg", () => {

@@ -307,4 +307,7 @@ export const en = {
   "settings.diagPlatform": "Platform",
   "settings.diagDataDir": "Data directory",
   "settings.backupDirFallback": "data directory\backups",
+  "assets.upload": "Upload",
+  "assets.copied": "Copied",
+  "assets.copyName": "Copy {name}",
 } satisfies Record<MessageKey, string>;

@@ -320,6 +320,9 @@ export const zhCN = {
   "settings.diagPlatform": "平台",
   "settings.diagDataDir": "数据目录",
   "settings.backupDirFallback": "数据目录\backups",
+  "assets.upload": "上传",
+  "assets.copied": "已复制",
+  "assets.copyName": "复制 {name}",
 } as const;
 
 export type MessageKey = keyof typeof zhCN;
