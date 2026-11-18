@@ -42,6 +42,7 @@ const PENDING = [
   "src/agent/tools/validate-schema.ts",
   "src/agent/tools/remember.ts",
   "src/agent/tools/pet-state.ts",
+  "src/agent/tools/desktop.ts",
   "src/agent/providers/presets.ts",
   "src/agent/providers/openai-compatible.ts",
   // ③ 服务层错误/日志文本（console/日志用途，不进 UI）

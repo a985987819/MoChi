@@ -35,6 +35,8 @@ export const TOOL_LABELS: Record<string, MessageKey | ""> = {
   stop_pomodoro: "tool.stopPomodoro",
   get_pomodoro_status: "tool.getPomodoroStatus",
   remember: "tool.remember",
+  open_url: "tool.openUrl",
+  open_data_folder: "tool.openDataFolder",
   set_pet_state: "", // 情绪副作用：不展示（见 formatToolTrace 的过滤）
 };
 

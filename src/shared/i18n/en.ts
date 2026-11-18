@@ -123,6 +123,8 @@ export const en = {
   "tool.stopPomodoro": "Stopped the focus session",
   "tool.getPomodoroStatus": "Checked the pomodoro",
   "tool.remember": "Noted it down",
+  "tool.openUrl": "Opened a web page",
+  "tool.openDataFolder": "Opened the data folder",
   "tool.fail": "“{label}” didn't go through",
   "tool.failRaw": "{name} failed",
   "welcome.aria": "First-run guide",

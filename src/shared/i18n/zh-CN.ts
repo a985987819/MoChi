@@ -136,6 +136,8 @@ export const zhCN = {
   "tool.stopPomodoro": "停止了专注",
   "tool.getPomodoroStatus": "看了下番茄钟",
   "tool.remember": "记住了这件事",
+  "tool.openUrl": "打开了网页",
+  "tool.openDataFolder": "打开了数据目录",
   "tool.fail": "「{label}」没成功",
   "tool.failRaw": "{name}没成功",
   "welcome.aria": "新手引导",

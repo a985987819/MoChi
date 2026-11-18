@@ -24,6 +24,7 @@ import {
   startPomodoroTool,
   stopPomodoroTool,
 } from "@/agent/tools/pomodoro";
+import { openDataFolderTool, openUrlTool } from "@/agent/tools/desktop";
 import { pomodoroControl } from "@/services/pomodoro-control";
 import { cancelReminderTool, createReminderTool, listRemindersTool, skipReminderTool } from "@/agent/tools/reminder";
 import { historyStore } from "@/agent/memory/history-store";
@@ -79,6 +80,9 @@ export class AgentFacade {
     this.registry.register(cancelReminderTool(reminderStore));
     this.registry.register(skipReminderTool(reminderStore));
     this.registry.register(listRemindersTool(reminderStore));
+    // 桌面操作（v0.28.0）：打开网页/数据目录——常规 agent 操作面
+    this.registry.register(openUrlTool());
+    this.registry.register(openDataFolderTool());
   }
 
   /** UI 展示"麻薯会什么"（调试价值） */
