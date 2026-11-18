@@ -333,6 +333,8 @@ export function SettingsTab() {
 
       <PetSizeSection settings={settings} updateDebounced={updateDebounced} />
 
+      <AutoDockSection settings={settings} update={update} />
+
       <ShortcutSection settings={settings} update={update} />
 
       <AutostartSection settings={settings} update={update} />
@@ -1023,6 +1025,35 @@ function PetSizeSection({
         />
       </label>
       <p className="settings-note">{t("settings.petSizeNote")}</p>
+    </div>
+  );
+}
+
+/**
+ * 自动贴边（v0.29.0）：拖拽松手离屏幕边缘 ≤40 逻辑 px 时自动躲藏只留一条，
+ * 鼠标靠近该边或有提醒时就近恢复。开关经 state://auto-dock-changed 同步给
+ * Rust（窗口定位是 Rust 域）；关闭时立即从躲藏恢复完整显示。
+ */
+function AutoDockSection({
+  settings,
+  update,
+}: {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => void;
+}) {
+  const { t } = useT();
+  return (
+    <div className="settings-autodock">
+      <span className="settings-field-label">{t("settings.autoDock")}</span>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={settings.autoDockEnabled}
+          onChange={e => update({ autoDockEnabled: e.target.checked })}
+        />
+        <span>{t("settings.autoDockToggle")}</span>
+      </label>
+      <p className="settings-note">{t("settings.autoDockNote")}</p>
     </div>
   );
 }

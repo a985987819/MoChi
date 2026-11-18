@@ -79,6 +79,8 @@ const EVT_PET_SCALE_CHANGED: &str = "state://pet-scale-changed";
 const EVT_PET_DRAG_CHANGED: &str = "state://pet-drag-changed";
 /// 游戏模式开关（v0.9.0 自迭代）：设置 → Rust，启停前台全屏检测
 const EVT_GAME_MODE_CHANGED: &str = "state://game-mode-changed";
+/// 自动贴边开关（v0.29.0）：设置 → Rust，同步 enabled；关闭时立即从躲藏恢复
+const EVT_AUTO_DOCK_CHANGED: &str = "state://auto-dock-changed";
 /// 宠物窗设计基准尺寸（tauri.conf.json 声明值；缩放按逻辑像素乘档位）
 const PET_BASE_WIDTH: f64 = 220.0;
 const PET_BASE_HEIGHT: f64 = 260.0;
@@ -728,6 +730,157 @@ fn is_fullscreen_cover(win: (i32, i32, i32, i32), monitor: (i32, i32, i32, i32))
     ww * 100 >= mw * 97 && wh * 100 >= mh * 97
 }
 
+/// 自动贴边（v0.29.0）：拖拽松手离屏幕边很近时自动躲藏只留一条（peek），
+/// 鼠标靠近该边或有提醒时就近恢复完整显示。开关来自 settings.autoDockEnabled
+/// （state://auto-dock-changed 同步）。
+#[derive(Default)]
+struct AutoDockState {
+    enabled: bool,
+    peeked: Option<Edge>,
+}
+
+/// 躲藏目标边（相对当前显示器工作区）
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Edge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+/// 触发距离（逻辑 px）：松手时窗口边缘离工作区边 ≤40 逻辑 px 触发躲藏
+const DOCK_TRIGGER_LOGICAL: i32 = 40;
+/// 躲藏时可见的"一条"宽度（逻辑 px）
+const PEEK_SLIVER_LOGICAL: i32 = 16;
+/// 唤回区宽度（逻辑 px）：光标进入贴边外侧这条带就恢复显示
+const PEEK_WAKE_ZONE_LOGICAL: i32 = 48;
+/// 沿边方向的唤回余量（物理 px）：该边 ±120 物理 px 范围内经过都算"经过"
+const PEEK_WAKE_SPAN_PAD_PX: i32 = 120;
+
+/// 窗口矩形到工作区四边的距离（物理 px；可为负 = 已溢出该边）。返回 (最近边, 距离)
+fn nearest_edge(rect: (i32, i32, i32, i32), area: (i32, i32, i32, i32)) -> (Edge, i32) {
+    let (x, y, w, h) = rect;
+    let (ax, ay, aw, ah) = area;
+    let candidates = [
+        (Edge::Left, x - ax),
+        (Edge::Right, (ax + aw) - (x + w)),
+        (Edge::Top, y - ay),
+        (Edge::Bottom, (ay + ah) - (y + h)),
+    ];
+    candidates
+        .into_iter()
+        .min_by_key(|(_, d)| d.abs())
+        .map(|(e, d)| (e, d))
+        .unwrap_or((Edge::Left, i32::MAX))
+}
+
+/// 沿边方向把窗口夹在工作区内（躲藏/停靠时另一轴完整可见）
+fn clamp_span(origin: i32, span: i32, area_origin: i32, area_span: i32) -> i32 {
+    origin.clamp(area_origin, (area_origin + area_span - span).max(area_origin))
+}
+
+/// 躲藏位置（物理 px）：窗口沿该边滑出只留 sliver 可见；沿边方向夹在工作区内
+fn peek_position(edge: Edge, rect: (i32, i32, i32, i32), area: (i32, i32, i32, i32), sliver: i32) -> (i32, i32) {
+    let (x, y, w, h) = rect;
+    let (ax, ay, aw, ah) = area;
+    match edge {
+        Edge::Left => (ax - w + sliver, clamp_span(y, h, ay, ah)),
+        Edge::Right => (ax + aw - sliver, clamp_span(y, h, ay, ah)),
+        Edge::Top => (clamp_span(x, w, ax, aw), ay - h + sliver),
+        Edge::Bottom => (clamp_span(x, w, ax, aw), ay + ah - sliver),
+    }
+}
+
+/// 停靠位置（物理 px）：完整显示且紧贴该边
+fn dock_position(edge: Edge, rect: (i32, i32, i32, i32), area: (i32, i32, i32, i32)) -> (i32, i32) {
+    let (x, y, w, h) = rect;
+    let (ax, ay, aw, ah) = area;
+    match edge {
+        Edge::Left => (ax, clamp_span(y, h, ay, ah)),
+        Edge::Right => (ax + aw - w, clamp_span(y, h, ay, ah)),
+        Edge::Top => (clamp_span(x, w, ax, aw), ay),
+        Edge::Bottom => (clamp_span(x, w, ax, aw), ay + ah - h),
+    }
+}
+
+/// 唤回判定（纯函数）：光标位于贴边外侧 wake 带内，且沿边方向落在窗口跨度
+/// ± pad 范围内——"鼠标经过躲藏的那条边附近"才算经过
+fn cursor_wakes_peek(cursor: (i32, i32), edge: Edge, rect: (i32, i32, i32, i32), area: (i32, i32, i32, i32), zone: i32) -> bool {
+    let (cx, cy) = cursor;
+    let (x, y, w, h) = rect;
+    let (ax, ay, aw, ah) = area;
+    let span_ok = |origin: i32, span: i32, pos: i32| {
+        pos >= origin - PEEK_WAKE_SPAN_PAD_PX && pos <= origin + span + PEEK_WAKE_SPAN_PAD_PX
+    };
+    match edge {
+        Edge::Left => cx >= ax - zone && cx <= ax + zone && span_ok(y, h, cy),
+        Edge::Right => cx >= ax + aw - zone && cx <= ax + aw + zone && span_ok(y, h, cy),
+        Edge::Top => cy >= ay - zone && cy <= ay + zone && span_ok(x, w, cx),
+        Edge::Bottom => cy >= ay + ah - zone && cy <= ay + ah + zone && span_ok(x, w, cx),
+    }
+}
+
+/// 从躲藏状态恢复（物理 px 定位回停靠位）：peeked 清空
+fn restore_from_peek(app: &tauri::AppHandle) {
+    let Some(pet) = app.get_webview_window("pet") else { return };
+    let (Ok(pos), Ok(size)) = (pet.outer_position(), pet.outer_size()) else { return };
+    let monitor = match pet.current_monitor() {
+        Ok(Some(m)) => m,
+        _ => match pet.primary_monitor() {
+            Ok(Some(m)) => m,
+            _ => return,
+        },
+    };
+    let area = monitor.work_area();
+    let (peeked, enabled) = {
+        let state = app.state::<Mutex<AutoDockState>>();
+        let st = state.lock().map(|s| (s.peeked, s.enabled)).unwrap_or((None, false));
+        (st.0, st.1)
+    };
+    let Some(edge) = peeked else { return };
+    let docked = dock_position(edge, (pos.x, pos.y, size.width as i32, size.height as i32), (area.position.x, area.position.y, area.size.width as i32, area.size.height as i32));
+    let _ = pet.set_position(tauri::PhysicalPosition::new(docked.0, docked.1));
+    if let Ok(mut st) = app.state::<Mutex<AutoDockState>>().lock() {
+        st.peeked = None;
+    }
+}
+
+/// 拖拽收尾后的自动贴边判定（v0.29.0）：开关开 + 最近边距离 ≤ 触发距离 →
+/// 滑出只留一条（peek）。底部边不躲藏——宠物置顶会盖住任务栏。
+fn maybe_auto_dock(app: &tauri::AppHandle) {
+    let Some(pet) = app.get_webview_window("pet") else { return };
+    let (enabled,) = {
+        let state = app.state::<Mutex<AutoDockState>>();
+        match state.lock() {
+            Ok(st) => (st.enabled,),
+            Err(_) => return,
+        }
+    };
+    if !enabled { return; }
+    let (Ok(pos), Ok(size)) = (pet.outer_position(), pet.outer_size()) else { return };
+    let monitor = match pet.current_monitor() {
+        Ok(Some(m)) => m,
+        _ => match pet.primary_monitor() {
+            Ok(Some(m)) => m,
+            _ => return,
+        },
+    };
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    let rect = (pos.x, pos.y, size.width as i32, size.height as i32);
+    let area_t = (area.position.x, area.position.y, area.size.width as i32, area.size.height as i32);
+    let (edge, dist) = nearest_edge(rect, area_t);
+    if edge == Edge::Bottom { return; } // 底部是任务栏：贴边吸附即可，不躲藏
+    let trigger = (DOCK_TRIGGER_LOGICAL as f64 * scale).round() as i32;
+    if dist.abs() > trigger { return; }
+    let sliver = (PEEK_SLIVER_LOGICAL as f64 * scale).round() as i32;
+    let peeked = peek_position(edge, rect, area_t, sliver);
+    let _ = pet.set_position(tauri::PhysicalPosition::new(peeked.0, peeked.1));
+    if let Ok(mut st) = app.state::<Mutex<AutoDockState>>().lock() {
+        st.peeked = Some(edge);
+    }
+}
+
 /// 拖拽运动追踪：Moved 事件只在**边界**广播（开始一次/结束一次），
 /// 每次移动都发事件会把 1Hz 的 IPC 变成 60Hz，前端反而被自己拖慢。
 /// 结束判定靠"静默窗口"：原生拖动中 Moved 连续到达，停止移动 400ms 后视为放手。
@@ -1016,6 +1169,7 @@ pub fn run() {
         .manage(Mutex::new(DragMotion::default()))
         .manage(Mutex::new(PetHitTest::default()))
         .manage(Mutex::new(GameMode::default()))
+        .manage(Mutex::new(AutoDockState::default()))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 用户再次双击图标：把已有宠物的窗口唤回前台。窗口可能在创建中
             // （初始化早期再次双击）——短重试兜底，避免"点了图标却什么都没发生"。
@@ -1310,6 +1464,10 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
     let handle = app.clone();
     app.listen_any(EVT_DRAG_PET, move |_| {
         INERTIA_GENERATION.fetch_add(1, Ordering::SeqCst);
+        // 抓起宠物即取消躲藏判定（v0.29.0）：松手后重新评估贴边/躲藏
+        if let Ok(mut st) = handle.state::<Mutex<AutoDockState>>().lock() {
+            st.peeked = None;
+        }
         let state = handle.state::<Mutex<DragMotion>>();
         if let Ok(mut motion) = state.lock() {
             motion.inertia = false;
@@ -1385,6 +1543,28 @@ fn setup_ui_event_listeners(app: tauri::AppHandle) {
                 "error": error,
             }),
         );
+    });
+
+    // 自动贴边开关（v0.29.0）：同步 enabled；关闭时立即从躲藏恢复完整显示
+    let handle = app.clone();
+    app.listen_any(EVT_AUTO_DOCK_CHANGED, move |event| {
+        let enabled = serde_json::from_str::<serde_json::Value>(event.payload())
+            .ok()
+            .and_then(|v| v.get("enabled").and_then(|b| b.as_bool()))
+            .unwrap_or(false);
+        let (restore,) = {
+            let state = handle.state::<Mutex<AutoDockState>>();
+            match state.lock() {
+                Ok(mut st) => {
+                    st.enabled = enabled;
+                    (st.peeked.is_some() && !enabled,)
+                }
+                Err(_) => (false,),
+            }
+        };
+        if restore {
+            restore_from_peek(&handle);
+        }
     });
 
     // 游戏模式开关（v0.9.0 自迭代）：只置标志位，检测在 native tick 里做（1s 节奏，
@@ -1532,6 +1712,8 @@ fn show_app_alert(app: tauri::AppHandle, alert: AppAlert) -> Result<(), String> 
     if alert.id.trim().is_empty() || alert.title.trim().is_empty() || alert.body.trim().is_empty() {
         return Err("提醒内容不能为空".into());
     }
+    // 提醒唤回（v0.29.0）：有提醒就恢复完整显示——躲藏时不能错过提醒
+    restore_from_peek(&app);
     let state = app.state::<Mutex<AlertQueue>>();
     let mut queue = state.lock().map_err(|_| "提醒队列不可用")?;
     let was_empty = queue.items.is_empty();
@@ -1726,6 +1908,26 @@ fn set_pet_hit_test(
 fn start_pet_hit_test_poll(app: tauri::AppHandle) {
     let _ = std::thread::Builder::new().name("mochi-hitpoll".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_millis(150));
+        // 躲藏唤回（v0.29.0）：peek 状态下光标进入贴边唤回带 → 恢复停靠位
+        {
+            let peeked = app.state::<Mutex<AutoDockState>>().lock().ok().and_then(|st| st.peeked);
+            if let Some(edge) = peeked {
+                if let Ok(cursor) = app.cursor_position() {
+                    let wake = (PEEK_WAKE_ZONE_LOGICAL as f64) as i32;
+                    let cursor_i = (cursor.x as i32, cursor.y as i32);
+                    if let Some(pet) = app.get_webview_window("pet") {
+                        let (Ok(pos), Ok(size)) = (pet.outer_position(), pet.outer_size()) else { continue; };
+                        if let Ok(Some(monitor)) = pet.current_monitor() {
+                            let area = monitor.work_area();
+                            if cursor_wakes_peek(cursor_i, edge, (pos.x, pos.y, size.width as i32, size.height as i32), (area.position.x, area.position.y, area.size.width as i32, area.size.height as i32), wake) {
+                                restore_from_peek(&app);
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let state = app.state::<Mutex<PetHitTest>>();
         let (ignore, sprite) = match state.lock() {
             Ok(h) => (h.ignore, h.sprite),
@@ -2429,6 +2631,39 @@ mod alert_tests {
         ).is_ok());
         assert!(ensure_within_dir(std::path::Path::new("/data/app/other.png"), root, "deny").is_err());
         assert!(ensure_within_dir(std::path::Path::new("/data/app/pet-assets-secret/x.png"), root, "deny").is_err());
+    }
+
+    /// 自动贴边几何（v0.29.0）：最近边判定 / 躲藏位 / 停靠位 / 唤回区。
+    #[test]
+    fn auto_dock_geometry_and_wake() {
+        let area = (0, 0, 1920, 1040);
+        // 窗口贴近右缘（右距 30px）→ 最近边是 Right
+        let rect = (1670, 500, 220, 260);
+        let (edge, dist) = nearest_edge(rect, area);
+        assert_eq!(edge, Edge::Right);
+        assert_eq!(dist, 30);
+        // 贴左缘（x=30）
+        let (edge, _) = nearest_edge((30, 300, 220, 260), area);
+        assert_eq!(edge, Edge::Left);
+        // 底缘（y+h 距 ah 30）
+        let rect_b = (500, 1040 - 290, 220, 260);
+        let (edge, _) = nearest_edge(rect_b, area);
+        assert_eq!(edge, Edge::Bottom);
+
+        // 躲藏位（右缘）：只留 16px
+        let peek = peek_position(Edge::Right, rect, area, 16);
+        assert_eq!(peek.0, 1920 - 16); // ax+aw-sliver
+        assert!(peek.1 >= 0 && peek.1 <= 1040 - 260); // 沿边夹在工作区内
+        // 停靠位（右缘）：完整显示贴边
+        let dock = dock_position(Edge::Right, rect, area);
+        assert_eq!(dock.0, 1920 - 220);
+
+        // 唤回：光标进入右缘 wake 带（≤48px）且沿边在窗口跨度±120 内
+        assert!(cursor_wakes_peek((1920 - 40, 560), Edge::Right, rect, area, 48));
+        assert!(!cursor_wakes_peek((1920 - 200, 560), Edge::Right, rect, area, 48)); // 离边太远
+        assert!(!cursor_wakes_peek((1920 - 40, 20), Edge::Right, rect, area, 48)); // 沿边太远（跨度外）
+        // 左缘对称
+        assert!(cursor_wakes_peek((30, 560), Edge::Left, (30, 300, 220, 260), area, 48));
     }
 
     /// 脱敏（v0.16.0）：Key 形态打码、短前缀不误伤、Bearer 打码、正常文本不变。

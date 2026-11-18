@@ -61,6 +61,8 @@ export const STATE_EVENTS = {
   appAlertChanged: "state://app-alert-changed",
   /** 用户确认了匹配 id 的提醒。载荷：{ id, kind }（v0.8.2） */
   appAlertAcked: "state://app-alert-acked",
+  /** 自动贴边开关（v0.29.0）：设置 → Rust 同步 enabled；关闭时 Rust 立即从躲藏恢复 */
+  autoDockChanged: "state://auto-dock-changed",
   /** 设置情绪状态。载荷：{ state: string; durationSec?: number }（v0.4.0 起 Agent 工具也走它） */
   setMood: "state://set-mood",
   /** 设置系统事件状态（alert/focus/break/sleep…）。载荷同上 */

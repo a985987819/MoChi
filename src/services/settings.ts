@@ -121,6 +121,11 @@ export interface AppSettings extends AddressingPreferences {
    */
   verified?: Record<string, { at: number; tail: string; len: number }>;
   /**
+   * 自动贴边（v0.29.0，默认开）：拖拽松手离屏幕边缘 ≤40 逻辑 px 时自动躲藏
+   * 只留一条（16px），鼠标靠近该边或有提醒时就近恢复完整显示。Rust 侧执行。
+   */
+  autoDockEnabled: boolean;
+  /**
    * 主题色（v0.26.0）：六位 hex（含 #），驱动全站 accent 家族（按钮/徽标/提示
    * 底纹等）——派生逻辑见 shared/accent.ts。默认 #ff8fab（奶油粉）= 不覆盖
    * theme.css 静态值。
@@ -174,6 +179,7 @@ export function defaultSettings(): AppSettings {
     locale: "system",
     verified: {},
     accentColor: DEFAULT_ACCENT,
+    autoDockEnabled: true,
   };
 }
 
@@ -257,6 +263,7 @@ export function normalize(raw: unknown): AppSettings {
     accentColor: typeof r.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(r.accentColor)
       ? r.accentColor.toLowerCase()
       : d.accentColor,
+    autoDockEnabled: typeof r.autoDockEnabled === "boolean" ? r.autoDockEnabled : d.autoDockEnabled,
   };
 }
 

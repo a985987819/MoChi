@@ -90,6 +90,7 @@ function syncStartupSettings(settings: AppSettings): void {
   void sendStateEvent(STATE_EVENTS.autostartChanged, { enabled: settings.autostartEnabled }).catch(() => undefined);
   void sendStateEvent(STATE_EVENTS.gameModeChanged, { enabled: settings.gameModeEnabled }).catch(() => undefined);
   void sendStateEvent(STATE_EVENTS.petScaleChanged, { scale: settings.petScale }).catch(() => undefined);
+  void sendStateEvent(STATE_EVENTS.autoDockChanged, { enabled: settings.autoDockEnabled }).catch(() => undefined);
   // 声音（v0.12.0）：开关/音量/免打扰一起下发；关掉开关时 sound 模块会释放已建的 AudioContext。
   // 放在这里而不是各个播放点：播放点只关心"响哪种声音"，不关心用户配置。
   configureSound({

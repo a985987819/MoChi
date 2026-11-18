@@ -337,8 +337,11 @@ export const zhCN = {
   "settings.accentNote": "换色即时生效：按钮、徽标与各页面的粉色系随之改变；宠物形象与中性底色不变。",
   "settings.accentReset": "恢复默认粉",
   "settings.accent": "主题色",
-  "settings.petSizeNote": "0.2×–2.0×，每 0.1 一档；按逻辑像素缩放，Retina / 4K+2K 混合双屏下跨屏移动都保持清晰不变形。",
   "settings.petSizeValue": "{scale}×",
+  "settings.autoDockToggle": "拖到屏幕边缘附近松手时自动躲藏，只留一条",
+  "settings.autoDockNote": "鼠标靠近躲藏的边或有提醒时恢复完整显示；关闭开关会立即恢复。躲藏在重启后不保留（回到默认位置）。",
+  "settings.petSizeNote": "0.2×–2.0×，每 0.1 一档；按逻辑像素缩放，Retina / 4K+2K 混合双屏下跨屏移动都保持清晰不变形。",
+  "settings.autoDock": "自动贴边",
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

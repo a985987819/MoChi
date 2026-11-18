@@ -58,6 +58,7 @@ const base: AppSettings = {
   themeMode: "system" as const,
   locale: "system" as const,
   accentColor: "#ff8fab" as const,
+  autoDockEnabled: true as const,
 };
 
 describe("createSettingsSaveQueue", () => {

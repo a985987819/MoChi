@@ -324,6 +324,9 @@ export const en = {
   "settings.accentNote": "Applies instantly to buttons, badges and the pink accents across pages; pet images and neutral surfaces stay unchanged.",
   "settings.accentReset": "Reset to default",
   "settings.accent": "Accent color",
-  "settings.petSizeNote": "0.2×–2.0× in 0.1 steps; scaled in logical pixels, so it stays crisp across Retina, 4K and mixed-DPI multi-monitor setups.",
   "settings.petSizeValue": "{scale}×",
+  "settings.autoDockToggle": "Auto-hide leaving a sliver when dropped near a screen edge",
+  "settings.autoDockNote": "Move the mouse near the hidden edge or get a reminder to restore; toggling off restores immediately. Peeking does not survive a restart.",
+  "settings.petSizeNote": "0.2×–2.0× in 0.1 steps; scaled in logical pixels, so it stays crisp across Retina, 4K and mixed-DPI multi-monitor setups.",
+  "settings.autoDock": "Auto-dock",
 } satisfies Record<MessageKey, string>;
