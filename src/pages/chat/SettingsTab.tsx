@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
@@ -27,7 +27,7 @@ import {
 } from "@/services/settings";
 import { listTtsVoices, speak, subscribeVoices } from "@/services/tts";
 import { logError } from "@/services/log";
-import type { LocaleSetting, ThemeMode } from "@/services/settings";
+import { PET_SCALE_MAX, PET_SCALE_MIN, PET_SCALE_STEP, type LocaleSetting, type ThemeMode } from "@/services/settings";
 import { useT } from "@/shared/i18n/react";
 import { backupsDir, exportBackup, formatBytes, importBackup, listBackups, type BackupInfo } from "@/services/backup";
 
@@ -330,7 +330,7 @@ export function SettingsTab() {
 
       <TimerConfigSection settings={settings} update={update} updateDebounced={updateDebounced} />
 
-      <PetSizeSection settings={settings} update={update} />
+      <PetSizeSection settings={settings} updateDebounced={updateDebounced} />
 
       <ShortcutSection settings={settings} update={update} />
 
@@ -900,36 +900,55 @@ function GameModeSection({
 }
 
 /**
- * 宠物大小（P1-15）：三档（0.8/1/1.2）。窗口尺寸由 Rust 改（右下角锚点 +
- * 屏内 clamp），宠物窗写 CSS 变量缩放形象——本组件只落盘 + 广播。
+ * 宠物大小（v0.25.0：滑杆连续控制 0.2×~2.0×，0.1 一档；原三档下拉）。
+ *
+ * 窗口尺寸由 Rust 改（右下角锚点 + 屏内 clamp，**逻辑像素**换算——高分屏
+ * Retina/4K 自动按 scale factor 换算物理像素，混合双屏跨屏移动由系统按
+ * 逻辑尺寸处理，不会变形），宠物窗写 CSS 变量缩放形象。
+ *
+ * 拖动时广播与落盘分离：petScaleChanged **逐档**即时广播（滑杆 live 预览，
+ * step=0.1 保证最多 19 次广播）；落盘走 updateDebounced（350ms 防抖一次）。
  */
 function PetSizeSection({
   settings,
-  update,
+  updateDebounced,
 }: {
   settings: AppSettings;
-  update: (patch: Partial<AppSettings>) => void;
+  updateDebounced: (patch: Partial<AppSettings>) => void;
 }) {
   const { t } = useT();
+  const lastSent = useRef(settings.petScale);
   const change = useCallback(
     (scale: number) => {
-      update({ petScale: scale });
-      void sendStateEvent(STATE_EVENTS.petScaleChanged, { scale });
+      const quantized = Math.round(scale * 10) / 10;
+      if (quantized !== settings.petScale) updateDebounced({ petScale: quantized });
+      // live 预览：每跨一档广播一次（去重后最多 19 次），Rust 即时改窗口尺寸
+      if (Math.abs(quantized - lastSent.current) >= PET_SCALE_STEP / 2) {
+        lastSent.current = quantized;
+        void sendStateEvent(STATE_EVENTS.petScaleChanged, { scale: quantized });
+      }
     },
-    [update],
+    [settings.petScale, updateDebounced],
   );
 
   return (
     <div className="settings-petsize">
       <span className="settings-field-label">{t("settings.petSize")}</span>
       <label className="settings-field">
-        <span>{t("settings.petSizeLabel")}</span>
-        <select value={String(settings.petScale)} onChange={e => change(Number(e.target.value))}>
-          <option value="0.8">{t("settings.petSizeSmall")}</option>
-          <option value="1">{t("settings.petSizeStandard")}</option>
-          <option value="1.2">{t("settings.petSizeLarge")}</option>
-        </select>
+        <span>
+          {t("settings.petSizeLabel")} · {t("settings.petSizeValue", { scale: settings.petScale.toFixed(1) })}
+        </span>
+        <input
+          type="range"
+          min={PET_SCALE_MIN}
+          max={PET_SCALE_MAX}
+          step={PET_SCALE_STEP}
+          value={settings.petScale}
+          onChange={e => change(Number(e.target.value))}
+          onBlur={flushSettingsSave}
+        />
       </label>
+      <p className="settings-note">{t("settings.petSizeNote")}</p>
     </div>
   );
 }

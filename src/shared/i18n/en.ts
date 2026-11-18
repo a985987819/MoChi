@@ -264,10 +264,12 @@ export const en = {
   "settings.gameModeNote": "Only checks whether the foreground window is fullscreen (no app names or content); Mochi hides when its screen is covered and returns when fullscreen exits.",
   "settings.gameModeDefault": "Off by default — any form of “watching the foreground” needs your explicit opt-in.",
   "settings.petSize": "Pet size",
+  "settings.petSizeValue": "{scale}×",
+  "settings.petSizeNote": "0.2×–2.0× in 0.1 steps; scaled in logical pixels, so it stays crisp across Retina, 4K and mixed-DPI multi-monitor setups.",
   "settings.petSizeLabel": "Mochi's size",
-  "settings.petSizeSmall": "Small (0.8×)",
-  "settings.petSizeStandard": "Standard",
-  "settings.petSizeLarge": "Large (1.2×)",
+
+
+
   "settings.memories": "Long-term memory ({count})",
   "settings.memoriesLoading": "Loading memories…",
   "settings.memoriesError": "Couldn't load memories (database unavailable); retries automatically.",

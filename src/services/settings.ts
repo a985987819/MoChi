@@ -170,8 +170,10 @@ export function defaultSettings(): AppSettings {
   };
 }
 
-/** 宠物大小允许的档位（P1-15）：normalize 之外的值一律回落 1 */
-export const PET_SCALES = [0.8, 1, 1.2] as const;
+/** 宠物大小档位范围（v0.25.0：滑杆连续控制，0.1 一档；原三档 0.8/1/1.2） */
+export const PET_SCALE_MIN = 0.2;
+export const PET_SCALE_MAX = 2;
+export const PET_SCALE_STEP = 0.1;
 
 /** 数值字段夹紧（防设置页输入 0/负数/离谱值） */
 const clampInt = (v: unknown, min: number, max: number, fallback: number): number => {
@@ -218,8 +220,13 @@ export function normalize(raw: unknown): AppSettings {
     shortcutEnabled: typeof r.shortcutEnabled === "boolean" ? r.shortcutEnabled : d.shortcutEnabled,
     autostartEnabled: typeof r.autostartEnabled === "boolean" ? r.autostartEnabled : d.autostartEnabled,
     gameModeEnabled: typeof r.gameModeEnabled === "boolean" ? r.gameModeEnabled : d.gameModeEnabled,
-    // 浮点档位比较：容差 1e-6（0.8+0.1 之类的浮点误差不至于把合法值打成非法）
-    petScale: PET_SCALES.find(s => Math.abs((typeof r.petScale === "number" ? r.petScale : 1) - s) < 1e-6) ?? d.petScale,
+    // v0.25.0：滑杆连续档位——夹紧到 [0.2, 2] 并量化到 0.1（浮点累加误差不会让
+    // 档位漂移）；非法值回落 1。窗口尺寸由 Rust 按逻辑像素换算，高分屏自动清晰。
+    petScale: (() => {
+      const n = typeof r.petScale === "number" && Number.isFinite(r.petScale) ? r.petScale : d.petScale;
+      const clamped = Math.min(PET_SCALE_MAX, Math.max(PET_SCALE_MIN, n));
+      return Math.round(clamped * 10) / 10; // ×10 取整再 ÷10：避免 12 * 0.1 = 1.2000000000000002
+    })(),
     // 主题模式白名单（脏值回落 system——跟随系统是唯一不会"错得离谱"的选择）
     themeMode: THEME_MODES.includes(r.themeMode as ThemeMode) ? (r.themeMode as ThemeMode) : d.themeMode,
     // 语言白名单（同上：system 是兜底）

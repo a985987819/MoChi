@@ -277,10 +277,12 @@ export const zhCN = {
   "settings.gameModeNote": "只检测前台窗口是否全屏（不看应用名和内容）；麻薯所在屏幕被全屏覆盖时隐藏，退出全屏恢复。",
   "settings.gameModeDefault": "默认关闭——任何形式的“看前台”都需要你明示开启。",
   "settings.petSize": "宠物大小",
+  "settings.petSizeValue": "{scale}×",
+  "settings.petSizeNote": "0.2×–2.0×，每 0.1 一档；按逻辑像素缩放，Retina / 4K+2K 混合双屏下跨屏移动都保持清晰不变形。",
   "settings.petSizeLabel": "麻薯的个头",
-  "settings.petSizeSmall": "小（0.8×）",
-  "settings.petSizeStandard": "标准",
-  "settings.petSizeLarge": "大（1.2×）",
+
+
+
   "settings.memories": "长期记忆（{count}）",
   "settings.memoriesLoading": "正在读取记忆…",
   "settings.memoriesError": "记忆读取失败（数据库暂不可用），功能重试稍后自动恢复。",

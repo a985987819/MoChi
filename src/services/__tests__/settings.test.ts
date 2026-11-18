@@ -74,10 +74,13 @@ describe("settings normalize（纯函数）", () => {
     expect(s.notificationsEnabled).toBe(true);
   });
 
-  it("petScale 只认三档（浮点误差容差内），非法值回落 1", () => {
-    expect(normalize({ petScale: 0.8 }).petScale).toBe(0.8);
-    expect(normalize({ petScale: 1.2 }).petScale).toBe(1.2);
-    expect(normalize({ petScale: 0.9 }).petScale).toBe(1); // 非档位
+  it("petScale 夹紧到 0.2~2 并量化到 0.1 档，非法值回落 1（v0.25.0 滑杆）", () => {
+    expect(normalize({ petScale: 0.2 }).petScale).toBe(0.2); // 下限
+    expect(normalize({ petScale: 2 }).petScale).toBe(2); // 上限
+    expect(normalize({ petScale: 3 }).petScale).toBe(2); // 超上限夹紧
+    expect(normalize({ petScale: 0.1 }).petScale).toBe(0.2); // 低于下限夹紧
+    expect(normalize({ petScale: 1.14 }).petScale).toBe(1.1); // 量化到 0.1 档
+    expect(normalize({ petScale: 1.16 }).petScale).toBe(1.2);
     expect(normalize({ petScale: 0.80000000001 }).petScale).toBe(0.8); // 浮点误差容差
     expect(normalize({ petScale: "1" }).petScale).toBe(1); // 类型不对
   });

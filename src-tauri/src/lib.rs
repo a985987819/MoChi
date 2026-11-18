@@ -1737,8 +1737,12 @@ fn start_pet_hit_test_poll(app: tauri::AppHandle) {
         let Some(sprite) = sprite else { continue };
         let Some(pet) = app.get_webview_window("pet") else { continue };
         let Ok(window_pos) = pet.outer_position().map(|p| (p.x as f64, p.y as f64)) else { continue };
-        // 主屏 DPI（拿不到按 1.0 算——偏差最多让唤回晚一个轮询周期）
-        let scale = pet.primary_monitor().ok().flatten().map_or(1.0, |m| m.scale_factor());
+        // 窗口**当前所在显示器**的 DPI（v0.25.0：混合双屏下 primary 与 current 的
+        // scale factor 可能不同，用主屏换算会让命中余量偏大/偏小）。拿不到按 1.0 算。
+        let scale = match pet.current_monitor() {
+            Ok(Some(m)) => m.scale_factor(),
+            _ => pet.primary_monitor().ok().flatten().map_or(1.0, |m| m.scale_factor()),
+        };
         let cursor = match app.cursor_position() {
             Ok(c) => (c.x, c.y),
             Err(_) => continue,
@@ -2134,7 +2138,7 @@ fn pet_position_visible(pet: &tauri::WebviewWindow) -> bool {
     })
 }
 
-/// 应用宠物大小档位（P1-15）：改窗口逻辑尺寸 → 保持右下角锚点重定位 →
+/// 应用宠物大小档位（v0.25.0：0.2~2 连续档，滑杆驱动）：改窗口逻辑尺寸 → 保持右下角锚点重定位 →
 /// 屏内 clamp（贴边缩小时可能顶出屏幕上沿，与 P0-04 共用自愈路径）。
 fn apply_pet_scale(app: &tauri::AppHandle, scale: f64) {
     let Some(pet) = app.get_webview_window("pet") else {
