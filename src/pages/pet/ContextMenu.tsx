@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { PET_STATES, type PetState, petState } from "@/services/pet-state";
-import { todoService } from "@/services/todos";
-import { reminderStore } from "@/services/reminders";
 import { pomodoroService, standupService } from "@/services/timers";
 import { sendStateEvent, sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { clampMenuPosition } from "./menu-position";
@@ -32,17 +29,20 @@ function requestUI(
  * - **状态行是活的**：番茄钟/站立提醒每秒重读服务状态（菜单本来就开在宠物窗，
  *   Service 单例就地可读，无需跨窗口事件）；
  * - 「调试 → 表情演示」收进子菜单：它是素材回退链的验收工具（roadmap v0.2.0），
- *   保留但不再占据一级菜单——用户菜单该以任务为导向。
+ *   保留但不再占据一级菜单——用户菜单该以任务为导向；
+ * - **v0.29.1 精简入口**：移除「打开聊天 / 待办 / 提醒中心」三项——双击宠物
+ *   才是打开主界面的唯一入口，菜单只留现场可做的动作（计时、设置、隐藏、退出），
+ *   菜单高度不再随待办数量变化，也更容易塞进小尺寸宠物窗。
  */
 export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
   const { t } = useT();
   const [demoOpen, setDemoOpen] = useState(false);
-  const [todoCount, setTodoCount] = useState<number | null>(null);
-  const [unackedReminders, setUnackedReminders] = useState<number | null>(null);
   const [pomo, setPomo] = useState(pomodoroService.status());
   const [standupSec, setStandupSec] = useState(standupService.remainingSec());
   const rootRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 4, top: 4 });
+  /** 视口尺寸（v0.29.1）：菜单打开前宠物窗可能被临时扩大，resize 后要重新夹紧 */
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
 
   // 点击菜单外 / Escape / **窗口失焦** 关闭（菜单打开期间）。
   // v0.24.1 补失焦：document 级 mousedown 收不到**别的窗口**里的点击——用户点开
@@ -66,42 +66,6 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     };
   }, [onClose]);
 
-  // 待办数：等宠物窗实例完成 SQLite 加载（宠物窗平时没人碰 todoService，
-  // ready 在此首次推进）——打开菜单的瞬间读到的是当前真实数量
-  useEffect(() => {
-    let mounted = true;
-    void todoService.ready.then(() => {
-      if (mounted) setTodoCount(todoService.list().length);
-    });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  // 未确认提醒数（v0.14.0）：与聊天窗 Tab 角标同一个查询（SQLite 单一事实源），
-  // 菜单存活期间订阅 remindersChanged 保持一致（确认/新触发都即时刷新）。
-  useEffect(() => {
-    let mounted = true;
-    const refresh = () => {
-      void reminderStore
-        .unacknowledgedCount()
-        .then(n => {
-          if (mounted) setUnackedReminders(n);
-        })
-        .catch(() => undefined);
-    };
-    void reminderStore.ready.then(refresh);
-    let off: (() => void) | undefined;
-    void listen(STATE_EVENTS.remindersChanged, refresh).then(unlisten => {
-      if (!mounted) unlisten();
-      else off = unlisten;
-    });
-    return () => {
-      mounted = false;
-      off?.();
-    };
-  }, []);
-
   // 番茄钟 + 站立提醒剩余时间：每秒重读（菜单生命周期短，轮询比订阅简单可靠）
   useEffect(() => {
     const refresh = () => {
@@ -113,11 +77,18 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
     return () => window.clearInterval(timer);
   }, []);
 
-  // 夹紧到窗口视口内：用实测尺寸，依赖 demoOpen——子菜单展开后高度变化要重新夹
+  // 夹紧到窗口视口内：用实测尺寸，依赖 demoOpen——子菜单展开后高度变化要重新夹。
+  // viewport 是窗口尺寸变化（菜单打开时临时扩窗）的依赖，避免按旧视口把菜单推到左边。
   useLayoutEffect(() => {
     const size = rootRef.current?.getBoundingClientRect();
-    if (size) setPosition(clampMenuPosition(x, y, size.width, size.height, window.innerWidth, window.innerHeight));
-  }, [x, y, demoOpen]);
+    if (size) setPosition(clampMenuPosition(x, y, size.width, size.height, viewport.width, viewport.height));
+  }, [x, y, demoOpen, viewport]);
+
+  useEffect(() => {
+    const onResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const item = useCallback(
     (label: string, action: () => void) => (
@@ -155,17 +126,6 @@ export function ContextMenu({ x, y, onClose }: { x: number; y: number; onClose: 
       onDoubleClick={e => e.stopPropagation()}
       onContextMenu={e => { e.preventDefault(); e.stopPropagation(); }}
     >
-      {item(t("menu.openChat"), () => requestUI(UI_EVENTS.openChat))}
-      {item(todoCount === 0 ? t("menu.todos") : t("menu.todosCount", { count: todoCount ?? "…" }), () =>
-        requestUI(UI_EVENTS.openChat, { tab: "todos" }),
-      )}
-      {/* 提醒中心（v0.14.0）：有未确认时显示数量——那是"该点开看看"的信号 */}
-      {item(
-        unackedReminders != null && unackedReminders > 0
-          ? t("menu.remindersPending", { count: unackedReminders })
-          : t("menu.reminders"),
-        () => requestUI(UI_EVENTS.openChat, { tab: "reminders" }),
-      )}
       {pomo.phase === "idle"
         ? item(t("menu.startPomodoro"), () => void sendStateEvent(STATE_EVENTS.pomodoroStart, {}))
         : item(

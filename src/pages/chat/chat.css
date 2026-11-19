@@ -17,6 +17,80 @@ body {
   height: 100vh;
 }
 
+/* ── 无边框窗口缩放热区（v0.29.1）──
+   decorations:false 的窗口没有系统边框，四边/四角各铺一条透明热区，
+   按下后由 startResizeDragging 交给系统缩放。固定定位不受内容滚动影响；
+   边 4px / 角 12px 是 Windows 原生边框的常见手感区间。 */
+.chat-resize {
+  position: fixed;
+  z-index: 60;
+}
+
+.chat-resize--n {
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.chat-resize--s {
+  bottom: 0;
+  left: 12px;
+  right: 12px;
+  height: 5px;
+  cursor: ns-resize;
+}
+
+.chat-resize--e {
+  top: 12px;
+  bottom: 12px;
+  right: 0;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.chat-resize--w {
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.chat-resize--ne,
+.chat-resize--nw,
+.chat-resize--se,
+.chat-resize--sw {
+  width: 12px;
+  height: 12px;
+  z-index: 61;
+}
+
+.chat-resize--ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.chat-resize--nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.chat-resize--se {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+
+.chat-resize--sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
 .chat-shell {
   display: flex;
   flex-direction: column;
@@ -79,9 +153,19 @@ body {
   display: flex;
   gap: 4px;
   margin-left: auto;
+  /* 窗口可缩放（v0.29.1）：窄于默认 480 时 Tab 不换行、不挤压关闭钮，
+     改为标题栏内横向滚动（滚动条隐藏，滚轮/触控板可滑）。 */
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chat-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .chat-tab {
+  flex: 0 0 auto;
   /* v0.14.0 从 12px 收到 10px：第六个 Tab（提醒）+ 角标入场后，480px 标题栏
      在最宽组合（Mochi 标题 + 六 Tab + 角标 + 关闭钮）下余量很紧，
      收紧内边距而不是缩字号——笔画可读性是 v0.13.1 的既定结论。 */

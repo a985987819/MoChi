@@ -84,6 +84,10 @@ const EVT_AUTO_DOCK_CHANGED: &str = "state://auto-dock-changed";
 /// 宠物窗设计基准尺寸（tauri.conf.json 声明值；缩放按逻辑像素乘档位）
 const PET_BASE_WIDTH: f64 = 220.0;
 const PET_BASE_HEIGHT: f64 = 260.0;
+/// 右键菜单需要的最小窗口（逻辑 px，v0.29.1）：菜单 150 宽 + 内边距/滚动条，
+/// 高度按“最全展开（含表情演示）”留余量。只影响菜单打开期间的临时窗口尺寸。
+const PET_MENU_MIN_WIDTH: f64 = 168.0;
+const PET_MENU_MIN_HEIGHT: f64 = 340.0;
 
 /// 原生队列只管理“显示哪条提醒”，计时与提醒持久化仍由 TS 应用服务负责。
 #[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
@@ -139,6 +143,17 @@ struct PetHitTest {
     ignore: bool,
     /// 形象矩形（窗口内容区逻辑 px：x, y, w, h）——由 JS 上报
     sprite: Option<(f64, f64, f64, f64)>,
+}
+
+/// 右键菜单展开期间的窗口几何备份（v0.29.1）。
+///
+/// 宠物大小缩到 1.0 以下时窗口只有几十像素，菜单会被 `max-width: calc(100vw-8px)`
+/// 压扁。打开菜单前把窗口临时扩到菜单尺寸（原逻辑尺寸 + 原物理位置存在这里），
+/// 关闭菜单时原样恢复——菜单因此始终以 1.0 尺寸渲染，与宠物缩放解耦。
+#[derive(Default)]
+struct PetMenuSpace {
+    /// None = 当前没有为菜单扩过窗口（restore 幂等）
+    backup: Option<(tauri::LogicalSize<f64>, tauri::PhysicalPosition<i32>)>,
 }
 
 /// 纯函数（可单测）：全局光标是否落在宠物形象矩形内。
@@ -832,11 +847,11 @@ fn restore_from_peek(app: &tauri::AppHandle) {
         },
     };
     let area = monitor.work_area();
-    let (peeked, enabled) = {
-        let state = app.state::<Mutex<AutoDockState>>();
-        let st = state.lock().map(|s| (s.peeked, s.enabled)).unwrap_or((None, false));
-        (st.0, st.1)
-    };
+    let peeked = app
+        .state::<Mutex<AutoDockState>>()
+        .lock()
+        .ok()
+        .and_then(|st| st.peeked);
     let Some(edge) = peeked else { return };
     let docked = dock_position(edge, (pos.x, pos.y, size.width as i32, size.height as i32), (area.position.x, area.position.y, area.size.width as i32, area.size.height as i32));
     let _ = pet.set_position(tauri::PhysicalPosition::new(docked.0, docked.1));
@@ -894,6 +909,30 @@ struct DragMotion {
     /// 惯性滑行中（v0.12.0）：这期间窗口会被我们自己 `set_position` 移动，
     /// 那些 `Moved` 事件必须忽略——否则会被当成"用户又抓住了"，把惯性打断成拖拽。
     inertia: bool,
+    /// 程序性移动的抑制窗口（v0.29.1）：缩放/菜单扩窗/还原也会产生 `Moved`，
+    /// 不抑制会被误判成拖拽（握持广播 + 400ms 后贴边/躲藏）。值为截止时刻。
+    suppress_moves_until: Option<std::time::Instant>,
+}
+
+/// 标记接下来的窗口移动是程序性的（缩放/菜单扩窗/还原）：
+/// 清空拖拽状态并打开 300ms 抑制窗，避免 `Moved` 被误判成用户拖拽。
+fn suppress_programmatic_moves(app: &tauri::AppHandle) {
+    let was_dragging = match app.state::<Mutex<DragMotion>>().lock() {
+        Ok(mut motion) => {
+            let was = motion.dragging;
+            motion.dragging = false;
+            motion.last_move_at = None;
+            motion.samples.clear();
+            motion.suppress_moves_until =
+                Some(std::time::Instant::now() + Duration::from_millis(300));
+            was
+        }
+        Err(_) => false,
+    };
+    // 锁外广播：握持姿态是前端状态，Rust 单方面清拖拽时要把它一起复位
+    if was_dragging {
+        let _ = app.emit_to("pet", EVT_PET_DRAG_CHANGED, serde_json::json!({ "dragging": false }));
+    }
 }
 
 /// 惯性世代号：每次开始新惯性 +1。滑行线程持有自己的世代号，发现不匹配就立刻停下
@@ -1127,6 +1166,10 @@ fn snap_pet_to_edges(app: &tauri::AppHandle) {
     if next != (position.x, position.y) {
         let _ = pet.set_position(tauri::PhysicalPosition::new(next.0, next.1));
     }
+    // v0.29.1 修复：v0.29.0 的自动贴边判定（maybe_auto_dock）从未被调用——
+    // 几何函数与开关都写好了，但拖拽收尾没有接线，功能实际是死代码。
+    // 放在吸附之后：先把窗口贴到边缘，再按距边距离决定是否躲藏。
+    maybe_auto_dock(app);
 }
 
 /// 应用入口：组装 Tauri Builder（插件 → 托盘 → 事件 → 窗口行为）后进入事件循环。
@@ -1170,6 +1213,7 @@ pub fn run() {
         .manage(Mutex::new(PetHitTest::default()))
         .manage(Mutex::new(GameMode::default()))
         .manage(Mutex::new(AutoDockState::default()))
+        .manage(Mutex::new(PetMenuSpace::default()))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 用户再次双击图标：把已有宠物的窗口唤回前台。窗口可能在创建中
             // （初始化早期再次双击）——短重试兜底，避免"点了图标却什么都没发生"。
@@ -1219,6 +1263,7 @@ pub fn run() {
             list_user_pet_assets, get_idle_seconds,
             show_app_alert, get_app_alert, ack_app_alert, dismiss_app_alert,
             set_pet_hit_test, get_autostart_enabled, save_pet_asset, delete_user_pet_asset,
+            export_pet_assets, prepare_pet_menu, restore_pet_menu,
             append_log, get_last_panic,
             export_backup, list_backups, import_backup
         ]);
@@ -1272,12 +1317,15 @@ pub fn run() {
                         Ok(m) => m,
                         Err(_) => return, // 锁中毒：拖拽反馈是锦上添花，静默跳过
                     };
-                    // 惯性滑行期间窗口是我们自己在移动（set_position 也会产生 Moved）：
+                    let now = std::time::Instant::now();
+                    // 惯性滑行 / 程序性移动（缩放、菜单扩窗）期间窗口是我们自己在动：
                     // 这些事件既不该刷新"拖拽静默窗口"，也不该被当成新一趟拖拽。
                     if motion.inertia {
                         return;
                     }
-                    let now = std::time::Instant::now();
+                    if motion.suppress_moves_until.is_some_and(|until| now < until) {
+                        return;
+                    }
                     motion.last_move_at = Some(now);
                     if let Some(next) = drag_transition(motion.dragging, Some(0)) {
                         motion.dragging = next;
@@ -2026,6 +2074,124 @@ fn delete_user_pet_asset(app: tauri::AppHandle, path: String) -> Result<(), Stri
     std::fs::remove_file(&requested).map_err(|e| format!("删除失败: {e}"))
 }
 
+// ── 素材一键导出（v0.29.1） ────────────────────────────────────────────────
+//
+// 用户诉求：把“当前正在用的素材”打成一个 zip，带到另一台电脑或留档。
+// 设计要点：
+// - **导出的是生效文件**：只收状态白名单内的文件（与运行时 listVariants 的语义一致），
+//   文件名原样保留（`happy.png` / `happy_001.png`）——解压后直接就是可用素材；
+// - **内置兜底**：用户从没导入过时，当前生效的是内置 SVG；用 include_bytes! 编进
+//   二进制，打包后也能按规范名导出（前端产物里是 hash 文件名，Rust 取不到原名）；
+// - **跨平台编码**：条目名全部来自状态白名单 / 规范扩展名，是纯 ASCII。zip crate
+//   以字节写入条目名；ASCII 在 Windows（资源管理器）与 macOS（归档实用工具）都按
+//   同一编码解释，不触发 GBK/UTF-8 的代码页差异。中文文件名不会被导出（它们本来
+//   也不被状态机识别）。
+
+/// 素材导出目录（appData 之下）：与 backups/ 分开，避免“备份列表”混入素材包
+const PET_ASSET_EXPORT_DIR: &str = "exports";
+
+/// 导出结果（前端用于提示与 reveal）
+#[derive(serde::Serialize)]
+struct PetAssetExport {
+    path: String,
+    count: usize,
+    /// "user" = 用户素材；"bundled" = 内置默认素材（用户还没导入过）
+    source: &'static str,
+}
+
+/// 内置素材（10 个状态各一张 SVG）：用户目录为空时，“当前使用”的就是它们。
+const BUNDLED_PET_ASSETS: [(&str, &[u8]); 10] = [
+    ("idle.svg", include_bytes!("../../src/assets/pet/idle.svg")),
+    ("happy.svg", include_bytes!("../../src/assets/pet/happy.svg")),
+    ("sad.svg", include_bytes!("../../src/assets/pet/sad.svg")),
+    ("thinking.svg", include_bytes!("../../src/assets/pet/thinking.svg")),
+    ("talking.svg", include_bytes!("../../src/assets/pet/talking.svg")),
+    ("alert.svg", include_bytes!("../../src/assets/pet/alert.svg")),
+    ("stretch.svg", include_bytes!("../../src/assets/pet/stretch.svg")),
+    ("focus.svg", include_bytes!("../../src/assets/pet/focus.svg")),
+    ("break.svg", include_bytes!("../../src/assets/pet/break.svg")),
+    ("sleep.svg", include_bytes!("../../src/assets/pet/sleep.svg")),
+];
+
+/// 纯函数（可单测）：文件名是否属于“当前生效的素材集合”。
+/// 规则与 `list_user_pet_assets` + `PET_ASSET_STATES` 对齐：隐藏文件、未知状态、
+/// 不支持的扩展名都不导出（它们本来就不会被启用）。
+fn is_exportable_asset_name(name: &str) -> bool {
+    if name.starts_with('.') {
+        return false;
+    }
+    let Some(state) = pet_state_of_file_name(name) else { return false };
+    PET_ASSET_STATES.contains(&state.as_str())
+}
+
+/// 一键导出当前素材（v0.29.1）：写 `{appData}/exports/mochi-pet-assets-<时间戳>.zip`，
+/// 返回路径给 UI reveal。async：文件可能几十 MB，放线程池避免阻塞 IPC。
+#[tauri::command]
+async fn export_pet_assets(app: tauri::AppHandle) -> Result<PetAssetExport, String> {
+    export_pet_assets_impl(&app)
+}
+
+fn export_pet_assets_impl(app: &tauri::AppHandle) -> Result<PetAssetExport, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("找不到应用数据目录: {e}"))?;
+    let exports_dir = data_dir.join(PET_ASSET_EXPORT_DIR);
+    std::fs::create_dir_all(&exports_dir).map_err(|e| format!("创建导出目录失败: {e}"))?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let out_path = exports_dir.join(format!("mochi-pet-assets-{stamp}.zip"));
+
+    let file = std::fs::File::create(&out_path).map_err(|e| format!("创建导出文件失败: {e}"))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .unix_permissions(0o644);
+
+    // ① 先收集用户目录：目录里只要有一张可识别素材，就不再导出内置（与运行时
+    //    “用户配过图就不再混默认形象”的语义一致）
+    let mut user_files: Vec<(String, std::path::PathBuf)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(data_dir.join("pet-assets")) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            if is_exportable_asset_name(name) {
+                user_files.push((name.to_string(), path));
+            }
+        }
+    }
+    // 固定字典序：同一批素材导出的 zip 内容顺序稳定，便于比对/去重
+    user_files.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let (count, source) = if user_files.is_empty() {
+        for (name, bytes) in BUNDLED_PET_ASSETS {
+            zip.start_file(name, options)
+                .map_err(|e| format!("写入内置素材 {name} 失败: {e}"))?;
+            std::io::Write::write_all(&mut zip, bytes)
+                .map_err(|e| format!("写入内置素材 {name} 失败: {e}"))?;
+        }
+        (BUNDLED_PET_ASSETS.len(), "bundled")
+    } else {
+        for (name, path) in &user_files {
+            let mut source_file = std::fs::File::open(path).map_err(|e| format!("读取素材 {name} 失败: {e}"))?;
+            zip.start_file(name.as_str(), options)
+                .map_err(|e| format!("写入素材条目 {name} 失败: {e}"))?;
+            std::io::copy(&mut source_file, &mut zip)
+                .map_err(|e| format!("写入素材 {name} 失败: {e}"))?;
+        }
+        (user_files.len(), "user")
+    };
+
+    zip.finish().map_err(|e| format!("收尾素材包失败: {e}"))?;
+    Ok(PetAssetExport {
+        path: out_path.to_string_lossy().into_owned(),
+        count,
+        source,
+    })
+}
+
 /// 路径守卫（纯逻辑，可测）：requested 必须落在 root 之内。
 fn ensure_within_dir(requested: &std::path::Path, root: &std::path::Path, message: &str) -> Result<(), String> {
     if requested.starts_with(root) {
@@ -2340,8 +2506,9 @@ fn pet_position_visible(pet: &tauri::WebviewWindow) -> bool {
     })
 }
 
-/// 应用宠物大小档位（v0.25.0：0.2~2 连续档，滑杆驱动）：改窗口逻辑尺寸 → 保持右下角锚点重定位 →
-/// 屏内 clamp（贴边缩小时可能顶出屏幕上沿，与 P0-04 共用自愈路径）。
+/// 应用宠物大小档位（v0.25.0：0.2~2 连续档，滑杆驱动）：改窗口逻辑尺寸 → 保持**中心**
+/// 锚点重定位 → 屏内 clamp（v0.29.1：原右下角锚点会让放大时形象向左上“顶点”偏移，
+/// 现在窗口中心不动，视觉上就是围绕宠物中心缩放）。
 fn apply_pet_scale(app: &tauri::AppHandle, scale: f64) {
     let Some(pet) = app.get_webview_window("pet") else {
         return;
@@ -2352,6 +2519,8 @@ fn apply_pet_scale(app: &tauri::AppHandle, scale: f64) {
     let Ok(old_size) = pet.outer_size() else {
         return;
     };
+    // 缩放会 set_size + set_position：先抑制拖拽判定，否则 Moved 会被当成"用户抓住"
+    suppress_programmatic_moves(app);
     // 按逻辑像素缩放：高 DPI 物理换算交给 Tauri（设计基准 220×260，见常量注释）
     if pet.set_size(tauri::LogicalSize::new(PET_BASE_WIDTH * scale, PET_BASE_HEIGHT * scale)).is_err() {
         return;
@@ -2359,12 +2528,95 @@ fn apply_pet_scale(app: &tauri::AppHandle, scale: f64) {
     let Ok(new_size) = pet.outer_size() else {
         return;
     };
-    // 右下角锚点：用户把宠物放在角落时，缩放不应让它"跳走"
-    let x = old_pos.x + (old_size.width as i32 - new_size.width as i32);
-    let y = old_pos.y + (old_size.height as i32 - new_size.height as i32);
+    // 中心锚点：窗口中心在屏幕上保持不动，缩放不再向某个角偏移
+    let x = old_pos.x + (old_size.width as i32 - new_size.width as i32) / 2;
+    let y = old_pos.y + (old_size.height as i32 - new_size.height as i32) / 2;
     let _ = pet.set_position(tauri::PhysicalPosition::new(x, y));
     if !pet_position_visible(&pet) {
         position_pet_bottom_right(app);
+    }
+}
+
+/// 菜单展开后宠物窗的位移（逻辑 px，v0.29.1）：`new_pos - old_pos`。
+/// 前端用它把右键坐标从“展开前的视口”换算到“展开后的视口”。
+#[derive(serde::Serialize)]
+struct PetMenuShift {
+    dx: f64,
+    dy: f64,
+}
+
+/// 打开右键菜单前的窗口准备（v0.29.1）。
+///
+/// 为什么需要：宠物大小 0.2× 时窗口只有 44×52 逻辑 px，而菜单自身固定 150px 宽——
+/// 仅靠 CSS 会被 `max-width: calc(100vw - 8px)` 压成几十像素，字号也被溢出滚动挤压。
+/// 这里在菜单打开期间把窗口临时扩到至少 `PET_MENU_MIN_*`，菜单就能按默认 1.0 尺寸
+/// 渲染；关闭时由 `restore_pet_menu` 原样还原。
+///
+/// 几何关键：**只向上、向左右对称扩**——宠物形象是“水平居中 + 贴底”布局，
+/// 这样扩完窗口后形象在屏幕上的位置完全不动（不会看到宠物跳一下）。
+#[tauri::command]
+fn prepare_pet_menu(app: tauri::AppHandle) -> Result<PetMenuShift, String> {
+    // 接下来的移动都是程序性的（含可能的躲藏恢复）：不要喂给拖拽状态机
+    suppress_programmatic_moves(&app);
+    // 躲藏（贴边只留一条）时先恢复停靠位：菜单需要完整可见的窗口
+    restore_from_peek(&app);
+    let pet = app.get_webview_window("pet").ok_or_else(|| "宠物窗不存在".to_string())?;
+    {
+        let state = app.state::<Mutex<PetMenuSpace>>();
+        let guard = state.lock().map_err(|_| "菜单状态锁失效".to_string())?;
+        if guard.backup.is_some() {
+            // 已为菜单扩过窗口：当前坐标仍是有效视口坐标
+            return Ok(PetMenuShift { dx: 0.0, dy: 0.0 });
+        }
+    }
+    let old_pos = pet.outer_position().map_err(|e| e.to_string())?;
+    let old_size = pet.outer_size().map_err(|e| e.to_string())?;
+    let sf = pet.scale_factor().map_err(|e| e.to_string())?;
+    let old_logical = old_size.to_logical::<f64>(sf);
+    let target = tauri::LogicalSize::new(
+        old_logical.width.max(PET_MENU_MIN_WIDTH),
+        old_logical.height.max(PET_MENU_MIN_HEIGHT),
+    );
+    // 已经够大（常见于 1.0× 及以上）：不扩、不记录，restore 自然无事可做
+    if (target.width - old_logical.width).abs() < 0.5 && (target.height - old_logical.height).abs() < 0.5 {
+        return Ok(PetMenuShift { dx: 0.0, dy: 0.0 });
+    }
+    pet.set_size(target).map_err(|e| format!("扩大菜单窗口失败: {e}"))?;
+    let new_size = pet.outer_size().map_err(|e| e.to_string())?;
+    let dx_px = (old_size.width as i32 - new_size.width as i32) / 2;
+    let dy_px = old_size.height as i32 - new_size.height as i32;
+    let new_pos = tauri::PhysicalPosition::new(old_pos.x + dx_px, old_pos.y + dy_px);
+    pet.set_position(new_pos).map_err(|e| format!("移动菜单窗口失败: {e}"))?;
+    // 记录原始几何；锁失败则立即回滚，避免窗口停在一个无法恢复的尺寸
+    let stored = match app.state::<Mutex<PetMenuSpace>>().lock() {
+        Ok(mut guard) => {
+            guard.backup = Some((old_logical, old_pos));
+            true
+        }
+        Err(_) => false,
+    };
+    if !stored {
+        let _ = pet.set_size(old_logical);
+        let _ = pet.set_position(old_pos);
+        return Err("菜单状态锁失效".to_string());
+    }
+    Ok(PetMenuShift { dx: dx_px as f64 / sf, dy: dy_px as f64 / sf })
+}
+
+/// 关闭右键菜单后恢复窗口几何（v0.29.1）：幂等，没扩过窗口时是空操作。
+#[tauri::command]
+fn restore_pet_menu(app: tauri::AppHandle) {
+    let Some(pet) = app.get_webview_window("pet") else { return };
+    // 还原几何同样是程序性移动，避免 400ms 后被误判成"松手"触发贴边
+    suppress_programmatic_moves(&app);
+    let backup = app
+        .state::<Mutex<PetMenuSpace>>()
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.backup.take());
+    if let Some((size, position)) = backup {
+        let _ = pet.set_size(size);
+        let _ = pet.set_position(position);
     }
 }
 
@@ -2767,6 +3019,19 @@ mod alert_tests {
         assert!(classify_entry("C:\\Users\\x\\mochi.db").is_err());
         assert!(classify_entry("/abs/path").is_err());
         assert!(classify_entry("random.txt").is_err());
+    }
+
+    /// 素材导出白名单（v0.29.1）：只导出状态机真正会用的文件；
+    /// 隐藏文件、未知状态、非图片扩展名全部拒绝。
+    #[test]
+    fn exportable_asset_names_follow_state_whitelist() {
+        assert!(is_exportable_asset_name("idle.png"));
+        assert!(is_exportable_asset_name("happy_001.PNG"));
+        assert!(is_exportable_asset_name("break_2.webp"));
+        assert!(!is_exportable_asset_name("unknown.png"));
+        assert!(!is_exportable_asset_name("idle.txt"));
+        assert!(!is_exportable_asset_name(".idle.png"));
+        assert!(!is_exportable_asset_name("idle"));
     }
 
     /// 脱 Key 导出（v0.17.0）：apiKeys 清空、其余字段保留、非法 JSON 返回空对象。

@@ -5,6 +5,8 @@
   "windows": ["pet", "chat", "alert"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
     "opener:default",
     "store:default",
     "sql:default",

@@ -5,6 +5,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   STATE_DOCS,
   deleteUserPetAsset,
+  exportPetAssets,
   extOfFileName,
   fileNameOf,
   frameOfFileName,
@@ -70,6 +71,8 @@ export function AssetsTab() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** 一键导出（v0.29.1）：Rust 打 zip 期间禁用按钮，避免重复点击生成多个包 */
+  const [exporting, setExporting] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   /** 每状态独立上传（v0.23.0）：非 null 时本次选择的文件全部归入该状态 */
   const uploadTarget = useRef<PetState | null>(null);
@@ -225,6 +228,37 @@ export function AssetsTab() {
     }
   }, [t]);
 
+  /**
+   * 一键导出当前素材（v0.29.1）：Rust 生成 zip 后直接 reveal 到资源管理器/Finder。
+   * 导出内容与运行时回退链一致——有用户素材导用户素材，没有则导内置默认图。
+   */
+  const exportAll = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    setNotice(null);
+    try {
+      const result = await exportPetAssets();
+      setNotice({
+        tone: "ok",
+        text: t("assets.exported", {
+          count: result.count,
+          path: result.path,
+          source: t(result.source === "user" ? "assets.exportSourceUser" : "assets.exportSourceBundled"),
+        }),
+      });
+      await revealItemInDir(result.path).catch(() => undefined);
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        text: t("assets.exportFail", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, t]);
+
   return (
     <div className="assets-page">
       <header className="assets-head">
@@ -232,9 +266,20 @@ export function AssetsTab() {
           宠物素材
           <span className="assets-en">Pet assets</span>
         </h2>
-        <button className="assets-link" onClick={() => void openFolder()}>
-          打开目录 / Open folder
-        </button>
+        <div className="assets-head__actions">
+          <button
+            id="assets-export-button"
+            className="assets-export"
+            onClick={() => void exportAll()}
+            disabled={exporting || busy}
+            title={t("assets.exportHint")}
+          >
+            {exporting ? t("assets.exporting") : t("assets.exportAll")}
+          </button>
+          <button id="assets-open-folder" className="assets-link" onClick={() => void openFolder()}>
+            打开目录 / Open folder
+          </button>
+        </div>
       </header>
 
       <p className="assets-lead">
@@ -267,7 +312,7 @@ export function AssetsTab() {
             event.target.value = "";
           }}
         />
-        <button className="assets-import__pick" onClick={() => pickFiles(null)} disabled={busy}>
+        <button id="assets-pick-button" className="assets-import__pick" onClick={() => pickFiles(null)} disabled={busy}>
           选择图片 / Choose images
         </button>
         <span className="assets-import__hint">PNG · JPG · GIF · WEBP · SVG，单张 ≤ 16MB</span>
@@ -366,7 +411,11 @@ export function AssetsTab() {
                   {counts[doc.state] ? t("assets.count", { count: counts[doc.state] }) : t("assets.builtin")}
                 </span>
                 {/* 每状态独立上传（v0.23.0）：直接为该状态选图，免去通用入口的手动归位 */}
-                <button className="assets-state__upload" onClick={() => pickFiles(doc.state)}>
+                <button
+                  id={`assets-upload-${doc.state}`}
+                  className="assets-state__upload"
+                  onClick={() => pickFiles(doc.state)}
+                >
                   {t("assets.upload")}
                 </button>
               </div>

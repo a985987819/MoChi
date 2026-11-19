@@ -10,8 +10,11 @@
  *
  * # 权限
  *
- * `getCurrentWindow().startDragging()` 属 `core:window:allow-start-dragging`，
- * 已包含在 core:window:default（core:default 的一部分），无需改 capability。
+ * `getCurrentWindow().startDragging()` 属 `core:window:allow-start-dragging`。
+ * **它不在 core:window:default 里**（v0.29.1 修正旧注释：默认集只含查询类命令），
+ * 必须在 `capabilities/default.json` 显式授权，否则 Promise 被 .catch 静默吞掉，
+ * 表现为"标题栏按了没反应"。同理，聊天窗缩放热区需要
+ * `core:window:allow-start-resize-dragging`。
  *
  * # 排除规则
  *

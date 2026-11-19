@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ChatTab } from "./ChatTab";
 import { TodosTab } from "./TodosTab";
 import { PomodoroTab } from "./PomodoroTab";
@@ -130,6 +131,7 @@ export function ChatApp() {
   }, []);
 
   return (
+    <>
     <main ref={shellRef} className="chat-shell">
       {/* 自绘标题栏（v0.23.1）：**整行可抓**拖动——手动 mousedown + startDragging
           （排除 Tab/关闭钮等交互控件），替代 data-tauri-drag-region 的"仅元素本身
@@ -195,6 +197,61 @@ export function ChatApp() {
         </>
       )}
     </main>
+    {/* 缩放热区放在 shell 外：避免被圆角 + overflow:hidden 裁掉 */}
+    {!welcome && <ResizeHandles />}
+    </>
+  );
+}
+
+/**
+ * 无边框窗口的八向缩放热区（v0.29.1）。
+ *
+ * 聊天窗是 `decorations: false` 自绘窗口，没有系统边框；WebView 里在四边/四角铺
+ * 4~10px 的透明热区，按下即把缩放交给系统（`startResizeDragging`）——手感与原生
+ * 窗口一致；该命令不在 core:window:default 里，capability 已显式授权
+ * `core:window:allow-start-resize-dragging`。热区固定定位、z-index 高于内容，
+ * 但不拦截标题栏拖动（它们不在 header 内）。
+ */
+/** @tauri-apps/api 没把 ResizeDirection 作为命名类型导出，这里按 API 文档字面量对齐 */
+type ResizeDirection =
+  | "East"
+  | "North"
+  | "NorthEast"
+  | "NorthWest"
+  | "South"
+  | "SouthEast"
+  | "SouthWest"
+  | "West";
+
+const RESIZE_HANDLES: ReadonlyArray<{ direction: ResizeDirection; edge: string }> = [
+  { direction: "North", edge: "n" },
+  { direction: "South", edge: "s" },
+  { direction: "East", edge: "e" },
+  { direction: "West", edge: "w" },
+  { direction: "NorthEast", edge: "ne" },
+  { direction: "NorthWest", edge: "nw" },
+  { direction: "SouthEast", edge: "se" },
+  { direction: "SouthWest", edge: "sw" },
+];
+
+function ResizeHandles() {
+  return (
+    <>
+      {RESIZE_HANDLES.map(({ direction, edge }) => (
+        <div
+          key={direction}
+          id={`chat-resize-${edge}`}
+          className={`chat-resize chat-resize--${edge}`}
+          data-no-drag
+          onMouseDown={event => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            void getCurrentWindow().startResizeDragging(direction).catch(() => undefined);
+          }}
+        />
+      ))}
+    </>
   );
 }
 

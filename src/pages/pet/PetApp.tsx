@@ -156,6 +156,10 @@ export function PetApp() {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [gripping, setGripping] = useState(false);
   const [bubble, setBubble] = useState<BubbleDisplay<PetBubbleLine> | null>(null);
+  /** 右键菜单是否临时扩过窗口（v0.29.1）：关闭菜单时据此决定是否调用 restore */
+  const menuSpaceRef = useRef(false);
+  /** 右键请求序号：扩窗是异步的，用户可能在结果回来前就点了别处 */
+  const menuRequestRef = useRef(0);
   const shellRef = useRef<HTMLElement>(null);
   const spriteRef = useRef<HTMLDivElement>(null);
   /** 当前是否已置穿透（与 Rust 状态同步；JS 在 ignore=true 后失明，靠 Rust 轮询唤回） */
@@ -278,10 +282,36 @@ export function PetApp() {
     e.preventDefault();
     gestures.cancel();
     bubbleDisplay.cancel();
-    setMenu({ x: e.clientX, y: e.clientY });
+    // 右键坐标先记下：prepare 会临时改窗口尺寸/位置（v0.29.1），
+    // 返回的位移把“老视口坐标”换算到“扩窗后的新视口”。
+    const x = e.clientX;
+    const y = e.clientY;
+    const request = ++menuRequestRef.current;
+    void invoke<{ dx: number; dy: number }>("prepare_pet_menu")
+      .then(shift => {
+        if (menuRequestRef.current !== request) {
+          // 这次右键已经作废（用户点了别处）：扩过的窗口要还回去
+          void invoke("restore_pet_menu").catch(() => undefined);
+          return;
+        }
+        menuSpaceRef.current = true;
+        setMenu({ x: x - shift.dx, y: y - shift.dy });
+      })
+      .catch(error => {
+        console.error("[pet] 准备右键菜单失败", error);
+        if (menuRequestRef.current === request) setMenu({ x, y }); // 扩窗失败也照常弹菜单
+      });
   }, [gestures, bubbleDisplay]);
 
-  const closeMenu = useCallback(() => setMenu(null), []);
+  const closeMenu = useCallback(() => {
+    menuRequestRef.current += 1;
+    setMenu(null);
+    // 恢复菜单展开前的窗口几何；没扩过窗口时 Rust 侧是空操作
+    if (menuSpaceRef.current) {
+      menuSpaceRef.current = false;
+      void invoke("restore_pet_menu").catch(error => console.error("[pet] 恢复窗口失败", error));
+    }
+  }, []);
 
   // 透明区域点击穿透（v0.9.0 桌宠体检）：宠物窗矩形大部分是透明的，却挡住
   // 底下窗口的点击（右下角正是托盘/开始菜单高频区）。方案：指针移动时做

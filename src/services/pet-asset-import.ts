@@ -252,3 +252,32 @@ export function fileNameOf(path: string): string {
 export async function deleteUserPetAsset(path: string): Promise<void> {
   await invoke("delete_user_pet_asset", { path });
 }
+
+/** 一键导出的结果（v0.29.1）：zip 路径、文件数、来源（用户素材 / 内置兜底） */
+export interface PetAssetExport {
+  path: string;
+  count: number;
+  source: "user" | "bundled";
+}
+
+/**
+ * 一键导出当前素材（v0.29.1）：Rust 把“正在生效”的素材打成 zip
+ * （`{appData}/exports/mochi-pet-assets-<时间戳>.zip`）。
+ *
+ * 条目名保持规范英文命名（`happy.png` / `happy_001.png`），纯 ASCII——Windows 资源
+ * 管理器与 macOS 归档实用工具解压后都能直接识别。返回路径供 UI reveal。
+ */
+export async function exportPetAssets(): Promise<PetAssetExport> {
+  const raw = await invoke<unknown>("export_pet_assets");
+  // 收方校验：导出是写文件动作，宁可报错也不把脏路径展示给用户
+  if (typeof raw !== "object" || raw === null) throw new Error("导出结果无效");
+  const record = raw as Record<string, unknown>;
+  if (typeof record.path !== "string" || !record.path || typeof record.count !== "number") {
+    throw new Error("导出结果缺少路径或数量");
+  }
+  return {
+    path: record.path,
+    count: record.count,
+    source: record.source === "bundled" ? "bundled" : "user",
+  };
+}

@@ -17,6 +17,37 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* 右侧动作区（v0.29.1）：导出是主按钮，打开目录保持文字链——一眼分清主次 */
+.assets-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.assets-export {
+  padding: 7px 13px;
+  border: none;
+  border-radius: 9px;
+  background: var(--accent-fill);
+  color: var(--text-on-accent);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.assets-export:hover {
+  filter: brightness(0.97);
+}
+
+.assets-export:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .assets-head h2 {
@@ -342,20 +373,29 @@
 }
 
 
-/* ── 每状态上传 + 点击复制命名（v0.23.0）── */
+/* 每状态上传按钮（v0.23.0；v0.29.1 放大）：align-self: stretch 让它占满
+   标题行高度——2px 内边距的小签在触屏/高 DPI 下太难点，现在与状态标题同高。 */
 .assets-state__upload {
   margin-left: auto;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px 16px;
   border: none;
-  border-radius: 6px;
-  background: var(--bg-accent-soft);
-  color: var(--accent-text);
-  font-size: 11px;
-  padding: 2px 8px;
+  border-radius: 9px;
+  background: var(--accent-fill);
+  color: var(--text-on-accent);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
+  transition: filter 120ms ease;
 }
 
 .assets-state__upload:hover {
-  background: var(--bg-accent-tint);
+  filter: brightness(0.97);
 }
 
 .assets-state__names {
