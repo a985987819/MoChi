@@ -148,6 +148,56 @@
   color: var(--text-faint);
 }
 
+/* 导入导出说明（v0.29.5）：把"zip 不能直接选、先解压"讲在前面，避免用户在
+   file picker 里选不到 zip 时以为是 bug。 */
+.assets-migrate {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.assets-migrate h3 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-strong);
+}
+
+.assets-migrate__steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.assets-migrate__steps ul {
+  margin: 2px 0 0;
+  padding-left: 16px;
+}
+
+.assets-migrate__steps code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.assets-migrate__en {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
 /* ── 待确认列表 ── */
 
 .assets-pending {

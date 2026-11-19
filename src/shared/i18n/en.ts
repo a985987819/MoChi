@@ -163,6 +163,7 @@ export const en = {
   "assets.exportHint": "Packs the assets currently in use into one zip (file names are already canonical English names, readable on Windows and macOS)",
   "assets.exporting": "Packing…",
   "assets.exported": "Exported {count} {source} file(s): {path}",
+  "assets.exportedNext": "On another computer, unzip first, then copy the images into the assets folder or use “Choose images” to import them.",
   "assets.exportSourceUser": "custom",
   "assets.exportSourceBundled": "built-in",
   "assets.exportFail": "Export failed: {message}",

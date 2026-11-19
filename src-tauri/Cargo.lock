@@ -2419,7 +2419,7 @@ dependencies = [
 
 [[package]]
 name = "mochi"
-version = "0.29.4"
+version = "0.29.5"
 dependencies = [
  "chrono",
  "serde",

@@ -240,11 +240,11 @@ export function AssetsTab() {
       const result = await exportPetAssets();
       setNotice({
         tone: "ok",
-        text: t("assets.exported", {
+        text: `${t("assets.exported", {
           count: result.count,
           path: result.path,
           source: t(result.source === "user" ? "assets.exportSourceUser" : "assets.exportSourceBundled"),
-        }),
+        })} ${t("assets.exportedNext")}`,
       });
       await revealItemInDir(result.path).catch(() => undefined);
     } catch (error) {
@@ -298,6 +298,42 @@ export function AssetsTab() {
         <br />
         Multiple images per state are auto-numbered (<code>happy_2.png</code>…) and a random static one is picked every 5 minutes.
       </p>
+
+      {/* 导入导出说明（v0.29.5）：导出的 zip 不能直接选，必须先解压；两种回归方式讲清楚 */}
+      <section className="assets-migrate" id="assets-migrate-guide">
+        <h3>
+          导入导出的素材
+          <span className="assets-en">Move assets between computers</span>
+        </h3>
+        <ol className="assets-migrate__steps">
+          <li>
+            <strong>1. 导出</strong>：点右上角「一键导出当前素材」，得到一个 zip 压缩包
+            （Windows / macOS 都能打开）。
+          </li>
+          <li>
+            <strong>2. 解压</strong>：先把 zip 解压成一张张图片；导入入口只接收图片文件，
+            <strong>不能直接选择 zip</strong>。
+          </li>
+          <li>
+            <strong>3. 导入（二选一）</strong>：
+            <ul>
+              <li>
+                <strong>保留原文件名（推荐）</strong>：点「打开目录」，把解压后的图片直接放进
+                <code>pet-assets</code> 文件夹——<code>happy.png</code> / <code>happy_001.png</code>
+                会保持原名，放图即生效，不用重启。
+              </li>
+              <li>
+                <strong>走应用导入</strong>：回到本页点「选择图片」批量导入，或在每个状态行点
+                「上传」；系统会自动整理成英文命名，已有同名素材时序号会顺延。
+              </li>
+            </ul>
+          </li>
+        </ol>
+        <p className="assets-migrate__en">
+          Export → unzip → either copy the images into the pet-assets folder (file names preserved),
+          or use “Choose images / Upload” above to import them through the app.
+        </p>
+      </section>
 
       <section className="assets-import">
         <input

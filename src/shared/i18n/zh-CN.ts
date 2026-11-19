@@ -176,6 +176,7 @@ export const zhCN = {
   "assets.exportHint": "把当前正在使用的素材打成一个 zip（文件名已是规范英文名，Windows / macOS 通用）",
   "assets.exporting": "正在打包…",
   "assets.exported": "已导出 {count} 个{source}文件：{path}",
+  "assets.exportedNext": "换电脑时先解压 zip，再把图片放进素材目录（打开目录）或用「选择图片」导入。",
   "assets.exportSourceUser": "自定义素材",
   "assets.exportSourceBundled": "内置素材",
   "assets.exportFail": "导出失败：{message}",
