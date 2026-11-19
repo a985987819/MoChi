@@ -30,13 +30,34 @@
 - 代码与注释同步：`feat`/`fix` 提交里的新代码必须已带教学型注释（见代码规范），不允许"先提交后补注释"。
 - 版本收口时（验收标准全绿）：更新 `CHANGELOG.md` 对应段落（变更/动机与取舍/学习要点/版本规划影响）。
 
+### 1.2 每次完成必须打包新的可运行程序
+
+**项目声明：每次会话/任务完成后，除了总结与提交，必须重新构建并归档一个对应当前提交的
+可运行程序，不能只交源码。**
+
+- **Windows（本机）**：
+  1. 先过检查：`pnpm check` → `pnpm test` → `cargo check`（命令见「环境备忘」）；
+  2. 构建：`scripts\vsenv.cmd pnpm tauri build --bundles nsis`；
+  3. 归档：`pnpm package:collect`，把 `Mochi_<version>_x64-setup.exe` 与 `manifest.json`
+     收进 `run_here/windows/`（脚本会校验大小与 SHA-256）；
+  4. 直接在 `src-tauri/target/release/mochi.exe` 运行的绿色版同样算本次产物。
+- **macOS**：Windows 本机无法产出 `.dmg`。在 Mac 上执行 `pnpm package`；或等 tag 触发的
+  GitHub Actions 产物下载后执行 `pnpm package:collect --platform mac --source <目录>`。
+  本机无 Mac 环境时，会话总结必须明确写"macOS 包未产出 + 原因"，不得用旧包冒充。
+- **失败处理**：打包失败必须排查到成功；若工具链/网络阻塞，在会话总结与版本文档里写明
+  阻塞原因、错误摘要、`run_here/` 中仍保留的上一版包，**不得把旧包描述成新包**。
+- **记录**：每次打包在 `docs/versions/` 本次会话记录中写清版本号、产物文件名、字节大小与
+  SHA-256 摘要（或 manifest 路径）；`run_here/` 的二进制不入 Git（见 `.gitignore`）。
+- **纯文档改动也执行本节**：保证用户手里的安装程序永远对应当前最新提交。
+
 ### 2. 部署动作必须显式声明
 
 以下动作属于「部署」，**仅在用户当次对话中明确要求时才执行**，不得自行操作：
 
 - `git push`（任何远程推送）
 - `git tag` 与 Release 发布
-- 构建对外分发的安装包并交付（本地 `pnpm tauri build` 做验证除外，但产物不外发）
+- 把安装包对外交付（上传网盘、发给他人、公开下载）——**本机构建与归档到 `run_here/`
+  是 1.2 的每次必做项，不属于本条的"对外部署"**
 - 修改 CI 发布配置触发的发布流程
 
 ### 3. 版本与分支

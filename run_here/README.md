@@ -13,11 +13,16 @@
 
 ## 生成本机安装包
 
+> 项目约定（AGENTS.md §1.2）：**每次会话/任务完成后都要重新执行本节**，确保这里的安装包
+> 对应当前最新提交；不能只交源码。构建失败要在会话总结里写明原因，不得用旧包冒充新包。
+
 ```powershell
 pnpm package
 ```
 
 Windows 自动经 `scripts\vsenv.cmd` 加载 MSVC 环境，产出 `.exe`、`.msi`；需预先安装 Rust、VS Build Tools 与 Windows SDK。
+若 MSI 的 WiX 下载超时，可只构 NSIS 再归档：
+`scripts\vsenv.cmd pnpm tauri build --bundles nsis` → `pnpm package:collect`。
 工具链位于自定义磁盘时，可在不提交 Git 的 `scripts/vsenv.local.cmd` 中记录本机 Rust 路径，见 [项目结构说明](../docs/project-structure.md#本机-windows-工具路径)。
 macOS 生成本机架构 `.dmg`；如需 Intel 和 Apple Silicon 通用包，在 Mac 上先安装两个 Rust target，再执行：
 
