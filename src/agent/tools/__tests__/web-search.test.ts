@@ -1,11 +1,16 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { plainSnippet, webSearchTool } from "../web-search";
 import type { ToolContext } from "../registry";
 
 /**
- * 联网搜索工具（v0.29.3）：用假 fetch 固定"维基百科返回 JSON"的协议形状，
- * 不依赖真实网络。重点验证：结果映射、HTML 清洗、零结果提示、错误降级。
+ * 联网搜索工具（v0.29.4）：用假 fetch 固定"DeepSeek / 维基百科"两种协议形状，
+ * 不依赖真实网络。重点验证：数据源优先级、结果映射、HTML 清洗、失败回退。
  */
+
+const deps = vi.hoisted(() => ({ apiKeys: {} as Record<string, string> }));
+vi.mock("@/services/settings", () => ({
+  loadSettings: async () => ({ apiKeys: deps.apiKeys }),
+}));
 
 function response(payload: unknown, ok = true, status = 200): Response {
   return { ok, status, json: async () => payload } as Response;
@@ -15,10 +20,55 @@ function ctx(): ToolContext {
   return { signal: new AbortController().signal, services: {} as ToolContext["services"] };
 }
 
+beforeEach(() => {
+  deps.apiKeys = {};
+});
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("web_search", () => {
-  it("把维基搜索结果映射成 title/snippet/url，并剥离 HTML 高亮", async () => {
+  it("配置 DeepSeek Key：优先调用 Search API，summary 映射为 snippet", async () => {
+    deps.apiKeys.deepseek = "sk-test";
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(_input)).toBe("https://api.deepseek.com/v1/tools/search");
+      expect(init?.method).toBe("POST");
+      expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer sk-test");
+      expect(JSON.parse(String(init?.body))).toMatchObject({ query: "麻薯", count: 2, need_content: false });
+      return response({
+        results: [
+          { title: "麻薯", url: "https://example.com/mochi", summary: "长摘要内容", snippet: "短摘要" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await webSearchTool().execute({ query: "麻薯", limit: 2 }, ctx());
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const data = outcome.data as { source: string; results: Array<{ snippet: string; url: string }> };
+    expect(data.source).toBe("DeepSeek Search API");
+    expect(data.results[0]).toMatchObject({ snippet: "长摘要内容", url: "https://example.com/mochi" });
+  });
+
+  it("DeepSeek 失败：自动回退维基百科", async () => {
+    deps.apiKeys.deepseek = "sk-test";
+    vi.stubGlobal("navigator", { language: "zh-CN" });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("api.deepseek.com")) return response({}, false, 503);
+      return response({ query: { search: [{ title: "麻薯", snippet: "点心" }] } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await webSearchTool().execute({ query: "麻薯" }, ctx());
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const data = outcome.data as { source: string; results: unknown[] };
+    expect(data.source).toBe("zh.wikipedia.org");
+    expect(data.results).toHaveLength(1);
+  });
+
+  it("未配置 Key：直接走维基百科，并带 origin=*（CORS 必需）", async () => {
     vi.stubGlobal("navigator", { language: "zh-CN" });
     const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
       response({

@@ -329,6 +329,8 @@ export function SettingsTab() {
         )}
       </div>
 
+      <WebSearchSection settings={settings} />
+
       <TimerConfigSection settings={settings} update={update} updateDebounced={updateDebounced} />
 
       <PetSizeSection settings={settings} updateDebounced={updateDebounced} />
@@ -370,6 +372,31 @@ export function SettingsTab() {
 
 /** 免打扰时段可选整点（0~23）：分钟级精度对"别半夜吵我"没有意义，整点足够 */
 const QUIET_HOURS = Array.from({ length: 24 }, (_, index) => index);
+
+/**
+ * 联网搜索数据源说明（v0.29.4）。
+ *
+ * 不自造开关：web_search 的策略是"有 DeepSeek Key 就优先 DeepSeek Search API，
+ * 否则回退维基百科"。这里只把当前生效的数据源与计费/回退规则讲清楚，避免用户
+ * 疑惑"为什么搜索突然收费/为什么还在用维基"。
+ */
+function WebSearchSection({ settings }: { settings: AppSettings }) {
+  const { t } = useT();
+  const hasDeepSeekKey = (settings.apiKeys.deepseek ?? "").trim().length > 0;
+  return (
+    <div className="settings-websearch" id="settings-websearch">
+      <span className="settings-field-label">{t("settings.webSearch")}</span>
+      <p
+        id="settings-websearch-source"
+        className={`settings-note${hasDeepSeekKey ? " settings-note--ok" : ""}`}
+      >
+        {hasDeepSeekKey ? t("settings.webSearchDeepSeek") : t("settings.webSearchWikipedia")}
+      </p>
+      <p className="settings-note">{t("settings.webSearchNote")}</p>
+      <p className="settings-note">{t("settings.webSearchSharedKey")}</p>
+    </div>
+  );
+}
 
 /**
  * 计时配置 —— v0.7.0：站立间隔/番茄钟时长/通知开关。

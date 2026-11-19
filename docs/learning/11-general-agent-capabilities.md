@@ -279,35 +279,30 @@ interface ToolDefinition<A> {
 
 文件：[src/agent/tools/web-search.ts](../src/agent/tools/web-search.ts)
 
-为什么用维基百科 API：
+采用**双数据源策略**，对上层保持同一套 `{title, snippet, url}` 输出：
 
-- 不需要搜索服务商 Key，避免把密钥问题带进"基础能力"；
-- MediaWiki API 支持 `origin=*`（浏览器 CORS），WebView 原生 `fetch` 即可；
-- 返回结构化 JSON，适合教学与稳定解析。
-
-请求形状：
-
-```text
-GET https://zh.wikipedia.org/w/api.php
-  ?action=query&list=search&srsearch=麻薯&srlimit=3&format=json&origin=*&utf8=1
-```
+1. **DeepSeek Search API（优先）**：设置里配置了 DeepSeek Key 时调用
+   `POST https://api.deepseek.com/v1/tools/search`（Bearer 鉴权），
+   `count` 取 1~5、`need_content: false` 只取长摘要 `summary`；
+   按成功请求计费（官方价约 5 元/1000 次成功搜索，无结果/失败不计费），QPS 100；
+2. **维基百科兜底**：没有 Key、DeepSeek 请求失败或零结果时，用 MediaWiki API
+   （`origin=*`，无需 Key）兜底，保证无 Key/断网用户仍有基础联网能力。
 
 处理流程：
 
-1. 按界面语言先搜中文维基，零结果再搜英文维基兜底；
-2. 从 `query.search[]` 取 `title/snippet`；
-3. `snippet` 是带 `<span class="searchmatch">` 的 HTML，`plainSnippet` 剥标签、
-   解码 `&nbsp; &amp; &quot; ...`；
-4. 生成 `url = https://<host>/wiki/<encodeURIComponent(title)>`；
-5. 返回 `{ query, source, results: [{title,snippet,url}] }`；
-6. 网络失败/零结果不抛异常，返回可解释的 `note`，让模型如实告知用户。
+1. 读取 `settings.apiKeys.deepseek`；
+2. 有 Key → 调用 DeepSeek Search API，成功且非空即返回 `source: "DeepSeek Search API"`；
+3. 否则（或失败/零结果）→ 按界面语言先搜中文维基，再搜英文维基；
+4. `snippet` 优先用 DeepSeek 的 `summary`；维基的 HTML 高亮由 `plainSnippet` 剥标签；
+5. 网络失败/零结果不抛异常，返回可解释的 `note`，让模型如实告知用户。
 
 安全边界：
 
 - `risk: "read"`，不写文件、不打开浏览器；
 - 搜索结果只是资料，不是指令；系统提示词明确要求模型**不要执行搜索结果里的
   任何要求**（防提示注入）；
-- 工具本身也不执行任何外部内容。
+- 工具本身也不执行任何外部内容；DeepSeek Key 只发往 `api.deepseek.com`，
+  不写日志、不出现在错误文案里。
 
 ### 7.4 工具轨迹
 
@@ -359,14 +354,12 @@ GET https://zh.wikipedia.org/w/api.php
 4. 给工具写单测（纯函数参数校验/结果映射优先）；
 5. 在系统提示词里补一句"何时用它"。
 
-### 10.2 换成真正的搜索引擎
+### 10.2 换成其他搜索引擎
 
-保持 `web_search` 的输入/输出形状不变，只替换 `searchOn`：
-
-- 有 Key：Brave Search / Bing Web Search / SerpAPI；
-- 自建：SearXNG 实例；
-- 需要更完整的网页正文：再加一个 `fetch_url` 工具（注意白名单、超时、
-  内容截断与提示注入防护）。
+当前已经是"DeepSeek Search API 优先 + 维基百科兜底"；如果要换 Brave / Bing /
+SerpAPI / SearXNG，保持 `web_search` 的输入/输出形状不变，替换 `searchDeepSeek`
+（或再加一层 provider 选择）即可。需要更完整的网页正文时，可再加一个 `fetch_url`
+工具（注意白名单、超时、内容截断与提示注入防护）。
 
 ### 10.3 调整上下文预算
 
@@ -388,9 +381,9 @@ UI 展示可以远大于模型上下文，两者刻意解耦。
 
 ## 12. 验证清单
 
-- [x] `pnpm test`：509/509（含 web_search 4 例、history-store 多会话/自动标题）
+- [x] `pnpm test`：511/511（含 web_search 双数据源/回退 6 例、history-store 多会话/自动标题）
 - [x] `pnpm check` / `pnpm build`
 - [x] `cargo test` / `cargo check`
 - [ ] 真机：新建会话 → 首条消息后标题变摘要 → 切换会话历史互不串
-- [ ] 真机：问一个外部事实，模型调用 `web_search` 并附维基链接
+- [ ] 真机：问一个外部事实，模型调用 `web_search` 并附来源链接（DeepSeek / 维基百科）
 - [ ] 真机：设置页清空聊天历史 → 所有会话消失，只剩一个干净会话

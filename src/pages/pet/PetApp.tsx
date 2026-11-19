@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { petState, type PetState } from "@/services/pet-state";
 import { listVariants, pickRandom, type PetVariant } from "@/services/pet-assets";
 import { loadSettings } from "@/services/settings";
@@ -173,6 +174,8 @@ export function PetApp() {
   const passThroughRef = useRef(false);
   /** 悬停去重：pointermove 很频繁，只在进出形象时 setState */
   const hoveringRef = useRef(false);
+  /** 离开后的延迟隐藏定时器（v0.29.4：进入即显示，离开 5 秒后隐藏） */
+  const hoverHideTimer = useRef<number | null>(null);
   const chatter = useMemo(() => new PetChatter(), []);
   const bubbleDisplay = useMemo(() => new TimedBubble<PetBubbleLine>(setBubble), []);
 
@@ -249,13 +252,62 @@ export function PetApp() {
     };
   }, [bubbleDisplay]);
 
-  /** 悬停状态切换（只在进出形象时触发一次 setState，pointermove 不会刷爆渲染） */
-  const setHover = useCallback((inside: boolean) => {
-    if (hoveringRef.current === inside) return;
-    hoveringRef.current = inside;
-    setHovering(inside);
-    if (inside) setStandupMinutes(standupService.minutesSinceStandup());
+  /** 悬停状态机（v0.29.4）：进入立即显示、离开 5 秒后隐藏、失焦立即隐藏 */
+  const clearHoverHide = useCallback(() => {
+    if (hoverHideTimer.current != null) {
+      window.clearTimeout(hoverHideTimer.current);
+      hoverHideTimer.current = null;
+    }
   }, []);
+
+  const showHover = useCallback(() => {
+    clearHoverHide();
+    if (hoveringRef.current) return;
+    hoveringRef.current = true;
+    setHovering(true);
+    setStandupMinutes(standupService.minutesSinceStandup());
+  }, [clearHoverHide]);
+
+  const hideHoverNow = useCallback(() => {
+    clearHoverHide();
+    hoveringRef.current = false;
+    setHovering(false);
+  }, [clearHoverHide]);
+
+  const scheduleHoverHide = useCallback(() => {
+    if (!hoveringRef.current) return;
+    clearHoverHide();
+    hoverHideTimer.current = window.setTimeout(() => {
+      hoverHideTimer.current = null;
+      hoveringRef.current = false;
+      setHovering(false);
+    }, 5_000);
+  }, [clearHoverHide]);
+
+  const setHover = useCallback(
+    (inside: boolean) => {
+      if (inside) showHover();
+      else scheduleHoverHide();
+    },
+    [showHover, scheduleHoverHide],
+  );
+
+  // 组件卸载时清掉未触发的延迟隐藏
+  useEffect(() => () => clearHoverHide(), [clearHoverHide]);
+
+  // 窗口失焦：宠物窗 focus:false 不一定触发 window.blur，补一条 Tauri 焦点事件
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    void getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (!focused) hideHoverNow();
+      })
+      .then(unlisten => {
+        off = unlisten;
+      })
+      .catch(() => undefined);
+    return () => off?.();
+  }, [hideHoverNow]);
 
   const gestures = useMemo(() => new PetGestureController({
     // 即时视觉反馈（抬指即弹）：0 延迟的"按下去了"确认——感知流畅度的关键。
@@ -277,20 +329,20 @@ export function PetApp() {
       void sendUIEvent(UI_EVENTS.openChat).catch(error => console.error("[pet] 打开聊天失败", error));
     },
     drag: () => {
-      setHover(false); // 拖动期间不显示悬停提示
+      hideHoverNow(); // 拖动期间不显示悬停提示
       bubbleDisplay.cancel();
       // 当前 pointermove 先释放 DOM capture，再让系统接管拖动。
       queueMicrotask(() => {
         void sendUIEvent(UI_EVENTS.dragPet).catch(error => console.error("[pet] 拖动失败", error));
       });
     },
-  }), [bubbleDisplay, chatter, setHover]);
+  }), [bubbleDisplay, chatter, hideHoverNow]);
 
   useEffect(() => {
     const cancel = () => {
       gestures.cancel();
       bubbleDisplay.cancel();
-      setHover(false);
+      hideHoverNow(); // 失焦/隐藏：立即收起，不等 5 秒
     };
     const visibilityChanged = () => { if (document.hidden) cancel(); };
     window.addEventListener("blur", cancel);
@@ -300,7 +352,7 @@ export function PetApp() {
       document.removeEventListener("visibilitychange", visibilityChanged);
       gestures.cancel();
     };
-  }, [gestures, bubbleDisplay, setHover]);
+  }, [gestures, bubbleDisplay, hideHoverNow]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -344,7 +396,7 @@ export function PetApp() {
   // 菜单展开期间强制不穿透（菜单可能伸到形象矩形之外）。
   const updateHitTest = useCallback((x: number, y: number) => {
     if (menu) {
-      setHover(false);
+      hideHoverNow();
       if (passThroughRef.current) {
         passThroughRef.current = false;
         void invoke("set_pet_hit_test", { ignore: false, x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
@@ -354,7 +406,7 @@ export function PetApp() {
     const rect = spriteRef.current?.getBoundingClientRect();
     if (!rect) return;
     const inside = x >= rect.left - 8 && x <= rect.right + 8 && y >= rect.top - 8 && y <= rect.bottom + 8;
-    setHover(inside); // v0.29.2：指针在形象上 = 显示「上次站立」小字
+    setHover(inside); // v0.29.4：进入立即显示；离开只启动 5 秒延迟隐藏
     if (inside && passThroughRef.current) {
       passThroughRef.current = false;
       void invoke("set_pet_hit_test", { ignore: false, x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
@@ -365,16 +417,16 @@ export function PetApp() {
         x: rect.left, y: rect.top, width: rect.width, height: rect.height,
       }).catch(() => undefined);
     }
-  }, [menu, setHover]);
+  }, [menu, setHover, hideHoverNow]);
 
   // 菜单开合本身也要立即纠正穿透态（开菜单那一刻指针可能在形象外）
   useEffect(() => {
     if (menu) {
-      setHover(false);
+      hideHoverNow();
       passThroughRef.current = false;
       void invoke("set_pet_hit_test", { ignore: false, x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
     }
-  }, [menu, setHover]);
+  }, [menu, hideHoverNow]);
 
   // 悬停提示存活期间每 30 秒刷新分钟数（不需要秒级精度）
   useEffect(() => {
@@ -405,6 +457,7 @@ export function PetApp() {
         if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
       }}
       onPointerCancel={() => gestures.cancel()}
+      onPointerLeave={() => scheduleHoverHide()}
       onContextMenu={handleContextMenu}
       onAnimationEnd={event => {
         if (event.animationName === "mochi-bounce") setBouncing(false);

@@ -75,6 +75,30 @@ tsc 即时校验 + 定点 Edit 修复」的节奏比攒批修复稳；精确匹�
 
 ---
 
+## [0.29.4] — 2026-11-19 联网搜索接入 DeepSeek + 悬停提示失焦/延迟隐藏（补丁）
+
+**变更**：`web_search` 改为双数据源——配置 DeepSeek Key 时优先调用
+`POST https://api.deepseek.com/v1/tools/search`（`count` 1~5、`need_content:false`，
+`summary` 映射为 snippet，约 5 元/1000 次成功搜索）；无 Key、请求失败或零结果
+自动回退维基百科。设置页新增「联网搜索」说明：当前数据源、计费、回退规则与
+"复用 DeepSeek Key 无需单独配置"。桌宠悬停提示改为进入立即显示、离开 5 秒后
+隐藏；窗口失焦（window.blur / Tauri onFocusChanged / 页面隐藏）、打开菜单、拖动
+时立即隐藏，修复"失焦后提示不消失"。版本对齐 0.29.4。
+细节见 `docs/versions/v0.29.4-DeepSeek搜索与悬停修复.md`。
+
+**动机与取舍**：用 Search API 而不是服务端 `deepseek_web_search` 工具——前者是
+普通 JSON 接口，现有 Agent 循环/工具轨迹/测试零改动；服务端工具需要扩展 Provider
+的 server_tool_use/citations 流式协议，且文档要求 `deepseek-flash`，侵入面更大。
+搜索按次计费，设置页显式标注；无 Key/失败走维基兜底，保证基础可用。
+
+**学习要点**：外部能力的"优先 + 兜底"要在同一工具接口内完成，上层不感知数据源；
+hover 提示的进入/离开/失焦是三个独立语义，延迟隐藏与立即隐藏要分开建模。
+
+**版本规划影响**：后续若要服务端联网工具（免搜索费、带引用），需单独扩展
+Provider 协议；当前 Search API 路径可随时换成 Brave/Bing/SearXNG。
+
+---
+
 ## [0.29.3] — 2026-11-19 常规 Agent 能力补全：联网搜索 + 多会话历史（补丁）
 
 **变更**：新增 `web_search` 工具——维基百科公开 API（`origin=*`，无需 Key），
