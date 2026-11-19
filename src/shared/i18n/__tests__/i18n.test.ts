@@ -6,7 +6,7 @@ vi.mock("@tauri-apps/plugin-store", () => ({ load: vi.fn(async () => ({ get: vi.
 
 import { en } from "@/shared/i18n/en";
 import { zhCN, type MessageKey } from "@/shared/i18n/zh-CN";
-import { getLocale, installLocaleWatcher, resolveLocale, setLocale, subscribeLocale, t } from "@/shared/i18n/core";
+import { getLocale, getRevision, installLocaleWatcher, resolveLocale, setLocale, setPetSelfName, subscribeLocale, t } from "@/shared/i18n/core";
 import { loadSettings } from "@/services/settings";
 
 /**
@@ -60,6 +60,21 @@ describe("t 与运行时切换", () => {
     setLocale("en");
     expect(t("todos.sectionPending", { count: 2 })).toBe("Open · 2");
     setLocale("zh-CN");
+  });
+
+  it("宠物自称自动注入 {pet}，切换自称会通知订阅者", () => {
+    setPetSelfName("熊");
+    expect(t("chat.emptyHello")).toBe("跟熊说句话吧～");
+    expect(t("menu.hidePet")).toBe("隐藏熊");
+    const before = getRevision();
+    let notified = 0;
+    const unsubscribe = subscribeLocale(() => notified++);
+    setPetSelfName("团子");
+    expect(notified).toBe(1);
+    expect(getRevision()).toBe(before + 1);
+    expect(t("chat.emptyHello")).toBe("跟团子说句话吧～");
+    unsubscribe();
+    setPetSelfName("麻薯"); // 复原，避免影响后续用例
   });
 });
 

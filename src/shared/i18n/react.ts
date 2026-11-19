@@ -7,16 +7,17 @@
  */
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { getLocale, subscribeLocale, t, type Locale } from "./core";
+import { getLocale, getRevision, subscribeLocale, t, type Locale } from "./core";
 import type { MessageKey } from "./zh-CN";
 
 export type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
 export function useT(): { t: Translate; locale: Locale } {
-  const locale = useSyncExternalStore(subscribeLocale, getLocale);
+  // 快照用 revision：语言或宠物自称变化都会重渲染（t 文案里的 {pet} 才会即时更新）
+  const revision = useSyncExternalStore(subscribeLocale, getRevision);
   const translate = useCallback<Translate>(
     (key, vars) => t(key, vars),
-    [locale], // locale 变化换一个引用，强制消费 t 的组件重渲染
+    [revision], // revision 变化换一个引用，强制消费 t 的组件重渲染
   );
-  return useMemo(() => ({ t: translate, locale }), [translate, locale]);
+  return useMemo(() => ({ t: translate, locale: getLocale() }), [translate, revision]);
 }

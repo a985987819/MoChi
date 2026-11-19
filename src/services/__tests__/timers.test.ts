@@ -137,6 +137,19 @@ describe("站立提醒闭环", () => {
     expect(deps.dismissAlert).toHaveBeenCalled();
   });
 
+  it("上次站立时间：启动为 0，改配置不清零，主动重置后归零", async () => {
+    const standup = new StandupService();
+    await standup.start();
+    expect(standup.minutesSinceStandup()).toBe(0);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(standup.minutesSinceStandup()).toBe(2);
+    deps.config.standupIntervalMin = 2;
+    await emit(STATE_EVENTS.settingsChanged);
+    expect(standup.minutesSinceStandup()).toBe(2); // 改配置不是站立
+    await emit(UI_EVENTS.resetStandup);
+    expect(standup.minutesSinceStandup()).toBe(0);
+  });
+
   it("更改通知等无关设置不会重置站立倒计时", async () => {
     const standup = new StandupService();
     await standup.start();

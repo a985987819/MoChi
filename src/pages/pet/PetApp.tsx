@@ -5,6 +5,8 @@ import { petState, type PetState } from "@/services/pet-state";
 import { listVariants, pickRandom, type PetVariant } from "@/services/pet-assets";
 import { loadSettings } from "@/services/settings";
 import { playClick } from "@/services/sound";
+import { standupService } from "@/services/timers";
+import { useT } from "@/shared/i18n/react";
 import { MochiPlaceholder } from "@/shared/components/MochiPlaceholder";
 import { playShowTransition, onWindowShown } from "@/shared/show-transition";
 import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
@@ -21,9 +23,10 @@ import "./pet.css";
  *
  * 窗口特性（tauri.conf.json）：透明、无边框、置顶、220×260、跳过任务栏。
  *
- * 交互契约（v0.8.2 手势系统）：
+ * 交互契约（v0.8.2 手势系统；v0.29.2 起单击不再重置站立）：
  * - 按住移动超过阈值：请求 Rust 原生拖动，避免按下就进入原生拖动吞掉双击；
- * - 单击：弹跳动画 + 重置站立计时 + 头顶暖心气泡（语境选句，离线词库）；
+ * - 单击：弹跳动画 + 头顶暖心气泡（语境选句，离线词库）；
+ * - 悬停：头顶小字显示「上次站立是 N 分钟前」；
  * - 双击：打开聊天窗；右键：自绘菜单（ContextMenu.tsx）。
  *
  * 气泡（合并说明，v0.9.0）：P1-01 的「Agent 回复气泡」与 v0.8.2 的「单击暖心气泡」
@@ -151,11 +154,15 @@ function PetSprite({ state }: { state: PetState }) {
 type PetBubbleLine = { text: string };
 
 export function PetApp() {
+  const { t } = useT();
   const state = usePetState();
   const [bouncing, setBouncing] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [gripping, setGripping] = useState(false);
   const [bubble, setBubble] = useState<BubbleDisplay<PetBubbleLine> | null>(null);
+  /** 悬停提示（v0.29.2）：指针在形象矩形内时在头顶显示上次站立时长 */
+  const [hovering, setHovering] = useState(false);
+  const [standupMinutes, setStandupMinutes] = useState(0);
   /** 右键菜单是否临时扩过窗口（v0.29.1）：关闭菜单时据此决定是否调用 restore */
   const menuSpaceRef = useRef(false);
   /** 右键请求序号：扩窗是异步的，用户可能在结果回来前就点了别处 */
@@ -164,6 +171,8 @@ export function PetApp() {
   const spriteRef = useRef<HTMLDivElement>(null);
   /** 当前是否已置穿透（与 Rust 状态同步；JS 在 ignore=true 后失明，靠 Rust 轮询唤回） */
   const passThroughRef = useRef(false);
+  /** 悬停去重：pointermove 很频繁，只在进出形象时 setState */
+  const hoveringRef = useRef(false);
   const chatter = useMemo(() => new PetChatter(), []);
   const bubbleDisplay = useMemo(() => new TimedBubble<PetBubbleLine>(setBubble), []);
 
@@ -240,6 +249,14 @@ export function PetApp() {
     };
   }, [bubbleDisplay]);
 
+  /** 悬停状态切换（只在进出形象时触发一次 setState，pointermove 不会刷爆渲染） */
+  const setHover = useCallback((inside: boolean) => {
+    if (hoveringRef.current === inside) return;
+    hoveringRef.current = inside;
+    setHovering(inside);
+    if (inside) setStandupMinutes(standupService.minutesSinceStandup());
+  }, []);
+
   const gestures = useMemo(() => new PetGestureController({
     // 即时视觉反馈（抬指即弹）：0 延迟的"按下去了"确认——感知流畅度的关键。
     // 弹跳零副作用，双击时多弹一次无碍；语义动作仍在 singleClick 等判定。
@@ -250,7 +267,9 @@ export function PetApp() {
       requestAnimationFrame(() => setBouncing(true));
     },
     singleClick: () => {
-      void sendUIEvent(UI_EVENTS.resetStandup).catch(error => console.error("[pet] 重置计时失败", error));
+      // v0.29.2：单击不再重置站立计时——站立只由提醒弹窗确认/右键菜单重置。
+      // 保留「打断朗读」信号与暖心气泡（点击仍是"摸摸头"）。
+      void sendUIEvent(UI_EVENTS.petClicked).catch(error => console.error("[pet] 通知点击失败", error));
       void bubbleDisplay.showContext(loadChatterContext, context => ({ text: chatter.next(context).text }));
     },
     doubleClick: () => {
@@ -258,16 +277,21 @@ export function PetApp() {
       void sendUIEvent(UI_EVENTS.openChat).catch(error => console.error("[pet] 打开聊天失败", error));
     },
     drag: () => {
+      setHover(false); // 拖动期间不显示悬停提示
       bubbleDisplay.cancel();
       // 当前 pointermove 先释放 DOM capture，再让系统接管拖动。
       queueMicrotask(() => {
         void sendUIEvent(UI_EVENTS.dragPet).catch(error => console.error("[pet] 拖动失败", error));
       });
     },
-  }), [bubbleDisplay, chatter]);
+  }), [bubbleDisplay, chatter, setHover]);
 
   useEffect(() => {
-    const cancel = () => { gestures.cancel(); bubbleDisplay.cancel(); };
+    const cancel = () => {
+      gestures.cancel();
+      bubbleDisplay.cancel();
+      setHover(false);
+    };
     const visibilityChanged = () => { if (document.hidden) cancel(); };
     window.addEventListener("blur", cancel);
     document.addEventListener("visibilitychange", visibilityChanged);
@@ -276,7 +300,7 @@ export function PetApp() {
       document.removeEventListener("visibilitychange", visibilityChanged);
       gestures.cancel();
     };
-  }, [gestures, bubbleDisplay]);
+  }, [gestures, bubbleDisplay, setHover]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -320,6 +344,7 @@ export function PetApp() {
   // 菜单展开期间强制不穿透（菜单可能伸到形象矩形之外）。
   const updateHitTest = useCallback((x: number, y: number) => {
     if (menu) {
+      setHover(false);
       if (passThroughRef.current) {
         passThroughRef.current = false;
         void invoke("set_pet_hit_test", { ignore: false, x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
@@ -329,6 +354,7 @@ export function PetApp() {
     const rect = spriteRef.current?.getBoundingClientRect();
     if (!rect) return;
     const inside = x >= rect.left - 8 && x <= rect.right + 8 && y >= rect.top - 8 && y <= rect.bottom + 8;
+    setHover(inside); // v0.29.2：指针在形象上 = 显示「上次站立」小字
     if (inside && passThroughRef.current) {
       passThroughRef.current = false;
       void invoke("set_pet_hit_test", { ignore: false, x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
@@ -339,22 +365,32 @@ export function PetApp() {
         x: rect.left, y: rect.top, width: rect.width, height: rect.height,
       }).catch(() => undefined);
     }
-  }, [menu]);
+  }, [menu, setHover]);
 
   // 菜单开合本身也要立即纠正穿透态（开菜单那一刻指针可能在形象外）
   useEffect(() => {
     if (menu) {
+      setHover(false);
       passThroughRef.current = false;
       void invoke("set_pet_hit_test", { ignore: false, x: 0, y: 0, width: 0, height: 0 }).catch(() => undefined);
     }
-  }, [menu]);
+  }, [menu, setHover]);
+
+  // 悬停提示存活期间每 30 秒刷新分钟数（不需要秒级精度）
+  useEffect(() => {
+    if (!hovering) return;
+    const refresh = () => setStandupMinutes(standupService.minutesSinceStandup());
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    return () => window.clearInterval(timer);
+  }, [hovering]);
 
   return (
     <main
       ref={shellRef}
       className={`pet-stage${bouncing ? " pet-stage--bounce" : ""}${gripping ? " pet-stage--gripping" : ""}`}
       onPointerDown={e => {
-        if (menu) { setMenu(null); gestures.cancel(); bubbleDisplay.cancel(); return; }
+        if (menu) { closeMenu(); gestures.cancel(); bubbleDisplay.cancel(); return; }
         gestures.pointerDown(e.pointerId, e.clientX, e.clientY, e.button);
         if (e.button === 0) e.currentTarget.setPointerCapture(e.pointerId);
       }}
@@ -377,6 +413,12 @@ export function PetApp() {
       <div className="pet-stage__pet" ref={spriteRef}>
         <PetSprite key={state} state={state} />
       </div>
+      {/* 悬停小字（v0.29.2）：替换原来的「单击重置站立」，只在形象上且无气泡/菜单时显示 */}
+      {hovering && !menu && !bubble && (
+        <div className="pet-hover-note" role="status">
+          {t("pet.lastStandup", { minutes: standupMinutes })}
+        </div>
+      )}
       {bubble && <PetBubble key={bubble.sequence} text={bubble.line.text} leaving={bubble.leaving} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} onClose={closeMenu} />}
     </main>

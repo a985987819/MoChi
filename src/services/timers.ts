@@ -13,6 +13,7 @@ import { showAppAlert, dismissAppAlert, type AppAlert } from "@/services/alerts"
 import { subscribeHeartbeat } from "@/services/heartbeat";
 import { ServiceScope } from "@/services/service-scope";
 import { isQuietHour, quietEndAt } from "@/services/quiet-hours";
+import { t } from "@/shared/i18n/core";
 import type { PomodoroResult } from "@/services/pomodoro-control";
 
 type TimerConfig = Pick<Awaited<ReturnType<typeof loadSettings>>,
@@ -33,6 +34,11 @@ const ALERT_AUTO_DISMISS_MS = 10 * 60_000;
 export class StandupService {
   state: "armed" | "fired" = "armed";
   private deadline = 0;
+  /**
+   * 上次站立/主动重置的时刻（v0.29.2 悬停提示用）。只在用户确认站立提醒或
+   * 通过右键菜单重置时更新；改配置、启停服务不算站立。
+   */
+  private lastStandupAt = Date.now();
   private config = defaults();
   private dismissAt = 0;
   private alertId: string | null = null;
@@ -59,8 +65,9 @@ export class StandupService {
     const config = await loadSettings();
     if (!scope.active) return;
     this.config = config;
+    this.lastStandupAt = Date.now(); // 新一轮常驻服务从启动时刻起算
     this.rearm();
-    await scope.add(listen(UI_EVENTS.resetStandup, () => this.rearm()));
+    await scope.add(listen(UI_EVENTS.resetStandup, () => this.rearm(true)));
     await scope.add(listen(UI_EVENTS.standupAck, () => this.ack())); // 旧入口兼容
     await scope.add(listen<{ id: string; kind: string }>(STATE_EVENTS.appAlertAcked, e => {
       if (e.payload?.kind === "standup" && e.payload.id === this.alertId) this.ack();
@@ -102,10 +109,15 @@ export class StandupService {
     return Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000));
   }
 
+  /** 距上次站立/主动重置过去的整分钟数（宠物悬停提示用，v0.29.2） */
+  minutesSinceStandup(): number {
+    return Math.max(0, Math.floor((Date.now() - this.lastStandupAt) / 60_000));
+  }
+
   /**
    * 暂停提醒（v0.9.0 P1-11）：把截止时间推到 now + minutes，不改配置里的常规间隔。
-   * 与 rearm 的差别：rearm 用配置间隔（单击宠物=重新开始本轮），snooze 是
-   * "我知道了但想多坐会儿"——语义不同，入口不同（托盘菜单/弹窗稍后按钮）。
+   * 与 rearm 的差别：rearm 用配置间隔（确认提醒/右键菜单主动重置=重新开始本轮），
+   * snooze 是"我知道了但想多坐会儿"——语义不同，入口不同（托盘菜单/弹窗稍后按钮）。
    * 当前可见的站立提醒以 dismiss 收尾（无 ack 副作用，不播 stretch）。
    */
   snooze(minutes: number): void {
@@ -118,7 +130,12 @@ export class StandupService {
     this.flushDismissals();
   }
 
-  private rearm(): void {
+  /**
+   * 重新开始本轮站立计时。`markStandup` = true 表示这是用户"真的站过"（确认提醒 /
+   * 右键菜单主动重置），悬停提示的「上次站立」据此更新；改配置/服务销毁不传。
+   */
+  private rearm(markStandup = false): void {
+    if (markStandup) this.lastStandupAt = Date.now();
     if (this.alertId) this.pendingDismiss.add(this.alertId);
     this.alertId = null;
     this.state = "armed";
@@ -153,7 +170,12 @@ export class StandupService {
     this.deliveryInFlight = true;
     const scope = this.scope;
     try {
-      await showAppAlert({ id, kind: "standup", title: "该站起来啦！", body: `已经陪你坐了 ${this.config.standupIntervalMin} 分钟，起来活动一下吧` });
+      await showAppAlert({
+        id,
+        kind: "standup",
+        title: t("standup.alertTitle"),
+        body: t("standup.alertBody", { minutes: this.config.standupIntervalMin }),
+      });
       if (this.alertId !== id || !scope?.active) {
         // 投递期间用户重置/退出：清理刚到达的旧提醒，不得污染下一轮。
         this.pendingDismiss.add(id);
@@ -162,7 +184,7 @@ export class StandupService {
       }
       this.dismissAt = Date.now() + ALERT_AUTO_DISMISS_MS;
       petState.setSystem("alert", undefined, "standup");
-      if (this.config.notificationsEnabled) void notify("该站起来啦 🧍", "点击麻薯的提醒弹窗重置计时");
+      if (this.config.notificationsEnabled) void notify(t("standup.notifyTitle"), t("standup.notifyBody"));
     } catch {
       if (this.alertId === id) {
         this.alertId = null;
@@ -175,7 +197,7 @@ export class StandupService {
 
   private ack(): void {
     if (this.state !== "fired") return;
-    this.rearm();
+    this.rearm(true);
     petState.setSystem("stretch", 2, "standup");
   }
 
@@ -324,12 +346,22 @@ export class PomodoroService {
       // 睡过专注结束时刻：从恢复时开始一次完整休息，不连发多个阶段通知。
       this.deadline = Date.now() + this.activeBreakMin * 60_000;
       petState.setSystem("break", undefined, "pomodoro");
-      const awayNote = this.awaySec >= 60 ? `（期间离开约 ${Math.round(this.awaySec / 60)} 分钟）` : "";
-      this.queueAlert("focus", "专注完成 🍅", `专注 ${this.config.pomodoroFocusMin} 分钟${awayNote}，休息 ${this.activeBreakMin} 分钟，麻薯等你回来`);
+      const awayNote = this.awaySec >= 60
+        ? t("pomodoro.awayNote", { minutes: Math.round(this.awaySec / 60) })
+        : "";
+      this.queueAlert(
+        "focus",
+        t("pomodoro.notifyTitle"),
+        t("pomodoro.notifyBody", {
+          focus: this.config.pomodoroFocusMin,
+          awayNote,
+          break: this.activeBreakMin,
+        }),
+      );
     } else {
       this.phase = "idle";
       petState.clearSystem("pomodoro");
-      this.queueAlert("break", "休息结束 ☕", "准备好就开始下一轮番茄钟吧");
+      this.queueAlert("break", t("pomodoro.breakDoneTitle"), t("pomodoro.breakDoneBody"));
     }
     this.broadcast();
   }

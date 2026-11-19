@@ -1360,7 +1360,7 @@ pub fn run() {
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     // 菜单项三要素：id（事件分发用）、文案、是否可用；第四参是快捷键（暂无）
     // 命名注意：局部变量不能与下方 toggle_pet() 函数同名，否则遮蔽导致 E0618
-    let toggle_item = MenuItem::with_id(app, "toggle-pet", "显示 / 隐藏麻薯", true, None::<&str>)?;
+    let toggle_item = MenuItem::with_id(app, "toggle-pet", "显示 / 隐藏宠物", true, None::<&str>)?;
     let open_chat = MenuItem::with_id(app, "open-chat", "打开聊天", true, None::<&str>)?;
     let open_settings = MenuItem::with_id(app, "open-settings", "设置…", true, None::<&str>)?;
     let pomodoro_start = MenuItem::with_id(app, "start-pomodoro", "开始番茄钟", true, None::<&str>)?;

@@ -123,11 +123,11 @@ fn get_idle_seconds() -> u64 { idle::get_idle_duration().unwrap_or_default().as_
 ```
 
 - 配置：间隔默认 60 分钟（设置 Tab，1~120 分钟）；只有站立间隔改变才重置，修改 Key/模型/通知开关不重置；
-- 单击宠物 = 重置（v0.1.0 的 click 处理从"弹跳"升级为"弹跳+reset"——**弹跳保留**，给用户即时反馈）；
+- 右键菜单「站立提醒 · 还剩 N 分钟」= 主动重置（v0.29.2 起单击宠物不再重置；悬停宠物显示上次站立时长）；
 - 弹窗点击 = 播放 `stretch` + 重置 + 关闭弹窗；
 - 无持久化：重启归零（用户重启机器往往伴随起身，语义合理）。
 
-**弹窗收尾要跨两层**（本次稳定性修订取代旧无 id 事件）：站立服务生成唯一 id，调用 `showAppAlert`；投递失败保留 deadline 并重试。用户确认通过原生 `state://app-alert-acked {id,kind}` 回调，仅匹配本服务当前 id 才重置。超时/单击/改间隔走 `dismissAppAlert(id)`，不确认或关闭别的服务提醒。10 分钟收尾同样比较绝对时间而非只用 setTimeout；投递期间重置，晚到的旧弹窗会按旧 id 收掉。
+**弹窗收尾要跨两层**（本次稳定性修订取代旧无 id 事件）：站立服务生成唯一 id，调用 `showAppAlert`；投递失败保留 deadline 并重试。用户确认通过原生 `state://app-alert-acked {id,kind}` 回调，仅匹配本服务当前 id 才重置。超时/主动重置/改间隔走 `dismissAppAlert(id)`，不确认或关闭别的服务提醒。10 分钟收尾同样比较绝对时间而非只用 setTimeout；投递期间重置，晚到的旧弹窗会按旧 id 收掉。
 
 ### 4.3 PomodoroService（番茄钟）
 

@@ -26,8 +26,16 @@ export const UI_EVENTS = {
   togglePet: "ui://toggle-pet",
   /** 手势移动超过阈值后请求 Rust 开始系统拖动，单击/双击不被按下抢走（v0.8.2） */
   dragPet: "ui://drag-pet",
-  /** 重置站立计时。单击宠物时发出；v0.7.0 起宠物窗 StandupService 监听 */
+  /**
+   * 重置站立计时。v0.29.2 起只由右键菜单「站立提醒 · 还剩 N 分钟」触发；
+   * 宠物单击不再重置（改为发出 petClicked）。
+   */
   resetStandup: "ui://reset-standup",
+  /**
+   * 用户单击了宠物（v0.29.2）。单击不再重置站立计时，本事件只承担"打断朗读"等
+   * 非计时副作用：聊天窗收到后立即停止 TTS。
+   */
+  petClicked: "ui://pet-clicked",
   /** 退出应用（右键菜单的「退出」；托盘菜单走 Rust 内部 app.exit，不经事件） */
   quitApp: "ui://quit-app",
   /** 显示站立提醒弹窗（旧入口兼容；v0.8.2 起正文提醒走 show_app_alert 原生队列） */

@@ -19,6 +19,7 @@ import { en } from "./en";
 import { listen } from "@tauri-apps/api/event";
 import { STATE_EVENTS } from "@/shared/events";
 import { loadSettings } from "@/services/settings";
+import { DEFAULT_ADDRESSING } from "@/shared/addressing";
 
 export type Locale = "zh-CN" | "en";
 
@@ -28,7 +29,19 @@ const dictionaries: Record<Locale, Readonly<Record<MessageKey, string>>> = {
 };
 
 let currentLocale: Locale = "zh-CN";
+/**
+ * 当前窗口的宠物自称（v0.29.2）。由 installLocaleWatcher 从 settings 同步；
+ * 所有含 `{pet}` 的文案由 t() 自动替换——调用方不需要逐处传名字。
+ */
+let currentPetName: string = DEFAULT_ADDRESSING.petSelfName;
+/** 订阅序号：语言与自称任一变化都 +1，React 直接用整数做快照 */
+let revision = 0;
 const listeners = new Set<() => void>();
+
+function notify(): void {
+  revision += 1;
+  for (const fn of listeners) fn();
+}
 
 export function getLocale(): Locale {
   return currentLocale;
@@ -37,10 +50,27 @@ export function getLocale(): Locale {
 export function setLocale(locale: Locale): void {
   if (locale === currentLocale) return;
   currentLocale = locale;
-  for (const fn of listeners) fn();
+  notify();
 }
 
-/** React useSyncExternalStore 的订阅接口 */
+/** 当前宠物自称（供非 i18n 文案如错误提示复用；空值回落默认） */
+export function getPetSelfName(): string {
+  return currentPetName;
+}
+
+/** 更新宠物自称：空白串回落默认值，与 settings 的 normalize 语义一致 */
+export function setPetSelfName(name: string): void {
+  const next = name.trim() || DEFAULT_ADDRESSING.petSelfName;
+  if (next === currentPetName) return;
+  currentPetName = next;
+  notify();
+}
+
+export function getRevision(): number {
+  return revision;
+}
+
+/** React useSyncExternalStore 的订阅接口（语言或自称变化都会通知） */
 export function subscribeLocale(fn: () => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
@@ -49,12 +79,14 @@ export function subscribeLocale(fn: () => void): () => void {
 /**
  * 翻译 + {name} 插值。缺 key（理论上类型系统已杜绝）回落 zh-CN 再回落 key 本身
  * ——文案缺失不能渲染出 "[object Object]" 或空白。
+ *
+ * v0.29.2：自动注入 `{pet}` = 当前宠物自称；显式 vars 里的 pet 优先（测试可覆盖）。
  */
 export function t(key: MessageKey, vars?: Record<string, string | number>): string {
   const text = dictionaries[currentLocale][key] ?? zhCN[key] ?? key;
-  if (!vars) return text;
+  const merged: Record<string, string | number> = { pet: currentPetName, ...vars };
   return text.replace(/\{(\w+)\}/g, (match, name: string) =>
-    name in vars ? String(vars[name]) : match,
+    name in merged ? String(merged[name]) : match,
   );
 }
 
@@ -82,7 +114,10 @@ export function resolveLocale(setting: string | undefined): Locale {
 export function installLocaleWatcher(): () => void {
   const refresh = () => {
     void loadSettings()
-      .then(settings => setLocale(resolveLocale(settings.locale)))
+      .then(settings => {
+        setLocale(resolveLocale(settings.locale));
+        setPetSelfName(settings.petSelfName);
+      })
       .catch(() => undefined); // 读不到设置保持现状——语言是外观，不该报错打断功能
   };
   refresh();

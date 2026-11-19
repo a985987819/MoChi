@@ -92,6 +92,46 @@ body {
   animation: pet-bubble-away 200ms ease-in both;
 }
 
+/* 悬停小字（v0.29.2）：鼠标停在形象上时显示「上次站立是 N 分钟前」。
+   独立于气泡：有气泡/菜单时让位；pointer-events:none 不参与命中与穿透判定。 */
+.pet-hover-note {
+  position: absolute;
+  z-index: 15;
+  top: 2px;
+  left: 50%;
+  max-width: calc(100% - 10px);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  color: var(--text-muted);
+  font-family:
+    "Segoe UI Variable Text",
+    "Segoe UI",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
+    "PingFang SC",
+    sans-serif;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: 0 1px 4px var(--shadow-color);
+  transform: translateX(-50%);
+  animation: pet-hover-pop 140ms ease-out both;
+}
+
+@keyframes pet-hover-pop {
+  from { opacity: 0; transform: translate(-50%, 2px); }
+  to { opacity: 0.95; transform: translate(-50%, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-hover-note { animation: none; }
+}
+
 @keyframes pet-bubble-pop {
   from { opacity: 0; transform: translateY(7px) scale(0.93) rotate(-1deg); }
   65% { opacity: 1; transform: translateY(-1px) scale(1.015); }

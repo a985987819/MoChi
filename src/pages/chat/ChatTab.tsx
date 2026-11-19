@@ -16,6 +16,7 @@ import type { ProviderError } from "@/agent/providers";
 import { isProviderReady, loadSettings, type AppSettings } from "@/services/settings";
 import { applyTtsFromSettings, speak, stopSpeaking } from "@/services/tts";
 import { toFriendlyError } from "@/agent/error-text";
+import { getPetSelfName } from "@/shared/i18n/core";
 import { formatToolTrace } from "./tool-labels";
 
 /**
@@ -109,7 +110,8 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
   }, [reloadHistory]);
 
   // TTS（v0.15.0）：配置跟随设置（启动读一次 + settingsChanged 跟随）；
-  // 「打断」的第二条通道——单击宠物（resetStandup 全窗广播）也停读。
+  // 「打断」的第二条通道——单击宠物（petClicked 全窗广播）也停读。
+  // v0.29.2：单击不再重置站立，专用事件名与计时语义解耦。
   // 朗读只在聊天窗发生（回复在这里结束），配置在这里应用就够了。
   useEffect(() => {
     void loadSettings().then(applyTtsFromSettings).catch(() => undefined);
@@ -123,7 +125,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
       if (disposed) off();
       else offs.push(off);
     });
-    void listen(UI_EVENTS.resetStandup, () => stopSpeaking()).then(off => {
+    void listen(UI_EVENTS.petClicked, () => stopSpeaking()).then(off => {
       if (disposed) off();
       else offs.push(off);
     });
@@ -358,7 +360,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
       {error &&
         (() => {
           // 人话错误条（P1-07）：一句话主文案 + 下一步动作按钮；原始报错收进折叠详情
-          const friendly = toFriendlyError(error);
+          const friendly = toFriendlyError(error, getPetSelfName());
           return (
             <div className="chat-error">
               <div className="chat-error__row">

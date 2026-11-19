@@ -5,8 +5,8 @@ export interface PetGestureActions {
   drag(): void;
   /**
    * 纯视觉的即时点击反馈（v0.9.0 手感优化）：抬指瞬间触发，不等双击判定。
-   * singleClick 里的语义副作用（重置站立计时/暖心气泡）必须等 500ms 判定窗口
-   * 结束——否则双击会被拆成两次"重置计时"。但弹跳这类零副作用的视觉反馈
+   * singleClick 里的语义副作用（暖心气泡/通知聊天窗打断朗读）必须等 500ms
+   * 判定窗口结束——否则双击会被拆成两次单击。但弹跳这类零副作用的视觉反馈
    * 没有理由陪判：点击到弹跳的延迟就是用户感知到的"掉帧/不跟手"。
    * 可选注入：既有测试与调用方不受影响。
    */
@@ -19,7 +19,7 @@ const DOUBLE_CLICK_MS = 500;
 
 /**
  * 一次指针序列只产生一种动作：移动超过阈值即交给原生拖动；否则抬起后等待双击窗口。
- * 不再同时消费 click/dblclick，因此双击不会顺带重置两次站立计时，拖动也不会被当成单击。
+ * 不再同时消费 click/dblclick，因此双击不会被拆成两次单击，拖动也不会被当成单击。
  */
 export class PetGestureController {
   private pressed: Point | null = null;

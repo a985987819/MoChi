@@ -28,7 +28,7 @@ export interface FriendlyError {
 
 const KIND_TEXT: Record<ProviderErrorKind, FriendlyError> = {
   auth: {
-    headline: "Key 好像不对，麻薯连不上服务",
+    headline: "Key 好像不对，{pet}连不上服务",
     action: "settings",
     actionLabel: "去设置检查",
   },
@@ -61,7 +61,11 @@ const KIND_TEXT: Record<ProviderErrorKind, FriendlyError> = {
   },
 };
 
-/** (kind, message) → 人话错误；未知 kind 兜底为通用网络话术（不抛错） */
-export function toFriendlyError(error: ProviderError): FriendlyError {
-  return KIND_TEXT[error.kind] ?? KIND_TEXT.network;
+/**
+ * (kind, message) → 人话错误；未知 kind 兜底为通用网络话术（不抛错）。
+ * v0.29.2：`petName` 由调用方传入（agent 层保持零 Tauri 依赖），默认值仅兜底。
+ */
+export function toFriendlyError(error: ProviderError, petName = "麻薯"): FriendlyError {
+  const base = KIND_TEXT[error.kind] ?? KIND_TEXT.network;
+  return { ...base, headline: base.headline.replace("{pet}", petName) };
 }
