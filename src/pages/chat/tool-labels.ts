@@ -37,6 +37,7 @@ export const TOOL_LABELS: Record<string, MessageKey | ""> = {
   remember: "tool.remember",
   open_url: "tool.openUrl",
   open_data_folder: "tool.openDataFolder",
+  web_search: "tool.webSearch",
   set_pet_state: "", // 情绪副作用：不展示（见 formatToolTrace 的过滤）
 };
 

@@ -242,6 +242,64 @@ body {
   min-height: 0;
 }
 
+/* 多会话历史条（v0.29.3）：标题栏下方常驻；选择器吃掉剩余宽度，按钮不换行 */
+.chat-sessions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-surface) 55%, transparent);
+}
+
+.chat-sessions label {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.chat-sessions select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-surface);
+  color: var(--text-strong);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+.chat-sessions select:focus {
+  border-color: var(--border-accent);
+}
+
+.chat-sessions__new {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 7px;
+  background: var(--bg-accent-soft);
+  color: var(--accent-text);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.chat-sessions__new:hover {
+  background: var(--bg-accent-tint);
+}
+
+.chat-sessions__new:disabled,
+.chat-sessions select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .chat-msg-list {
   flex: 1;  overflow-y: auto;
   padding: 14px;

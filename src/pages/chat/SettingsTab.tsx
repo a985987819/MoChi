@@ -1124,7 +1124,7 @@ function DangerZone() {
   const { t } = useT();
   const clearHistory = useCallback(() => {
     if (!window.confirm(t("settings.clearHistoryConfirm"))) return;
-    void historyStore.clear().then(() => void sendStateEvent(STATE_EVENTS.historyCleared));
+    void historyStore.clearAll().then(() => void sendStateEvent(STATE_EVENTS.historyCleared));
   }, []);
 
   return (

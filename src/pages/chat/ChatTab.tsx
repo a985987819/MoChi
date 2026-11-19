@@ -3,7 +3,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { listen } from "@tauri-apps/api/event";
 import { agentFacade } from "@/agent/facade";
-import { historyStore } from "@/agent/memory/history-store";
+import {
+  historyStore,
+  LEGACY_MAIN_TITLE,
+  MAIN_SESSION_ID,
+  type SessionSummary,
+} from "@/agent/memory/history-store";
 import { sendUIEvent, STATE_EVENTS, UI_EVENTS } from "@/shared/events";
 import { tailForBubble, truncateForBubble } from "@/shared/bubble-text";
 import { SkeletonLines } from "@/shared/components/Loading";
@@ -83,6 +88,9 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [entries, setEntries] = useState<ChatEntry[] | null>(null); // null=历史加载中
   const [historyError, setHistoryError] = useState(false);
+  /** 多会话（v0.29.3）：历史下拉列表 + 当前会话 id */
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionId, setSessionId] = useState("");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ProviderError | null>(null);
@@ -97,17 +105,64 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
     void loadEntries().then(setEntries).catch(() => setHistoryError(true));
   }, []);
 
+  /** 会话列表刷新：排序/标题都可能被首条消息改变，回合结束与清空后都要重读 */
+  const refreshSessions = useCallback(() => {
+    void historyStore
+      .listSessions()
+      .then(list => {
+        setSessions(list);
+        void historyStore.getCurrentSessionId().then(setSessionId).catch(() => undefined);
+      })
+      .catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     void loadSettings().then(setSettings);
     reloadHistory();
-    // 设置页清空历史 → 本窗重载（空）
+    refreshSessions();
+    // 设置页清空历史 → 本窗重载（空）并重建会话列表
     const unlisten = listen(STATE_EVENTS.historyCleared, () => {
       reloadHistory();
+      refreshSessions();
     });
     return () => {
       void unlisten.then(off => off());
     };
-  }, [reloadHistory]);
+  }, [reloadHistory, refreshSessions]);
+
+  /** 切换历史会话（回合进行中禁止——避免流式消息写进新会话） */
+  const switchSession = useCallback(
+    (id: string) => {
+      if (busy || !id || id === sessionId) return;
+      void historyStore
+        .setCurrentSession(id)
+        .then(() => {
+          setSessionId(id);
+          setEntries(null);
+          setError(null);
+          setInput("");
+          reloadHistory();
+        })
+        .catch(() => undefined);
+    },
+    [busy, sessionId, reloadHistory],
+  );
+
+  /** 新建会话并切过去；首条消息落库后标题会自动变成内容摘要 */
+  const newSession = useCallback(() => {
+    if (busy) return;
+    void historyStore
+      .createSession(t("chat.newSessionTitle"))
+      .then(summary => {
+        setSessionId(summary.id);
+        setEntries([]);
+        setError(null);
+        setInput("");
+        refreshSessions();
+        textareaRef.current?.focus();
+      })
+      .catch(() => undefined);
+  }, [busy, refreshSessions, t]);
 
   // TTS（v0.15.0）：配置跟随设置（启动读一次 + settingsChanged 跟随）；
   // 「打断」的第二条通道——单击宠物（petClicked 全窗广播）也停读。
@@ -162,6 +217,7 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
           ]);
           void historyStore.appendUserDeduped(text);
           void historyStore.append([{ role: "assistant", content: local.text }]);
+          refreshSessions(); // 首条消息会改会话标题
           speak(local.text); // 本地回答也是"麻薯说的话"（v0.15.0 TTS；开关/免打扰内部判断）
           return;
         }
@@ -246,8 +302,9 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
       patchAssistant({ streaming: false });
       setBusy(false);
       abortRef.current = null;
+      refreshSessions(); // 标题/排序随本轮消息更新
     }
-  }, [busy, settings, t]); // entries 不进依赖：全程用函数式更新（P2-16 顺带修复闭包重建）
+  }, [busy, settings, t, refreshSessions]); // entries 不进依赖：全程用函数式更新（P2-16 顺带修复闭包重建）
 
   const send = useCallback(() => void doSend(input), [doSend, input]);
 
@@ -286,6 +343,33 @@ export function ChatTab({ onOpenSettings }: { onOpenSettings: () => void }) {
 
   return (
     <section className="chat-tab-panel">
+      {/* 多会话历史（v0.29.3）：列表 + 新建；回合进行中禁用，避免消息写到别的会话 */}
+      <div id="chat-session-bar" className="chat-sessions">
+        <label htmlFor="chat-session-select">{t("chat.sessions")}</label>
+        <select
+          id="chat-session-select"
+          value={sessionId}
+          disabled={busy || sessions.length === 0}
+          onChange={e => switchSession(e.target.value)}
+          title={sessions.find(s => s.id === sessionId)?.title ?? ""}
+        >
+          {sessions.map(session => (
+            <option key={session.id} value={session.id}>
+              {session.id === MAIN_SESSION_ID && session.title === LEGACY_MAIN_TITLE
+                ? t("chat.mainSessionTitle")
+                : session.title}
+            </option>
+          ))}
+        </select>
+        <button
+          id="chat-session-new"
+          className="chat-sessions__new"
+          disabled={busy}
+          onClick={newSession}
+        >
+          + {t("chat.newSession")}
+        </button>
+      </div>
       <div ref={listRef} className="chat-msg-list">
         {entries === null && !historyError && (
           // 历史加载中：两行骨架 + 输入区照常可用（读历史不阻塞发言）
